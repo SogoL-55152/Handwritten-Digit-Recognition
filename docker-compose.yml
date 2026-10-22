@@ -1,0 +1,91 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-hdr}
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./backend/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  model-service:
+    build: ./model-service
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      WEIGHTS_DIR: /app/weights
+      PORT: "5001"
+    ports:
+      - "5001:5001"
+    volumes:
+      - model-weights:/app/weights
+      - model-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  model-worker:
+    build: ./model-service
+    command: ["celery", "-A", "celery_app.celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      WEIGHTS_DIR: /app/weights
+    volumes:
+      - model-weights:/app/weights
+      - model-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-hdr}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      MODEL_SERVICE_URL: http://model-service:5001
+      JWT_SECRET: ${JWT_SECRET:-please-change-this-secret-in-production-0123456789}
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      model-service:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:
+  redis-data:
+  model-weights:
+  model-data:

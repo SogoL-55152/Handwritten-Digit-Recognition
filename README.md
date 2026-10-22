@@ -25,7 +25,7 @@ Vue 管理端 ─┘              │                                    │
 |---|---|
 | 后端 | Java 17、Spring Boot 3、MyBatis-Plus、JWT |
 | 管理端 | Vue 3、Vite、Element Plus、ECharts |
-| 模型服务 | Python 3.10+、Flask、PyTorch、Celery + Redis |
+| 模型服务 | Python 3.10–3.12、Flask、PyTorch、Celery + Redis |
 | 移动端 | 微信小程序 |
 | 存储 | MySQL 8、Redis、本地/对象存储模型文件 |
 | 模型 | CNN（数据集：MNIST 及自采扩展数据） |
@@ -35,31 +35,72 @@ Vue 管理端 ─┘              │                                    │
 
 ```
 .
-├── backend/          # Spring Boot 业务服务（唯一对外网关）
-├── frontend/         # Vue 管理端
-├── model-service/    # Flask 训练与推理服务
-├── miniprogram/      # 微信小程序
-└── docs/             # 需求、设计、接口与测试文档
+├── backend/                  # Spring Boot 业务服务（唯一对外网关）
+│   ├── src/main/java/com/hdr/
+│   │   ├── auth/             # JWT、拦截器、权限注解
+│   │   ├── controller/       # REST 接口
+│   │   ├── service/          # 业务逻辑
+│   │   ├── client/           # 调用 Flask 模型服务
+│   │   └── ...
+│   └── src/main/resources/db/schema.sql
+├── frontend/                 # Vue 管理端
+│   └── src/{api,layout,router,stores,views}
+├── model-service/            # Flask 训练与推理服务
+│   ├── api/                  # REST 接口
+│   ├── services/             # 预处理、模型注册、训练、任务状态
+│   ├── models/cnn.py         # CNN 结构
+│   └── tests/
+├── miniprogram/              # 微信小程序
+├── docs/                     # 需求、架构、接口、数据库、测试文档
+├── docker-compose.yml        # 一键部署（MySQL/Redis/模型服务/后端/前端）
+└── .github/workflows/ci.yml  # 三端 CI
 ```
 
 ## 快速开始
 
-**1. 启动模型服务**
+### 方式一：Docker Compose（推荐联调 / 演示）
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+| 服务 | 地址 |
+|---|---|
+| 管理端 | http://localhost |
+| 后端 API / Swagger | http://localhost:8080 / http://localhost:8080/doc.html |
+| 模型服务健康检查 | http://localhost:5001/api/v1/health |
+
+首次启动自动建表并创建管理员 **admin / admin123**；训练任务由 `model-worker` 容器执行。
+
+### 方式二：本地分别启动
+
+**1. 启动 MySQL 与 Redis**
+
+```bash
+docker compose up -d mysql redis
+```
+
+**2. 启动模型服务**
 
 ```bash
 cd model-service
 pip install -r requirements.txt
+cp .env.example .env
 python app.py            # 默认 http://localhost:5001
 ```
 
-**2. 启动后端**
+另开终端启动训练 worker：`celery -A celery_app.celery_app worker --loglevel=info`。
+若仅做单字识别演示、不训练，可跳过 worker。
+
+**3. 启动后端**
 
 ```bash
 cd backend
 mvn spring-boot:run      # 默认 http://localhost:8080
 ```
 
-**3. 启动管理端**
+**4. 启动管理端**
 
 ```bash
 cd frontend
@@ -67,11 +108,13 @@ npm install
 npm run dev              # 默认 http://localhost:5173
 ```
 
-**4. 运行小程序**
+**5. 运行小程序**
 
-使用微信开发者工具导入 `miniprogram/`，以开发版 / 体验版调试。
+使用微信开发者工具导入 `miniprogram/`，在「本地设置」勾选“不校验合法域名”，
+以开发版 / 体验版调试。真机调试需将 `miniprogram/app.js` 中的 `baseUrl` 改为电脑局域网 IP。
 
-> 首次运行前请配置 `backend/src/main/resources/application.yml` 与 `model-service/.env` 中的数据库、Redis 及服务地址。
+> 首次运行前请按需配置 `backend/src/main/resources/application.yml` 与 `model-service/.env`
+> 中的数据库、Redis 及服务地址；默认值对应本地 Docker 启动的 MySQL/Redis。
 
 ## 使用流程
 
@@ -80,10 +123,26 @@ npm run dev              # 默认 http://localhost:5173
 3. 训练完成后保存模型，在模型管理页设为活跃模型
 4. 用户在小程序手写数字，请求经后端转发至模型服务返回识别结果
 
+## 当前进度（W1 框架）
+
+| 部分 | 已具备 | 后续 |
+|---|---|---|
+| 后端 | 登录注册、JWT 鉴权、用户/数据集/模型/训练任务/识别/统计接口、自动建表与初始化 | SSE、文件存储抽象、MockMvc 测试 |
+| 模型服务 | 图像预处理、CNN、模型注册与热切换、Celery 异步训练、指标上报、pytest | 自采数据微调、连续识别切分 |
+| 管理端 | 登录、概览、用户、数据集、模型、训练任务、训练曲线、统计看板 | SSE 实时曲线、UI 统一 |
+| 小程序 | 登录、Canvas 手写板、单字识别、401 自动跳转 | 连续多位数识别、历史记录 |
+
+> 骨架阶段训练默认使用 MNIST 在线下载（首次训练较慢）。识别前需先完成一次训练并在模型管理中启用。
+
 ## 文档
 
-- [团队分工与工作计划](手写数字识别系统-分工与工作计划.md)
-- 需求规格说明书、系统设计文档、接口文档（Swagger）、测试报告见 `docs/`
+- [团队分工与工作计划](docs/00-团队分工与工作计划.md)
+- [需求规格说明书](docs/01-需求规格说明书.md)
+- [系统架构设计](docs/02-系统架构设计.md)
+- [接口契约](docs/03-接口契约.md)
+- [数据库设计](docs/04-数据库设计.md)
+- [测试计划](docs/05-测试计划.md)
+- Swagger：启动后端后访问 http://localhost:8080/doc.html
 
 ## 开发规范
 

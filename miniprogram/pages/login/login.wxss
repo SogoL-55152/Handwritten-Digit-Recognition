@@ -1,0 +1,88 @@
+.page {
+  min-height: 100vh;
+  padding: 80rpx 48rpx 60rpx;
+  background: linear-gradient(160deg, #2f54eb 0%, #1d39c4 45%, #f5f7fb 45.1%);
+}
+
+.hero {
+  color: #ffffff;
+  margin-bottom: 60rpx;
+}
+
+.brand {
+  display: inline-block;
+  padding: 8rpx 24rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.45);
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  letter-spacing: 2rpx;
+  opacity: 0.9;
+}
+
+.headline {
+  margin-top: 40rpx;
+  font-size: 56rpx;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+.subline {
+  margin-top: 20rpx;
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.card {
+  padding: 48rpx 40rpx;
+  background: #ffffff;
+  border-radius: 28rpx;
+  box-shadow: 0 20rpx 60rpx rgba(31, 45, 61, 0.12);
+}
+
+.card-title {
+  margin-bottom: 36rpx;
+  font-size: 36rpx;
+  font-weight: 600;
+}
+
+.field {
+  margin-bottom: 32rpx;
+}
+
+.label {
+  display: block;
+  margin-bottom: 14rpx;
+  font-size: 26rpx;
+  color: #7b8496;
+}
+
+.input {
+  height: 88rpx;
+  padding: 0 24rpx;
+  background: #f5f7fb;
+  border-radius: 16rpx;
+  font-size: 30rpx;
+}
+
+.btn {
+  margin-top: 12rpx;
+  height: 92rpx;
+  line-height: 92rpx;
+  border-radius: 16rpx;
+  background: #2f54eb;
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.btn::after {
+  border: none;
+}
+
+.hint {
+  margin-top: 28rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #a0a8b8;
+}

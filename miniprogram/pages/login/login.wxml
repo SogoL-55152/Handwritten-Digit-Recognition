@@ -1,0 +1,36 @@
+<view class="page">
+  <view class="hero">
+    <view class="brand">手写数字识别</view>
+    <view class="headline">写一个数字，\n让模型来读懂</view>
+    <view class="subline">CNN · 实时识别 · 准确率 ≥ 90%</view>
+  </view>
+
+  <view class="card">
+    <view class="card-title">账号登录</view>
+    <view class="field">
+      <text class="label">用户名</text>
+      <input
+        class="input"
+        value="{{username}}"
+        data-field="username"
+        placeholder="请输入用户名"
+        bindinput="onInput"
+      />
+    </view>
+    <view class="field">
+      <text class="label">密码</text>
+      <input
+        class="input"
+        password
+        value="{{password}}"
+        data-field="password"
+        placeholder="请输入密码"
+        bindinput="onInput"
+      />
+    </view>
+    <button class="btn" loading="{{loading}}" disabled="{{loading}}" bindtap="submit">
+      登录并开始识别
+    </button>
+    <view class="hint">演示账号：admin / admin123</view>
+  </view>
+</view>

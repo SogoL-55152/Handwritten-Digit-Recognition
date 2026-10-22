@@ -1,0 +1,90 @@
+:root {
+  --hdr-bg: #f5f7fb;
+  --hdr-primary: #3b6ef6;
+  --hdr-text: #1f2d3d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  color: var(--hdr-text);
+  background: var(--hdr-bg);
+}
+
+.page {
+  padding: 20px 24px 32px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.page-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #8a94a6;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.stat-card .stat-label {
+  color: #8a94a6;
+  font-size: 13px;
+}
+
+.stat-card .stat-value {
+  margin-top: 8px;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--hdr-text);
+}
+
+.chart-card {
+  margin-top: 20px;
+}
+
+.chart {
+  width: 100%;
+  height: 360px;
+}
+
+.muted {
+  color: #8a94a6;
+  font-size: 13px;
+}

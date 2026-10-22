@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/login/login",
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "手写数字识别",
+    "navigationBarBackgroundColor": "#2f54eb",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f7fb"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

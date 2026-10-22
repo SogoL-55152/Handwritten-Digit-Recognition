@@ -1,0 +1,12 @@
+page {
+  background: #f5f7fb;
+  color: #1f2d3d;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+view,
+text,
+button,
+input {
+  box-sizing: border-box;
+}

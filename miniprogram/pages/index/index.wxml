@@ -1,0 +1,44 @@
+<view class="page">
+  <view class="header">
+    <view>
+      <view class="title">手写数字识别</view>
+      <view class="subtitle">在下面画板书写一个数字（0–9）</view>
+    </view>
+    <text class="logout" bindtap="logout">退出</text>
+  </view>
+
+  <view class="pad-wrap">
+    <canvas
+      type="2d"
+      id="pad"
+      class="pad"
+      disable-scroll="true"
+      bindtouchstart="onTouchStart"
+      bindtouchmove="onTouchMove"
+      bindtouchend="onTouchEnd"
+      bindtouchcancel="onTouchEnd"
+    />
+    <view class="pad-hint">尽量写大、居中，笔画清晰</view>
+  </view>
+
+  <view class="result-card" wx:if="{{result !== null}}">
+    <view class="result-label">识别结果</view>
+    <view class="result-digit">{{result}}</view>
+    <view class="result-meta">
+      置信度 {{confidenceText}}
+      <text wx:if="{{modelName}}"> · {{modelName}}</text>
+    </view>
+  </view>
+  <view class="result-card empty" wx:else>
+    <view class="result-label">识别结果将显示在这里</view>
+  </view>
+
+  <view class="actions">
+    <button class="btn ghost" bindtap="clearPad">清空</button>
+    <button class="btn primary" loading="{{submitting}}" disabled="{{submitting}}" bindtap="recognize">
+      识别
+    </button>
+  </view>
+
+  <view class="footnote">识别由服务端 CNN 模型完成；若提示无可用模型，请管理员先完成训练并启用。</view>
+</view>
