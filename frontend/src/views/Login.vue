@@ -28,7 +28,7 @@ async function submit() {
   try {
     await userStore.login(form)
     ElMessage.success('登录成功')
-    router.push(route.query.redirect || '/dashboard')
+    router.push(route.query.redirect || '/home')
   } finally {
     loading.value = false
   }

@@ -1,11 +1,8 @@
 package com.hdr.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hdr.auth.JwtUtil;
 import com.hdr.common.BusinessException;
-import com.hdr.common.PageResult;
 import com.hdr.dto.LoginRequest;
 import com.hdr.dto.LoginResponse;
 import com.hdr.dto.RegisterRequest;
@@ -61,30 +58,5 @@ public class UserService {
             throw new BusinessException(404, "用户不存在");
         }
         return UserVO.from(user);
-    }
-
-    public PageResult<UserVO> page(long page, long size, String keyword) {
-        LambdaQueryWrapper<User> query = Wrappers.<User>lambdaQuery()
-                .and(StringUtils.hasText(keyword), wrapper -> wrapper
-                        .like(User::getUsername, keyword)
-                        .or()
-                        .like(User::getNickname, keyword))
-                .orderByDesc(User::getId);
-        Page<User> result = userMapper.selectPage(new Page<>(page, size), query);
-        return PageResult.of(
-                result.getRecords().stream().map(UserVO::from).toList(),
-                result.getTotal(), page, size);
-    }
-
-    public void updateStatus(Long id, Integer status) {
-        if (status == null || (status != 0 && status != 1)) {
-            throw new BusinessException(400, "状态值只能是 0 或 1");
-        }
-        User user = userMapper.selectById(id);
-        if (user == null) {
-            throw new BusinessException(404, "用户不存在");
-        }
-        user.setStatus(status);
-        userMapper.updateById(user);
     }
 }

@@ -1,6 +1,6 @@
 # miniprogram — 微信小程序
 
-手写画板 + 登录 + 上传识别。无需 npm 依赖，直接导入微信开发者工具即可。
+登录 + 首页占位。当前为工程骨架，手写画板与识别功能待实现。
 
 ## 运行
 
@@ -22,17 +22,16 @@ baseUrl: 'http://192.168.1.10:8080'
 | 页面 | 说明 |
 |---|---|
 | `pages/login/login` | 登录（演示账号 admin / admin123） |
-| `pages/index/index` | Canvas 2D 手写板、清空、上传识别、结果展示 |
+| `pages/index/index` | 首页占位，展示当前用户 |
 
-## 关键实现
+## 现有能力
 
-- 画板使用 `type="2d"` 的 Canvas 2D，按设备像素比缩放，避免模糊。
-- 白底黑字导出 PNG，服务端预处理会自动反色并与 MNIST 分布对齐。
-- 识别通过 `wx.uploadFile` 调用 `POST /api/recognition/predict`，携带 JWT。
-- Token 失效（code 401）自动清除本地状态并回到登录页。
+- `utils/request.js` 封装 `request()` 与 `uploadFile()`，自动携带 JWT
+- 401 自动清除本地登录状态并回到登录页
+- 登录成功后 token / 用户信息写入本地存储
 
-## 后续工作
+## 待各成员实现
 
-- [ ] 连续多位数识别（W4 选型、W5 实现）
-- [ ] 识别历史记录页
-- [ ] 登录改为 wx.login + 后端绑定（如需）
+- Canvas 2D 手写画板
+- 单字识别与连续多位数识别
+- 识别历史记录页

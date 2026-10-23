@@ -10,53 +10,19 @@ const routes = [
   {
     path: '/',
     component: () => import('@/layout/AdminLayout.vue'),
-    redirect: '/dashboard',
+    redirect: '/home',
     children: [
       {
-        path: 'dashboard',
-        name: 'dashboard',
-        component: () => import('@/views/Dashboard.vue'),
-        meta: { title: '概览' }
-      },
-      {
-        path: 'users',
-        name: 'users',
-        component: () => import('@/views/Users.vue'),
-        meta: { title: '用户管理', admin: true }
-      },
-      {
-        path: 'datasets',
-        name: 'datasets',
-        component: () => import('@/views/Datasets.vue'),
-        meta: { title: '数据集' }
-      },
-      {
-        path: 'models',
-        name: 'models',
-        component: () => import('@/views/Models.vue'),
-        meta: { title: '模型管理' }
-      },
-      {
-        path: 'train-tasks',
-        name: 'train-tasks',
-        component: () => import('@/views/TrainTasks.vue'),
-        meta: { title: '训练任务' }
-      },
-      {
-        path: 'train-tasks/:id',
-        name: 'train-task-detail',
-        component: () => import('@/views/TrainTaskDetail.vue'),
-        meta: { title: '训练详情' }
-      },
-      {
-        path: 'stats',
-        name: 'stats',
-        component: () => import('@/views/Stats.vue'),
-        meta: { title: '统计分析' }
+        path: 'home',
+        name: 'home',
+        component: () => import('@/views/Home.vue'),
+        meta: { title: '首页' }
       }
+      // 各成员在此追加自己的路由，例如：
+      // { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: '用户管理', admin: true } }
     ]
   },
-  { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
+  { path: '/:pathMatch(.*)*', redirect: '/home' }
 ]
 
 const router = createRouter({
@@ -70,17 +36,17 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (to.path === '/login' && token) {
-    return '/dashboard'
+    return '/home'
   }
   if (to.meta.admin) {
     const raw = localStorage.getItem('hdr_user')
     try {
       const user = raw ? JSON.parse(raw) : null
       if (user?.role !== 'ADMIN') {
-        return '/dashboard'
+        return '/home'
       }
     } catch {
-      return '/dashboard'
+      return '/home'
     }
   }
   document.title = to.meta.title ? `${to.meta.title} · 手写数字识别系统` : '手写数字识别系统'

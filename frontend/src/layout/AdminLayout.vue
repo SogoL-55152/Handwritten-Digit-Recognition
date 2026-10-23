@@ -8,23 +8,10 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const menuItems = computed(() => {
-  const items = [
-    { path: '/dashboard', label: '概览' },
-    { path: '/train-tasks', label: '训练任务' },
-    { path: '/models', label: '模型管理' },
-    { path: '/datasets', label: '数据集' },
-    { path: '/stats', label: '统计分析' }
-  ]
-  if (userStore.isAdmin) {
-    items.splice(1, 0, { path: '/users', label: '用户管理' })
-  }
-  return items
-})
+// 各成员按模块向菜单追加条目，例如 { path: '/users', label: '用户管理' }
+const menuItems = computed(() => [{ path: '/home', label: '首页' }])
 
-const activeMenu = computed(() =>
-  route.path.startsWith('/train-tasks') ? '/train-tasks' : route.path
-)
+const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => route.meta.title || '')
 
 async function handleLogout() {
