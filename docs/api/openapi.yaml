@@ -1,0 +1,1099 @@
+openapi: 3.0.3
+info:
+  title: 手写数字识别系统 API
+  version: 1.0.0
+  description: |
+    手写数字识别系统的接口契约（OpenAPI 初稿）。
+
+    - Spring Boot 网关面向前端，前缀 `/api`，除登录/注册/健康检查外均需 JWT。
+    - Flask 模型服务仅在内网被 Spring Boot 调用，前缀 `/api/v1`，无鉴权。
+    - 所有接口统一返回 `{ code, message, data }`，业务结果以 `code` 判断；
+      骨架阶段 HTTP 状态码统一为 200（未捕获异常除外）。
+
+    契约覆盖目标形态。当前 `develop` 骨架仅实现认证与健康检查，其余接口
+    由各成员在 `feature/*` 分支按本契约实现。
+servers:
+  - url: http://localhost:8080
+    description: Spring Boot 网关（对外）
+  - url: http://localhost:5001
+    description: Flask 模型服务（仅内网）
+tags:
+  - name: 系统
+    description: 健康检查
+  - name: 认证
+    description: 注册、登录、当前用户
+  - name: 用户管理
+    description: 管理员用户管理
+  - name: 模型管理
+    description: 模型列表、活跃模型切换、删除
+  - name: 数据集
+    description: 数据集元数据
+  - name: 训练任务
+    description: 训练任务创建、查询、指标
+  - name: 识别
+    description: 手写数字识别
+  - name: 统计
+    description: 概览、调用趋势、模型使用分布
+  - name: 模型服务（内部）
+    description: Flask 推理、模型注册与训练接口
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/health:
+    get:
+      tags: [系统]
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Health'
+
+  /api/auth/register:
+    post:
+      tags: [认证]
+      summary: 注册普通用户
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+
+  /api/auth/login:
+    post:
+      tags: [认证]
+      summary: 登录并获取 JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+
+  /api/auth/me:
+    get:
+      tags: [认证]
+      summary: 当前登录用户
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+
+  /api/users:
+    get:
+      tags: [用户管理]
+      summary: 分页查询用户（仅管理员）
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/users/{id}/status:
+    put:
+      tags: [用户管理]
+      summary: 启用/停用账号（仅管理员）
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/models:
+    get:
+      tags: [模型管理]
+      summary: 模型分页
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ModelPage'
+
+  /api/models/active:
+    get:
+      tags: [模型管理]
+      summary: 当前活跃模型
+      responses:
+        '200':
+          description: 成功；无活跃模型时 data 为 null
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/Model'
+                        nullable: true
+
+  /api/models/{id}/activate:
+    post:
+      tags: [模型管理]
+      summary: 切换活跃模型（仅管理员，同步 Flask）
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/ModelServiceError'
+
+  /api/models/{id}:
+    delete:
+      tags: [模型管理]
+      summary: 删除模型（仅管理员，活跃模型不可删）
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/datasets:
+    get:
+      tags: [数据集]
+      summary: 数据集分页
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DatasetPage'
+    post:
+      tags: [数据集]
+      summary: 新建数据集元数据（仅管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatasetRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Dataset'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/train-tasks:
+    get:
+      tags: [训练任务]
+      summary: 训练任务分页
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TrainTaskPage'
+    post:
+      tags: [训练任务]
+      summary: 创建并启动训练（仅管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainTaskRequest'
+      responses:
+        '200':
+          description: 任务已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TrainTask'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/ModelServiceError'
+
+  /api/train-tasks/{id}:
+    get:
+      tags: [训练任务]
+      summary: 任务详情
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TrainTask'
+
+  /api/train-tasks/{id}/metrics:
+    get:
+      tags: [训练任务]
+      summary: 训练状态与指标（前端 2s 轮询）
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TrainMetrics'
+
+  /api/recognition/predict:
+    post:
+      tags: [识别]
+      summary: 上传图片并识别单个数字
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 画板导出的 PNG/JPG，≤ 5 MB
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RecognitionResult'
+        '502':
+          $ref: '#/components/responses/ModelServiceError'
+
+  /api/stats/overview:
+    get:
+      tags: [统计]
+      summary: 概览指标
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/StatsOverview'
+
+  /api/stats/call-trend:
+    get:
+      tags: [统计]
+      summary: 近 7 天调用趋势
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CallTrendPoint'
+
+  /api/stats/model-usage:
+    get:
+      tags: [统计]
+      summary: 模型使用分布
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ModelUsage'
+
+  /api/v1/health:
+    get:
+      tags: [模型服务（内部）]
+      summary: 模型服务健康检查
+      security: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Health'
+
+  /api/v1/predict:
+    post:
+      tags: [模型服务（内部）]
+      summary: 图像推理
+      security: []
+      parameters:
+        - name: model_id
+          in: query
+          required: false
+          description: 指定模型；缺省使用活跃模型
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FlaskPredictResult'
+
+  /api/v1/models:
+    get:
+      tags: [模型服务（内部）]
+      summary: 已注册模型与活跃模型
+      security: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FlaskModelList'
+
+  /api/v1/models/{model_id}/activate:
+    post:
+      tags: [模型服务（内部）]
+      summary: 激活模型并持久化
+      security: []
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result'
+
+  /api/v1/train:
+    post:
+      tags: [模型服务（内部）]
+      summary: 创建训练任务（Celery 异步）
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlaskTrainRequest'
+      responses:
+        '200':
+          description: 任务已入队
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          task_id:
+                            type: string
+
+  /api/v1/train/{task_id}:
+    get:
+      tags: [模型服务（内部）]
+      summary: 训练状态与指标
+      security: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Result'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TrainMetrics'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: 页码，从 1 开始
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Size:
+      name: size
+      in: query
+      description: 每页条数
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
+    Keyword:
+      name: keyword
+      in: query
+      description: 用户名或昵称模糊匹配
+      schema:
+        type: string
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  responses:
+    Unauthorized:
+      description: 未登录或 token 失效（业务码 401）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Result'
+    Forbidden:
+      description: 无权限（业务码 403）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Result'
+    ModelServiceError:
+      description: 模型服务不可用（业务码 502）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Result'
+
+  schemas:
+    Result:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: 0 表示成功；400/401/403/404/500/502 为业务错误码
+          example: 0
+        message:
+          type: string
+          example: ok
+        data:
+          nullable: true
+          description: 业务数据；失败时为 null
+
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          example: UP
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        username:
+          type: string
+          example: admin
+        nickname:
+          type: string
+          example: 管理员
+        role:
+          type: string
+          enum: [ADMIN, USER]
+        status:
+          type: integer
+          enum: [0, 1]
+          description: 1 启用，0 停用
+
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          example: alice
+        password:
+          type: string
+          minLength: 6
+          example: '123456'
+        nickname:
+          type: string
+          example: Alice
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: admin123
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT，默认有效期 24h
+        user:
+          $ref: '#/components/schemas/User'
+
+    StatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: integer
+          enum: [0, 1]
+
+    UserPage:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        size:
+          type: integer
+
+    Model:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          example: cnn-v1
+        version:
+          type: string
+          example: 20261022-153000
+        externalId:
+          type: string
+          description: 模型服务中的模型 ID
+        filePath:
+          type: string
+          example: /app/weights/ab12.pt
+        accuracy:
+          type: number
+          format: float
+          example: 0.9821
+        active:
+          type: integer
+          enum: [0, 1]
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ModelPage:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/Model'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        size:
+          type: integer
+
+    Dataset:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          example: MNIST
+        type:
+          type: string
+          example: MNIST
+        sampleCount:
+          type: integer
+          example: 70000
+        storagePath:
+          type: string
+          example: data/mnist
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    DatasetRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          example: MNIST
+        sampleCount:
+          type: integer
+        storagePath:
+          type: string
+        description:
+          type: string
+
+    DatasetPage:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dataset'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        size:
+          type: integer
+
+    TrainParams:
+      type: object
+      properties:
+        epochs:
+          type: integer
+          default: 3
+        batchSize:
+          type: integer
+          default: 128
+        learningRate:
+          type: number
+          format: float
+          default: 0.001
+
+    TrainTaskRequest:
+      type: object
+      required: [name, datasetId]
+      properties:
+        name:
+          type: string
+          example: cnn-实验一
+        datasetId:
+          type: integer
+          format: int64
+        modelName:
+          type: string
+          example: cnn-v1
+        params:
+          $ref: '#/components/schemas/TrainParams'
+
+    TrainTask:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        datasetId:
+          type: integer
+          format: int64
+        modelName:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCESS, FAILED]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        accuracy:
+          type: number
+          format: float
+          nullable: true
+        externalId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    TrainTaskPage:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrainTask'
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        size:
+          type: integer
+
+    EpochMetric:
+      type: object
+      properties:
+        epoch:
+          type: integer
+          example: 1
+        loss:
+          type: number
+          format: float
+          example: 0.1243
+        accuracy:
+          type: number
+          format: float
+          example: 0.9612
+
+    TrainMetrics:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [PENDING, RUNNING, SUCCESS, FAILED]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 66
+        epoch:
+          type: integer
+          example: 2
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/EpochMetric'
+        model:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Model'
+        error:
+          type: string
+          nullable: true
+
+    RecognitionResult:
+      type: object
+      properties:
+        result:
+          type: string
+          description: 识别出的单个数字
+          example: '7'
+        confidence:
+          type: number
+          format: float
+          example: 0.9931
+        modelName:
+          type: string
+          example: cnn-v1
+        costMs:
+          type: integer
+          description: 模型侧耗时（毫秒）
+          example: 87
+
+    StatsOverview:
+      type: object
+      properties:
+        userCount:
+          type: integer
+          format: int64
+        modelCount:
+          type: integer
+          format: int64
+        callCount:
+          type: integer
+          format: int64
+        accuracy:
+          type: number
+          format: float
+        activeModel:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Model'
+
+    CallTrendPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          example: '2026-10-22'
+        count:
+          type: integer
+          format: int64
+          example: 12
+
+    ModelUsage:
+      type: object
+      properties:
+        name:
+          type: string
+          example: cnn-v1
+        value:
+          type: integer
+          format: int64
+          example: 120
+
+    FlaskPredictResult:
+      type: object
+      properties:
+        result:
+          type: string
+          example: '7'
+        confidence:
+          type: number
+          format: float
+          example: 0.9931
+        model_id:
+          type: string
+          example: ab12
+        model_name:
+          type: string
+          example: cnn-v1
+
+    FlaskModel:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        path:
+          type: string
+        accuracy:
+          type: number
+          format: float
+
+    FlaskModelList:
+      type: object
+      properties:
+        active:
+          type: string
+          nullable: true
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlaskModel'
+
+    FlaskTrainRequest:
+      type: object
+      required: [task_id, dataset]
+      properties:
+        task_id:
+          type: string
+          description: 由 Java 侧生成的 UUID
+        model_name:
+          type: string
+          example: cnn-v1
+        dataset:
+          type: string
+          example: MNIST
+        params:
+          $ref: '#/components/schemas/TrainParams'
