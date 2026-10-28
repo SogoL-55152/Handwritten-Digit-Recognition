@@ -1,23 +1,26 @@
+const { readSession, clearSession } = require('../../utils/session')
+
 Page({
   data: {
     user: null
   },
 
-  onLoad() {
-    const user = wx.getStorageSync('hdr_user') || null
-    if (!user) {
+  onShow() {
+    const session = readSession()
+    if (!session) {
+      this.setData({ user: null })
       wx.reLaunch({ url: '/pages/login/login' })
       return
     }
-    this.setData({ user })
+    this.setData({ user: session.user })
+  },
+
+  openDrawingPrototype() {
+    wx.navigateTo({ url: '/pages/drawing-prototype/drawing-prototype' })
   },
 
   logout() {
-    const app = getApp()
-    app.globalData.token = ''
-    app.globalData.user = null
-    wx.removeStorageSync('hdr_token')
-    wx.removeStorageSync('hdr_user')
+    clearSession()
     wx.reLaunch({ url: '/pages/login/login' })
   }
 })

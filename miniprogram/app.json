@@ -1,7 +1,8 @@
 {
   "pages": [
     "pages/login/login",
-    "pages/index/index"
+    "pages/index/index",
+    "pages/drawing-prototype/drawing-prototype"
   ],
   "window": {
     "navigationBarTitleText": "手写数字识别",

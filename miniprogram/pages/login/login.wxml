@@ -1,8 +1,8 @@
 <view class="page">
   <view class="hero">
     <view class="brand">手写数字识别</view>
-    <view class="headline">写一个数字，\n让模型来读懂</view>
-    <view class="subline">CNN · 实时识别 · 准确率 ≥ 90%</view>
+    <view class="headline">从一笔书写，\n开始数字识别之旅</view>
+    <view class="subline">W1 本地原型：仅书写与 PNG 导出预览，尚未接入识别</view>
   </view>
 
   <view class="card">
@@ -29,8 +29,13 @@
       />
     </view>
     <button class="btn" loading="{{loading}}" disabled="{{loading}}" bindtap="submit">
-      登录并开始识别
+      登录业务首页
     </button>
     <view class="hint">演示账号：admin / admin123</view>
+  </view>
+
+  <view class="prototype-entry">
+    <button class="prototype-btn" bindtap="openDrawingPrototype">免登录体验 W1 本地画板</button>
+    <view class="prototype-note">仅书写 / 导出预览，不上传、不识别；业务首页仍需登录。</view>
   </view>
 </view>

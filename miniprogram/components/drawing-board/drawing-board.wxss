@@ -1,0 +1,85 @@
+.drawing-board {
+  padding: 28rpx;
+  background: #ffffff;
+  border-radius: 24rpx;
+}
+
+.board-label {
+  margin-bottom: 20rpx;
+  color: #1f2d3d;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.canvas-frame {
+  height: 560rpx;
+  border: 2rpx solid #aab4c5;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.status,
+.error {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: #606b7d;
+}
+
+.error {
+  color: #ad2424;
+}
+
+.actions {
+  display: flex;
+  margin-top: 24rpx;
+}
+
+.actions button,
+.retry {
+  font-size: 28rpx;
+  border-radius: 12rpx;
+}
+
+.clear {
+  flex: 1;
+  margin-right: 20rpx;
+  background: #eef2f7;
+  color: #32415a;
+}
+
+.export {
+  flex: 2;
+  background: #2f54eb;
+  color: #ffffff;
+}
+
+.actions button[disabled] {
+  color: #8490a2;
+  background: #edf0f5;
+}
+
+.retry {
+  margin-top: 16rpx;
+  color: #2f54eb;
+}
+
+.preview {
+  margin-top: 32rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #e1e6ef;
+}
+
+.preview-image {
+  display: block;
+  width: 100%;
+  height: 360rpx;
+  background: #ffffff;
+  border: 1rpx solid #e1e6ef;
+}

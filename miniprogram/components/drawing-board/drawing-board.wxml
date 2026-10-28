@@ -1,0 +1,28 @@
+<view class="drawing-board">
+  <view class="board-label">在白色区域书写数字</view>
+  <view class="canvas-frame">
+    <canvas
+      id="drawing-canvas"
+      type="2d"
+      class="canvas"
+      disable-scroll="{{true}}"
+      catchtouchstart="onTouchStart"
+      catchtouchmove="onTouchMove"
+      catchtouchend="onTouchEnd"
+      catchtouchcancel="onTouchCancel"
+    ></canvas>
+  </view>
+  <view class="status" wx:if="{{!ready && !error}}">画板初始化中…</view>
+  <view class="status" wx:if="{{ready}}">{{hasInk ? '已书写；继续绘制或清空会移除旧预览。' : '画板为空，书写后才能导出。'}}</view>
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+  <button wx:if="{{!ready && error}}" class="retry" bindtap="initCanvas">重试初始化</button>
+  <view class="actions">
+    <button class="clear" disabled="{{!ready}}" bindtap="clear">清空</button>
+    <button class="export" disabled="{{!ready || !hasInk || exporting}}" loading="{{exporting}}" bindtap="exportImage">导出 PNG 预览</button>
+  </view>
+  <view class="preview" wx:if="{{previewPath}}">
+    <view class="board-label">本地 PNG 预览（非识别结果）</view>
+    <image class="preview-image" src="{{previewPath}}" mode="aspectFit"></image>
+    <view class="status">临时图片仅供本地预览，未上传；离开页面后不保证保留。</view>
+  </view>
+</view>

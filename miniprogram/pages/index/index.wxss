@@ -42,6 +42,14 @@
   color: #1f2d3d;
 }
 
+.prototype-btn {
+  margin-top: 32rpx;
+  font-size: 28rpx;
+  background: #2f54eb;
+  color: #ffffff;
+  border-radius: 16rpx;
+}
+
 .placeholder-desc {
   margin-top: 16rpx;
   font-size: 26rpx;

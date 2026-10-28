@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "W1 本地画板原型",
+  "usingComponents": {
+    "drawing-board": "/components/drawing-board/drawing-board"
+  }
+}

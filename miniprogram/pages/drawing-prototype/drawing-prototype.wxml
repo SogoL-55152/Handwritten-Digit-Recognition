@@ -1,0 +1,6 @@
+<view class="page">
+  <view class="title">W1 本地画板原型</view>
+  <view class="notice">免登录，仅书写 / 清空 / 导出 PNG 预览。</view>
+  <view class="description">白底黑字，可连续书写或轻点。此页不会上传图片、调用识别接口或显示识别结果；业务首页仍需完整登录会话。</view>
+  <drawing-board></drawing-board>
+</view>
