@@ -1,45 +1,18 @@
+import { computed, reactive, toRefs } from 'vue'
 import { defineStore } from 'pinia'
-import { getMe, login as loginApi } from '@/api/auth'
+import { getMe, login as loginApi } from '../api/auth.js'
+import { createSession } from '../auth/session.js'
 
-function readUser() {
-  try {
-    return JSON.parse(localStorage.getItem('hdr_user') || 'null')
-  } catch {
-    return null
-  }
-}
-
-export const useUserStore = defineStore('user', {
-  state: () => ({
-    token: localStorage.getItem('hdr_token') || '',
-    user: readUser()
-  }),
-  getters: {
-    isAdmin: (state) => state.user?.role === 'ADMIN',
-    displayName: (state) => state.user?.nickname || state.user?.username || '未登录'
-  },
-  actions: {
-    async login(form) {
-      const data = await loginApi(form)
-      this.token = data.token
-      this.user = data.user
-      localStorage.setItem('hdr_token', data.token)
-      localStorage.setItem('hdr_user', JSON.stringify(data.user))
-    },
-    async refresh() {
-      if (!this.token) return
-      try {
-        this.user = await getMe()
-        localStorage.setItem('hdr_user', JSON.stringify(this.user))
-      } catch {
-        // token 失效由请求拦截器处理
-      }
-    },
-    logout() {
-      this.token = ''
-      this.user = null
-      localStorage.removeItem('hdr_token')
-      localStorage.removeItem('hdr_user')
-    }
+export const useUserStore = defineStore('user', () => {
+  const session = createSession({ storage: localStorage, login: loginApi, getMe, reactive })
+  return {
+    ...toRefs(session.state),
+    isAdmin: computed(() => session.isAdmin),
+    displayName: computed(() => session.state.user?.nickname || session.state.user?.username || '未登录'),
+    login: session.login,
+    refresh: session.refresh,
+    logout: session.logout,
+    getSnapshot: session.getSnapshot,
+    invalidate: session.invalidate
   }
 })
