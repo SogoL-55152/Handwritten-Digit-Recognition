@@ -2,6 +2,7 @@ package com.hdr.auth;
 
 import com.hdr.common.BusinessException;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -30,25 +31,25 @@ public class AuthInterceptor implements HandlerInterceptor {
             throw new BusinessException(401, "未登录或登录已过期");
         }
 
-        Claims claims;
+        CurrentUser currentUser;
         try {
-            claims = jwtUtil.parse(header.substring(7));
-        } catch (Exception e) {
+            Claims claims = jwtUtil.parse(header.substring(7));
+            currentUser = new CurrentUser(
+                    Long.valueOf(claims.getSubject()),
+                    claims.get("username", String.class),
+                    claims.get("role", String.class)
+            );
+        } catch (JwtException | IllegalArgumentException e) {
             throw new BusinessException(401, "登录状态无效，请重新登录");
         }
 
-        String role = claims.get("role", String.class);
-        UserContext.set(new CurrentUser(
-                Long.valueOf(claims.getSubject()),
-                claims.get("username", String.class),
-                role
-        ));
-
         boolean adminRequired = handlerMethod.hasMethodAnnotation(RequireAdmin.class)
                 || handlerMethod.getBeanType().isAnnotationPresent(RequireAdmin.class);
-        if (adminRequired && !"ADMIN".equals(role)) {
+        if (adminRequired && !"ADMIN".equals(currentUser.role())) {
             throw new BusinessException(403, "无权限访问");
         }
+        // preHandle 抛异常时不会回调本拦截器的 afterCompletion，鉴权通过后才写入。
+        UserContext.set(currentUser);
         return true;
     }
 

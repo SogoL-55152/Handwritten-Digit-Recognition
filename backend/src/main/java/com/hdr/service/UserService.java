@@ -10,6 +10,7 @@ import com.hdr.dto.UserVO;
 import com.hdr.entity.User;
 import com.hdr.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -34,7 +35,12 @@ public class UserService {
         user.setNickname(StringUtils.hasText(request.nickname()) ? request.nickname() : request.username());
         user.setRole("USER");
         user.setStatus(1);
-        userMapper.insert(user);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            // 预检查无法避免并发注册；以 uk_username 唯一键作为最终防线。
+            throw new BusinessException(400, "用户名已存在");
+        }
         return UserVO.from(user);
     }
 

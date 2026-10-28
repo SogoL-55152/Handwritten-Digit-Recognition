@@ -3,9 +3,11 @@ name: CI
 on:
   push:
     branches: [main, develop]
+
   pull_request:
 
 jobs:
+
   backend:
     name: Spring Boot
     runs-on: ubuntu-latest
@@ -19,8 +21,8 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: maven
-      - name: Package
-        run: mvn -B -DskipTests package
+      - name: Test and package
+        run: mvn -B verify
 
   model-service:
     name: Flask model service
