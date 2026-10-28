@@ -1,6 +1,6 @@
 # backend — Spring Boot 业务网关
 
-Java 17 + Spring Boot 3.2 + MyBatis-Plus + MySQL + JWT。当前为工程骨架，仅包含鉴权与健康检查。
+Java 17 + Spring Boot 3.2 + MyBatis-Plus + MySQL + JWT。W1 包含鉴权、健康检查、认证边界修复与回归测试；后续管理业务尚未实现。
 
 ## 本地启动
 
@@ -54,8 +54,20 @@ com.hdr
 - 新增表：更新 `src/main/resources/db/schema.sql`（使用 `CREATE TABLE IF NOT EXISTS`）
 - 调用模型服务：在 `client` 包中新增客户端，错误统一包装为业务码 502
 
-## 待各成员实现
+## W1 回归测试
 
-- 用户管理 CRUD 与角色权限
+在 `backend/` 执行：
+
+```bash
+mvn -B verify
+```
+
+当前 **61 项全部通过**：JWT 1 项、Service 15 项、MockMvc HTTP 45 项，打包成功。覆盖注册字段约束、默认 USER 角色、BCrypt、重复用户名、登录失败/停用账号、JWT、管理员限制与请求上下文清理。
+
+MockMvc 使用真实 Controller、Service、校验器、异常处理器、拦截器和 JWT，仅模拟 UserMapper；它不验证 MySQL 实际落库。注册唯一键竞争已有异常转换测试，实际数据库并发验证仍待完成。W1 固定角色为 `ADMIN/USER`，不包含新增 RBAC 系统。
+
+## 后续业务范围（非 W1 已实现）
+
+- 用户管理 CRUD 与业务权限配置
 - 数据集、模型管理、训练任务、识别转发、统计接口
-- MockMvc 接口测试
+- MySQL 实际持久化及跨服务联调验收

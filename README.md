@@ -2,11 +2,11 @@
 
 基于深度学习的手写数字识别系统：手机端微信小程序负责手写交互，PC 端 Vue 后台负责管理功能，Spring Boot 作为统一业务网关，Python 负责模型。真实手写场景识别准确率 **≥90% 是项目目标，并非当前实测结论**。
 
-> W1 按 M1–M5 拆分到独立成员分支提交、推送。本页是跨分支成果总览，不表示当前分支包含全部成员实现。本次不创建 PR、不合入 `develop`、不更新在线 Wiki。实现与验证完成度分开记录，见 [W1 交付与验证记录](docs/W1-交付与验证记录.md)。
+> M1–M5 的 W1 交付已集成到 `develop`，团队文档同步至 [GitHub Wiki](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/wiki)。代码集成不等于人工验收或完整识别链路已完成，实际状态见 [W1 交付与验证记录](docs/W1-交付与验证记录.md)。
 
 ## 本次范围与成员分支
 
-五个分支从同一个 `develop` 基线出发，旧 `feature/m1-foundation` 保留不动。本地 `feature/w1-deliverables` 仅用于汇总，不推送。
+五个成员分支从同一个 `develop` 基线出发，现已合并至 `develop`，下表保留各自的 W1 交付入口。后续开发从最新 `develop` 创建功能分支；本地汇总分支不作为团队拉取入口。
 
 | 成员分支 | W1 交付 | 后续内容 |
 |---|---|---|
@@ -34,15 +34,15 @@ W1 中 Flask 只有健康检查；CNN 通过独立命令离线训练。上图在
 
 | 文档 | 内容 |
 |---|---|
-| [M2 后端 README](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/blob/feature/m2-w1/backend/README.md) | Java 17 / Spring Boot 3 / MyBatis-Plus / JWT；认证与健康检查 |
-| [M4 管理端 README](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/blob/feature/m4-w1/frontend/README.md) | Node 22 / Vue 3 / Pinia / Element Plus；管理员登录与首页 |
-| [M3 模型服务 README](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/blob/feature/m3-w1/model-service/README.md) | Flask 健康服务，独立 Python 3.11 / PyTorch 离线训练 |
-| [M5 小程序 README](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/blob/feature/m5-w1/miniprogram/README.md) | 小程序登录与独立 W1 画板原型 |
+| [M2 后端 README](backend/README.md) | Java 17 / Spring Boot 3 / MyBatis-Plus / JWT；认证与健康检查 |
+| [M4 管理端 README](frontend/README.md) | Node 22 / Vue 3 / Pinia / Element Plus；管理员登录与首页 |
+| [M3 模型服务 README](model-service/README.md) | Flask 健康服务，独立 Python 3.11 / PyTorch 离线训练 |
+| [M5 小程序 README](miniprogram/README.md) | 小程序登录与独立 W1 画板原型 |
 | [共享文档](docs/README.md) | 需求、契约、规范与验证记录；包含跨成员文档链接 |
 
 ## 本地验证
 
-以下全套命令用于本地汇总目录或后续集成版本；在独立成员分支只运行对应模块的检查。依赖准备妥当后，在项目根目录执行：
+以下全套命令适用于最新 `develop`；在历史成员分支只运行对应模块的检查。依赖准备妥当后，在项目根目录执行：
 
 ```bash
 mvn -B -f backend/pom.xml verify
@@ -57,7 +57,7 @@ npm --prefix miniprogram test
 
 ## 启动应用
 
-以下为本地汇总目录或后续集成版本的启动说明；成员分支仅包含框架及该成员增量。
+以下说明适用于最新 `develop`。各模块可分别启动；W1 尚未接通手写图片识别链路。
 
 ### Docker 骨架
 

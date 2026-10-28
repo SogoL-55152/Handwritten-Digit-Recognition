@@ -5,7 +5,7 @@ W1 交付：保留账号登录与受登录保护的业务首页，新增**免登
 
 ## 微信开发者工具运行
 
-1. 导入 `miniprogram/`，AppID 可使用项目中的测试号 `touristappid`。
+1. 导入 `miniprogram/`，使用自己有开发权限的 AppID；没有正式 AppID 时可选择开发者工具提供的测试号入口。不要把他人的项目 AppID 当作通用测试号。
 2. 使用支持 Canvas 2D 的基础库（项目配置为 `3.5.0`）。
 3. 无需启动后端：从登录页点击「免登录体验 W1 本地画板」；也可以新增编译模式，启动页面填 `pages/drawing-prototype/drawing-prototype`，直接进入原型。
 4. 如需测试原有登录，启动后端（默认 `http://localhost:8080`），在「详情 → 本地设置」勾选「不校验合法域名、web-view（业务域名）、TLS 版本以及 HTTPS 证书」，使用演示账号 `admin / admin123`。
