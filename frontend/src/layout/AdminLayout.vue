@@ -21,7 +21,7 @@ async function handleLogout() {
     return
   }
   userStore.logout()
-  router.push('/login')
+  await router.replace('/login')
 }
 </script>
 

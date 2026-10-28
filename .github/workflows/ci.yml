@@ -3,9 +3,11 @@ name: CI
 on:
   push:
     branches: [main, develop]
+
   pull_request:
 
 jobs:
+
   backend:
     name: Spring Boot
     runs-on: ubuntu-latest
@@ -53,5 +55,7 @@ jobs:
           node-version: "22"
       - name: Install
         run: npm install --no-audit --no-fund
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build

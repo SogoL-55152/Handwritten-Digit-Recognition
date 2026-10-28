@@ -1,8 +1,10 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { SESSION_MESSAGES } from '@/auth/session'
+import { safeRedirect } from '@/router/auth-guard'
 
 const router = useRouter()
 const route = useRoute()
@@ -10,28 +12,57 @@ const userStore = useUserStore()
 
 const formRef = ref()
 const loading = ref(false)
-const form = reactive({ username: 'admin', password: 'admin123' })
+const form = reactive({ username: '', password: '' })
+const sessionMessage = computed(() => {
+  const reason = userStore.reason || route.query.reason
+  return Object.hasOwn(SESSION_MESSAGES, reason) ? SESSION_MESSAGES[reason] : ''
+})
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
-async function submit() {
-  try {
-    await formRef.value.validate()
-  } catch {
-    return
-  }
+async function enterAdmin(result) {
+  if (result.status !== 'authenticated' || !userStore.isAdmin) return
+  const target = safeRedirect(route.query.redirect, (value) => router.resolve(value))
+  await router.replace(target)
+  ElMessage.success('管理员会话已校验')
+}
 
+async function submit() {
+  if (loading.value) return
   loading.value = true
   try {
-    await userStore.login(form)
-    ElMessage.success('登录成功')
-    router.push(route.query.redirect || '/home')
+    try {
+      await formRef.value.validate()
+    } catch {
+      return
+    }
+    await enterAdmin(await userStore.login({ ...form }))
+  } catch (error) {
+    ElMessage.error(error.message || '登录失败，请稍后重试')
+  } finally {
+    form.password = ''
+    loading.value = false
+  }
+}
+
+async function retrySession() {
+  if (loading.value) return
+  loading.value = true
+  try {
+    await enterAdmin(await userStore.refresh())
+  } catch (error) {
+    ElMessage.error(error.message || '会话校验失败，请重试')
   } finally {
     loading.value = false
   }
+}
+
+function switchAccount() {
+  userStore.logout()
+  router.replace({ path: '/login', query: { redirect: safeRedirect(route.query.redirect, (value) => router.resolve(value)) } })
 }
 </script>
 
@@ -43,7 +74,7 @@ async function submit() {
         <h1>从书写到识别<br />只需一次点击</h1>
         <p>CNN 模型训练 · 多模型管理 · 实时训练可视化 · 识别统计</p>
         <div class="badges">
-          <span>准确率 ≥ 90%</span>
+          <span>项目目标：准确率 ≥ 90%（待验证）</span>
           <span>微信小程序</span>
           <span>Spring Boot + Flask</span>
         </div>
@@ -52,7 +83,13 @@ async function submit() {
       <el-card class="login-card" shadow="never">
         <h2>管理端登录</h2>
         <p class="muted">使用管理员账号进入后台</p>
-        <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="submit">
+        <el-alert v-if="sessionMessage" :title="sessionMessage" type="warning" :closable="false" show-icon class="session-alert" />
+        <div v-if="userStore.token" class="session-actions">
+          <p class="muted">已有登录凭证，校验通过后才能进入管理端。</p>
+          <el-button type="primary" :loading="loading" @click="retrySession">重试会话校验</el-button>
+          <el-button :disabled="loading" @click="switchAccount">切换账号</el-button>
+        </div>
+        <el-form v-else ref="formRef" :model="form" :rules="rules" label-position="top" :disabled="loading" @keyup.enter="submit">
           <el-form-item label="用户名" prop="username">
             <el-input v-model="form.username" placeholder="请输入用户名" />
           </el-form-item>
@@ -63,7 +100,7 @@ async function submit() {
             登录
           </el-button>
         </el-form>
-        <p class="hint">默认管理员：admin / admin123（首次登录后请修改）</p>
+        <p class="hint">仅管理员可访问。账号由团队配置，页面不预填密码。</p>
       </el-card>
     </div>
   </div>
@@ -142,6 +179,11 @@ async function submit() {
 
 .login-card .muted {
   margin: 0 0 20px;
+}
+
+.session-alert,
+.session-actions {
+  margin-bottom: 20px;
 }
 
 .submit {

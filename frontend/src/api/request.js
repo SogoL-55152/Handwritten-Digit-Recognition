@@ -1,43 +1,55 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { isUnauthorized } from '../auth/session.js'
 
-const request = axios.create({
-  baseURL: '/api',
-  timeout: 20000
-})
+// Hooks are injected at app startup. HTTP code never imports the store or router.
+export function createRequest({ hooks = {}, adapter } = {}) {
+  const client = axios.create({
+    baseURL: '/api',
+    timeout: 20000,
+    ...(adapter ? { adapter } : {})
+  })
 
-request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('hdr_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-request.interceptors.response.use(
-  (response) => {
-    const body = response.data
-    if (!body || typeof body.code !== 'number') {
-      return body
-    }
-    if (body.code === 0) {
-      return body.data
-    }
-    if (body.code === 401) {
-      localStorage.removeItem('hdr_token')
-      localStorage.removeItem('hdr_user')
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+  client.interceptors.request.use((config) => {
+    if (!config.skipAuth) {
+      config.authSession = config.authSession || hooks.getSession?.()
+      if (config.authSession?.token) {
+        config.headers.Authorization = `Bearer ${config.authSession.token}`
       }
     }
-    ElMessage.error(body.message || '请求失败')
-    return Promise.reject(new Error(body.message || '请求失败'))
-  },
-  (error) => {
-    const message = error.response?.data?.message || error.message || '网络异常，请稍后重试'
-    ElMessage.error(message)
+    return config
+  })
+
+  function reject(error, config) {
+    // Validation owns its failure state; other requests invalidate only their own session.
+    if (isUnauthorized(error) && !config?.skipAuth && !config?.sessionValidation) {
+      hooks.onUnauthorized?.(config?.authSession)
+    }
+    if (!config?.silent) hooks.onError?.(error.message || '网络异常，请稍后重试')
     return Promise.reject(error)
   }
-)
 
-export default request
+  client.interceptors.response.use(
+    (response) => {
+      const body = response.data
+      if (!body || typeof body.code !== 'number') return body
+      if (body.code === 0) return body.data
+      const error = new Error(body.message || '请求失败')
+      error.code = body.code
+      error.status = response.status
+      return reject(error, response.config)
+    },
+    (error) => {
+      error.message = error.response?.data?.message || error.message || '网络异常，请稍后重试'
+      return reject(error, error.config)
+    }
+  )
+
+  return client
+}
+
+const hooks = {}
+export function configureRequest(options) {
+  Object.assign(hooks, options)
+}
+
+export default createRequest({ hooks })
