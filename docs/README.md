@@ -1,6 +1,6 @@
 # 文档目录（W1 集成版本）
 
-> 面向全体组员；M1–M5 的 W1 交付已集成到 `develop`，文档同步至 [GitHub Wiki](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/wiki)。人工确认和验收仍按实际完成情况记录。
+> 面向全体组员；M1–M5 的 W1 交付已集成到 `develop`，[GitHub Wiki](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/wiki) 更新材料已准备，线上发布因权限确认尚未完成。人工确认和验收仍按实际完成情况记录。
 
 | 文档 | 内容 | 主责 |
 |---|---|---|
@@ -14,7 +14,7 @@
 | [W1 交付与验证记录](W1-交付与验证记录.md) | 文件索引、实测结果、合并复验与人工待办 | M1 汇总 |
 | [W1 MNIST 基线训练记录](W1-MNIST基线训练记录.md) | 真实训练结果、原始指标与复现步骤 | M3 |
 
-各模块的操作方法见 [后端 README](../backend/README.md)、[模型服务 README](../model-service/README.md)、[管理端 README](../frontend/README.md)、[小程序 README](../miniprogram/README.md)。Wiki 同时提供对应的“开发指南”页面。
+各模块的操作方法见 [后端 README](../backend/README.md)、[模型服务 README](../model-service/README.md)、[管理端 README](../frontend/README.md)、[小程序 README](../miniprogram/README.md)。待发布的 Wiki 材料包含对应的“开发指南”页面。
 
 ## Wiki 与仓库文档
 

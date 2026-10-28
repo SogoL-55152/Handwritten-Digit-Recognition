@@ -2,7 +2,7 @@
 
 基于深度学习的手写数字识别系统：手机端微信小程序负责手写交互，PC 端 Vue 后台负责管理功能，Spring Boot 作为统一业务网关，Python 负责模型。真实手写场景识别准确率 **≥90% 是项目目标，并非当前实测结论**。
 
-> M1–M5 的 W1 交付已集成到 `develop`，团队文档同步至 [GitHub Wiki](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/wiki)。代码集成不等于人工验收或完整识别链路已完成，实际状态见 [W1 交付与验证记录](docs/W1-交付与验证记录.md)。
+> M1–M5 的 W1 交付已集成到 `develop`，[GitHub Wiki](https://github.com/SogoL-55152/Handwritten-Digit-Recognition/wiki) 更新材料已准备，线上发布因权限确认尚未完成。代码集成不等于人工验收或完整识别链路已完成，实际状态见 [W1 交付与验证记录](docs/W1-交付与验证记录.md)。
 
 ## 本次范围与成员分支
 
