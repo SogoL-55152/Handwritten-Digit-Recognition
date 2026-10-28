@@ -1,0 +1,93 @@
+{
+  "format_version": 1,
+  "architecture": {
+    "name": "DigitCNN",
+    "version": 1,
+    "input_shape": [
+      1,
+      28,
+      28
+    ],
+    "num_classes": 10,
+    "layers": [
+      "Conv2d(1,32,3,padding=1)",
+      "ReLU",
+      "MaxPool2d(2)",
+      "Conv2d(32,64,3,padding=1)",
+      "ReLU",
+      "MaxPool2d(2)",
+      "Flatten",
+      "Linear(64*7*7,128)",
+      "ReLU",
+      "Dropout(0.3)",
+      "Linear(128,10)"
+    ]
+  },
+  "config": {
+    "data_dir": "C:\\Users\\毛守坤\\Desktop\\Handwritten-Digit-Recognition\\model-service\\data",
+    "output_dir": "C:\\Users\\毛守坤\\Desktop\\Handwritten-Digit-Recognition\\model-service\\weights\\w1-smoke",
+    "download": true,
+    "epochs": 1,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "seed": 42,
+    "device": "cpu",
+    "num_workers": 0,
+    "threads": 2,
+    "train_limit": 1024,
+    "test_limit": 256
+  },
+  "optimizer": "Adam",
+  "loss": "CrossEntropyLoss",
+  "data": {
+    "name": "MNIST",
+    "format": "raw IDX (torchvision; legacy pickle cache disabled)",
+    "split": "official train/test",
+    "train_size": 1024,
+    "test_size": 256,
+    "full_train_size": 60000,
+    "full_test_size": 10000,
+    "subset": true,
+    "scope": "subset/smoke",
+    "subset_selection": "first N from each official split",
+    "normalization": {
+      "mean": [
+        0.1307
+      ],
+      "std": [
+        0.3081
+      ]
+    }
+  },
+  "device": "cpu",
+  "seed": 42,
+  "environment": {
+    "python": "3.11.16",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "torch": "2.5.1+cpu",
+    "torchvision": "0.20.1+cpu",
+    "numpy": "1.26.4",
+    "cuda_runtime": null,
+    "cudnn": null,
+    "device_name": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "torch_threads": 2,
+    "torch_interop_threads": 24,
+    "deterministic_algorithms": true
+  },
+  "started_at_utc": "2026-10-28T05:07:28.276125+00:00",
+  "finished_at_utc": "2026-10-28T05:07:49.310406+00:00",
+  "duration_seconds": 21.03455899999244,
+  "epochs": [
+    {
+      "epoch": 1,
+      "train_loss": 1.7395395413041115,
+      "test_loss": 0.9266019463539124,
+      "test_accuracy": 0.69140625,
+      "duration_seconds": 0.3852417999878526
+    }
+  ],
+  "accuracy_unit": "fraction (0 to 1)",
+  "checkpoint": "checkpoint.pt",
+  "checkpoint_selection": "final_epoch",
+  "checkpoint_reload_verified": true
+}

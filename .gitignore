@@ -244,9 +244,10 @@ pnpm-debug.log*
 
 # 模型服务运行时产物
 model-service/.venv/
-model-service/weights/*.pt
-model-service/weights/*.pth
-model-service/weights/registry.json
+model-service/.venv-train/
+model-service/weights/*
+!model-service/weights/.gitkeep
+model-service/runs/
 model-service/data/*
 !model-service/data/.gitkeep
 
