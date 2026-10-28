@@ -1,0 +1,21 @@
+.page {
+  padding: 36rpx 28rpx 60rpx;
+}
+
+.title {
+  font-size: 38rpx;
+  font-weight: 600;
+}
+
+.notice {
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  color: #2344c1;
+}
+
+.description {
+  margin: 16rpx 0 28rpx;
+  color: #606b7d;
+  font-size: 26rpx;
+  line-height: 1.7;
+}

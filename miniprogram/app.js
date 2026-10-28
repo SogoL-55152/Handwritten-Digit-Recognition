@@ -1,3 +1,5 @@
+const { readSession } = require('./utils/session')
+
 App({
   globalData: {
     // 本地调试：微信开发者工具需勾选“不校验合法域名”
@@ -8,7 +10,6 @@ App({
   },
 
   onLaunch() {
-    this.globalData.token = wx.getStorageSync('hdr_token') || ''
-    this.globalData.user = wx.getStorageSync('hdr_user') || null
+    readSession(this)
   }
 })

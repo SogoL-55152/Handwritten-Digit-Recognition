@@ -1,14 +1,12 @@
+const { clearSession } = require('./session')
+
 function authHeader() {
   const token = getApp().globalData.token
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 function handleUnauthorized() {
-  const app = getApp()
-  app.globalData.token = ''
-  app.globalData.user = null
-  wx.removeStorageSync('hdr_token')
-  wx.removeStorageSync('hdr_user')
+  clearSession()
   wx.reLaunch({ url: '/pages/login/login' })
 }
 

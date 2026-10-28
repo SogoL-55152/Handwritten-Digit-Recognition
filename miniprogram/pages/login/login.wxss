@@ -80,6 +80,27 @@
   border: none;
 }
 
+.prototype-entry {
+  margin-top: 32rpx;
+  padding: 32rpx 24rpx;
+  background: #ffffff;
+  border-radius: 20rpx;
+  text-align: center;
+}
+
+.prototype-btn {
+  color: #2f54eb;
+  background: #eef2ff;
+  font-size: 28rpx;
+}
+
+.prototype-note {
+  margin-top: 16rpx;
+  color: #606b7d;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
 .hint {
   margin-top: 28rpx;
   text-align: center;

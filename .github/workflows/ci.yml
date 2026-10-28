@@ -61,3 +61,17 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+  miniprogram:
+    name: Mini program prototype
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: miniprogram
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test drawing and session logic
+        run: npm test

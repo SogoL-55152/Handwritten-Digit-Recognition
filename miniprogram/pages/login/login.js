@@ -1,4 +1,5 @@
 const { request } = require('../../utils/request')
+const { readSession, saveSession } = require('../../utils/session')
 
 Page({
   data: {
@@ -7,10 +8,14 @@ Page({
     loading: false
   },
 
-  onLoad() {
-    if (wx.getStorageSync('hdr_token')) {
+  onShow() {
+    if (readSession()) {
       wx.reLaunch({ url: '/pages/index/index' })
     }
+  },
+
+  openDrawingPrototype() {
+    wx.navigateTo({ url: '/pages/drawing-prototype/drawing-prototype' })
   },
 
   onInput(event) {
@@ -32,11 +37,10 @@ Page({
       data: { username, password }
     })
       .then((data) => {
-        const app = getApp()
-        app.globalData.token = data.token
-        app.globalData.user = data.user
-        wx.setStorageSync('hdr_token', data.token)
-        wx.setStorageSync('hdr_user', data.user)
+        if (!saveSession(data)) {
+          wx.showToast({ title: '登录信息不完整，请重试', icon: 'none' })
+          return
+        }
         wx.reLaunch({ url: '/pages/index/index' })
       })
       .catch(() => {})

@@ -2,13 +2,14 @@
   <view class="header">
     <view>
       <view class="title">手写数字识别</view>
-      <view class="subtitle">工程骨架 · 业务功能待实现</view>
+      <view class="subtitle">W1 本地画板 · 识别功能待实现</view>
     </view>
     <text class="logout" bindtap="logout">退出</text>
   </view>
 
   <view class="placeholder">
     <view class="placeholder-title">欢迎，{{user.nickname || user.username || '同学'}}</view>
-    <view class="placeholder-desc">手写画板、识别与历史记录由小组成员在本页面继续实现。</view>
+    <view class="placeholder-desc">W1 已提供独立本地画板，仅支持书写和 PNG 导出预览。识别与历史记录尚未接入，业务功能仍需登录。</view>
+    <button class="prototype-btn" bindtap="openDrawingPrototype">打开 W1 本地画板</button>
   </view>
 </view>
