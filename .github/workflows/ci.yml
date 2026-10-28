@@ -3,9 +3,11 @@ name: CI
 on:
   push:
     branches: [main, develop]
+
   pull_request:
 
 jobs:
+
   backend:
     name: Spring Boot
     runs-on: ubuntu-latest
@@ -39,6 +41,8 @@ jobs:
         run: python -m compileall -q .
       - name: Test
         run: pytest -q
+      - name: Test training CLI configuration without model dependencies
+        run: pytest -c pytest-training.ini tests_training/test_training_config.py -q
 
   frontend:
     name: Vue admin

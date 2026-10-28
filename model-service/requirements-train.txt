@@ -1,0 +1,8 @@
+# -*- coding: utf-8 -*-
+# Python 3.11；与 Flask requirements(-ci).txt 独立。
+# 使用官方 CPU wheels，安装命令见 README；不使用额外的第三方包源。
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+torchvision==0.20.1+cpu
+numpy>=1.26,<2
+pytest>=8,<9

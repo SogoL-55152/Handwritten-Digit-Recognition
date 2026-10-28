@@ -1,0 +1,107 @@
+{
+  "format_version": 1,
+  "architecture": {
+    "name": "DigitCNN",
+    "version": 1,
+    "input_shape": [
+      1,
+      28,
+      28
+    ],
+    "num_classes": 10,
+    "layers": [
+      "Conv2d(1,32,3,padding=1)",
+      "ReLU",
+      "MaxPool2d(2)",
+      "Conv2d(32,64,3,padding=1)",
+      "ReLU",
+      "MaxPool2d(2)",
+      "Flatten",
+      "Linear(64*7*7,128)",
+      "ReLU",
+      "Dropout(0.3)",
+      "Linear(128,10)"
+    ]
+  },
+  "config": {
+    "data_dir": "C:\\Users\\毛守坤\\Desktop\\Handwritten-Digit-Recognition\\model-service\\data",
+    "output_dir": "C:\\Users\\毛守坤\\Desktop\\Handwritten-Digit-Recognition\\model-service\\weights\\w1-full",
+    "download": false,
+    "epochs": 3,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "seed": 42,
+    "device": "cpu",
+    "num_workers": 0,
+    "threads": 2,
+    "train_limit": null,
+    "test_limit": null
+  },
+  "optimizer": "Adam",
+  "loss": "CrossEntropyLoss",
+  "data": {
+    "name": "MNIST",
+    "format": "raw IDX (torchvision; legacy pickle cache disabled)",
+    "split": "official train/test",
+    "train_size": 60000,
+    "test_size": 10000,
+    "full_train_size": 60000,
+    "full_test_size": 10000,
+    "subset": false,
+    "scope": "full",
+    "subset_selection": null,
+    "normalization": {
+      "mean": [
+        0.1307
+      ],
+      "std": [
+        0.3081
+      ]
+    }
+  },
+  "device": "cpu",
+  "seed": 42,
+  "environment": {
+    "python": "3.11.16",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "torch": "2.5.1+cpu",
+    "torchvision": "0.20.1+cpu",
+    "numpy": "1.26.4",
+    "cuda_runtime": null,
+    "cudnn": null,
+    "device_name": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "torch_threads": 2,
+    "torch_interop_threads": 24,
+    "deterministic_algorithms": true
+  },
+  "started_at_utc": "2026-10-28T05:11:43.179388+00:00",
+  "finished_at_utc": "2026-10-28T05:12:44.239077+00:00",
+  "duration_seconds": 61.05905059998622,
+  "epochs": [
+    {
+      "epoch": 1,
+      "train_loss": 0.16794088423127929,
+      "test_loss": 0.050140694347210225,
+      "test_accuracy": 0.9836,
+      "duration_seconds": 20.25659689999884
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.056592370696986714,
+      "test_loss": 0.03292559502841905,
+      "test_accuracy": 0.9899,
+      "duration_seconds": 20.342625399993267
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.04071589675905804,
+      "test_loss": 0.026385475833062083,
+      "test_accuracy": 0.991,
+      "duration_seconds": 20.36392709997017
+    }
+  ],
+  "accuracy_unit": "fraction (0 to 1)",
+  "checkpoint": "checkpoint.pt",
+  "checkpoint_selection": "final_epoch",
+  "checkpoint_reload_verified": true
+}
