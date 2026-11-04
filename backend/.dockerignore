@@ -2,3 +2,7 @@ target/
 .idea/
 *.iml
 .git/
+*.log
+.env
+.env.*
+!.env.example

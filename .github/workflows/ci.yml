@@ -11,6 +11,23 @@ jobs:
   backend:
     name: Spring Boot
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-ephemeral-password
+          MYSQL_ROOT_HOST: "%"
+          MYSQL_DATABASE: hdr_w2_it_template
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      # Disposable runner-only server; never reused outside this job.
+      W2_MYSQL_TEST_URL: jdbc:mysql://127.0.0.1:3306/hdr_w2_it_template?serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false
+      W2_MYSQL_TEST_USERNAME: root
+      W2_MYSQL_TEST_PASSWORD: ci-only-ephemeral-password
     defaults:
       run:
         working-directory: backend
@@ -21,8 +38,8 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: maven
-      - name: Test and package
-        run: mvn -B verify
+      - name: Test, migrate isolated MySQL schemas, and package
+        run: mvn -B -Pmysql-it verify
 
   model-service:
     name: Flask model service
@@ -43,9 +60,11 @@ jobs:
         run: pytest -q
       - name: Test training CLI configuration without model dependencies
         run: pytest -c pytest-training.ini tests_training/test_training_config.py -q
+      - name: Test maintenance query guards without database access
+        run: python -I ../scripts/tests/test_pilot_maintenance.py
 
   frontend:
-    name: Vue admin
+    name: Vue SaaS web
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -56,14 +75,14 @@ jobs:
         with:
           node-version: "22"
       - name: Install
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Test
         run: npm test
       - name: Build
         run: npm run build
 
   miniprogram:
-    name: Mini program prototype
+    name: Mini program logic (not device acceptance)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -75,3 +94,5 @@ jobs:
           node-version: "22"
       - name: Test drawing and session logic
         run: npm test
+      - name: Test pilot source packaging with synthetic fixtures
+        run: node --test ../scripts/tests/pilot-release.test.mjs

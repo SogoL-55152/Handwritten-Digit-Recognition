@@ -1,15 +1,39 @@
 <view class="page">
   <view class="header">
-    <view>
+    <view class="header-title">
       <view class="title">手写数字识别</view>
-      <view class="subtitle">W1 本地画板 · 识别功能待实现</view>
+      <view class="subtitle">在画板写一个 0–9 的数字</view>
     </view>
-    <text class="logout" bindtap="logout">退出</text>
+    <button wx:if="{{authorized}}" class="logout" bindtap="logout">退出</button>
   </view>
-
-  <view class="placeholder">
-    <view class="placeholder-title">欢迎，{{user.nickname || user.username || '同学'}}</view>
-    <view class="placeholder-desc">W1 已提供独立本地画板，仅支持书写和 PNG 导出预览。识别与历史记录尚未接入，业务功能仍需登录。</view>
-    <button class="prototype-btn" bindtap="openDrawingPrototype">打开 W1 本地画板</button>
+  <view class="error" wx:if="{{configurationError}}">{{configurationError}}</view>
+  <view class="links">
+    <button bindtap="openAccount">账号</button>
+    <button bindtap="openHelp">帮助</button>
+    <button bindtap="openPrivacy">隐私</button>
+  </view>
+  <view class="card" wx:if="{{loading}}">正在加载…</view>
+  <view class="error" wx:if="{{error}}">{{error}}</view>
+  <button wx:if="{{error && !configurationError}}" bindtap="onShow">重试</button>
+  <view wx:if="{{authorized}}">
+    <view class="card" wx:if="{{!pilot}}">
+      <view class="welcome">欢迎，{{user.nickname || user.username}}</view>
+      <picker range="{{workspaces}}" range-key="name" value="{{workspaceIndex}}" bindchange="onWorkspaceChange" disabled="{{!workspaces.length}}">
+        <view class="workspace">{{workspace ? workspace.name : '请选择空间'}} · 点击切换</view>
+      </picker>
+      <view class="note" wx:if="{{spaceLoading}}">正在切换…</view>
+    </view>
+    <view wx:if="{{workspaceReady}}">
+      <drawing-board id="business-board" simple="{{true}}" bind:change="onDrawingChange" />
+      <button class="recognize" bindtap="recognize" loading="{{recognizing}}" disabled="{{!hasInk || recognizing}}">{{recognizing ? '正在识别…' : '识别这个数字'}}</button>
+      <view class="note">每次写一个数字，再点击识别。</view>
+      <view class="error" wx:if="{{recognitionError}}">{{recognitionError}}</view>
+      <view class="card result" wx:if="{{result}}">
+        <view class="welcome">识别数字：{{result.digit}}</view>
+        <view>置信度：{{result.confidencePercent}}%</view>
+        <view>耗时：{{result.processingMs}} ms</view>
+        <view class="note">置信度是本次预测的评分，不是整体准确率。</view>
+      </view>
+    </view>
   </view>
 </view>

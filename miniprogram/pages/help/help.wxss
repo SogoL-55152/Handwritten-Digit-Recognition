@@ -1,0 +1,4 @@
+@import "../index/index.wxss";
+.card { font-size: 28rpx; line-height: 1.9; overflow-wrap: anywhere; }
+.section { margin-top: 28rpx; font-weight: 600; }
+button { margin-top: 20rpx; font-size: 28rpx; }

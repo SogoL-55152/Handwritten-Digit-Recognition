@@ -4,7 +4,7 @@ import { isUnauthorized } from '../auth/session.js'
 // Hooks are injected at app startup. HTTP code never imports the store or router.
 export function createRequest({ hooks = {}, adapter } = {}) {
   const client = axios.create({
-    baseURL: '/api',
+    baseURL: '/api/v2',
     timeout: 20000,
     ...(adapter ? { adapter } : {})
   })
@@ -31,14 +31,19 @@ export function createRequest({ hooks = {}, adapter } = {}) {
   client.interceptors.response.use(
     (response) => {
       const body = response.data
-      if (!body || typeof body.code !== 'number') return body
-      if (body.code === 0) return body.data
-      const error = new Error(body.message || '请求失败')
-      error.code = body.code
+      if (body && body.code === 0) return body.data
+      const error = new Error(body?.message || '服务器返回了无效响应，请稍后重试')
+      error.code = body?.code
       error.status = response.status
+      error.data = body?.data
+      error.retryAfter = response.headers?.['retry-after']
       return reject(error, response.config)
     },
     (error) => {
+      error.status = error.response?.status
+      error.code = error.response?.data?.code
+      error.data = error.response?.data?.data
+      error.retryAfter = error.response?.headers?.['retry-after']
       error.message = error.response?.data?.message || error.message || '网络异常，请稍后重试'
       return reject(error, error.config)
     }

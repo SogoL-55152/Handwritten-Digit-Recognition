@@ -35,10 +35,15 @@ public class JwtUtil {
     }
 
     public Claims parse(String token) {
-        return Jwts.parser()
+        Claims claims = Jwts.parser()
                 .verifyWith(key)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+        // Even with a deployment key mistake, a v2/session token is not a legacy credential.
+        if (claims.containsKey("ver") || claims.containsKey("sid") || claims.getAudience() != null) {
+            throw new io.jsonwebtoken.JwtException("Not a legacy token");
+        }
+        return claims;
     }
 }

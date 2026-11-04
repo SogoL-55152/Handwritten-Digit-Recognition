@@ -11,6 +11,11 @@ load_dotenv(BASE_DIR / ".env")
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "hdr-model-service-dev")
     PORT = int(os.getenv("PORT", "5001"))
+    HOST = os.getenv("HOST", "127.0.0.1")
+    MODEL_INTERNAL_TOKEN = os.getenv("MODEL_INTERNAL_TOKEN", "")
+    MODEL_CHECKPOINT_PATH = Path(os.getenv(
+        "MODEL_CHECKPOINT_PATH", BASE_DIR / "weights" / "w1-full" / "checkpoint.pt"
+    ))
 
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
@@ -21,6 +26,4 @@ class Config:
 
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024
 
-
-Config.WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-Config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+# Web 进程只读已有权重，不在导入时创建目录（只读挂载同样可运行）。

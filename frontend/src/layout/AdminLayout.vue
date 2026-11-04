@@ -1,147 +1,54 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
-import { useUserStore } from '@/stores/user'
+import { useUserStore } from '@/stores/user.js'
+import { useWorkspaceStore } from '@/stores/workspace.js'
+import { appConfig } from '@/app-config.js'
+import { navigationLinks } from '@/router/routes.js'
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
-
-// 各成员按模块向菜单追加条目，例如 { path: '/users', label: '用户管理' }
-const menuItems = computed(() => [{ path: '/home', label: '首页' }])
-
-const activeMenu = computed(() => route.path)
-const pageTitle = computed(() => route.meta.title || '')
-
-async function handleLogout() {
-  try {
-    await ElMessageBox.confirm('确定退出登录吗？', '提示', { type: 'warning' })
-  } catch {
-    return
-  }
-  userStore.logout()
-  await router.replace('/login')
+const user = useUserStore()
+const workspace = useWorkspaceStore()
+const pilot = appConfig.pilot
+const links = computed(() => navigationLinks({ pilot, superAdmin: user.isSuperAdmin }))
+const needsWorkspace = computed(() => !pilot || route.path === '/recognize')
+watch(() => user.isAuthenticated, (authenticated) => {
+  if (authenticated && !workspace.active && !workspace.loading) void workspace.load()
+}, { immediate: true })
+function logout() {
+  void user.logout()
+  void router.replace('/login')
 }
 </script>
 
 <template>
-  <el-container class="layout">
-    <el-aside width="220px" class="sidebar">
-      <div class="brand">
-        <span class="brand-dot" />
-        <span>手写数字识别</span>
-      </div>
-      <el-menu :default-active="activeMenu" router class="menu">
-        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
-          {{ item.label }}
-        </el-menu-item>
-      </el-menu>
-      <div class="sidebar-foot">v0.1 · W1 骨架</div>
-    </el-aside>
-
-    <el-container>
-      <el-header class="header">
-        <div class="header-title">{{ pageTitle }}</div>
-        <el-dropdown>
-          <span class="user-trigger">{{ userStore.displayName }} ▾</span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item disabled>
-                {{ userStore.user?.role === 'ADMIN' ? '管理员' : '普通用户' }}
-              </el-dropdown-item>
-              <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </el-header>
-
-      <el-main class="main">
+  <div class="app-layout">
+    <aside class="sidebar">
+      <router-link class="brand" to="/"><span class="brand-mark">D</span> Digit Studio</router-link>
+      <p class="nav-label">{{ pilot ? '基础体验版' : '工作台' }}</p>
+      <nav :aria-label="pilot ? '体验版导航' : '工作台导航'"><router-link v-for="[path, label] in links" :key="path" :to="path">{{ label }}</router-link></nav>
+      <div v-if="pilot" class="sidebar-foot"><strong>写一个数字，查看结果</strong><p>遇到问题请联系维护者</p><router-link to="/">公开门户</router-link></div>
+      <div v-else class="sidebar-foot"><strong>W2 · 真实识别</strong><p>训练提交与可视化尚未开放</p><router-link to="/">公开门户</router-link></div>
+    </aside>
+    <div class="app-body">
+      <header class="app-header">
+        <p v-if="pilot" class="muted">个人画板 · 默认空间自动核验</p>
+        <label v-else class="space-select">当前空间
+          <select aria-label="当前空间" :value="workspace.active?.id || ''" :disabled="workspace.loading || workspace.creating" @change="workspace.select($event.target.value)">
+            <option value="" disabled>{{ workspace.loading || workspace.selecting ? '核验空间中…' : '请选择空间' }}</option>
+            <option v-for="item in workspace.items" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </label>
+        <div class="account"><span>{{ user.displayName }}<small v-if="!pilot">{{ user.isSuperAdmin ? 'SUPER_ADMIN · 平台运营' : 'USER · 普通账号' }}</small></span><button @click="logout">退出登录</button></div>
+      </header>
+      <main class="main-content">
+        <div class="page-heading"><div><p class="eyebrow">{{ pilot ? 'DIGIT STUDIO / 基础体验版' : `DIGIT STUDIO / ${workspace.active?.role || '未选择空间'}` }}</p><h1>{{ route.meta.title }}</h1></div><span v-if="workspace.active && !pilot" class="tag">{{ workspace.active.name }}</span></div>
+        <p v-if="needsWorkspace && (workspace.loading || workspace.selecting)" class="notice" role="status">正在向服务器核验空间成员资格…</p>
+        <div v-if="needsWorkspace && workspace.error" class="notice error" role="alert">{{ workspace.error }} <button :disabled="workspace.loading" @click="workspace.load()">重新加载空间</button></div>
+        <p v-if="needsWorkspace && !workspace.active && !workspace.loading && !workspace.selecting && route.path !== '/home' && route.path !== '/platform'" class="notice"><template v-if="pilot">默认空间尚未核验通过，暂不可识别。请重新加载或<router-link to="/help">联系维护者</router-link>。</template><template v-else>请选择有效空间后使用此功能。<router-link to="/home">管理我的空间</router-link></template></p>
         <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
-
-<style scoped>
-.layout {
-  height: 100vh;
-}
-
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #e6eaf2;
-  background: #ffffff;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 64px;
-  padding: 0 22px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #1f2d3d;
-}
-
-.brand-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--hdr-primary);
-  box-shadow: 0 0 0 4px rgba(59, 110, 246, 0.15);
-}
-
-.menu {
-  flex: 1;
-  border-right: none;
-  padding: 8px;
-}
-
-.menu :deep(.el-menu-item) {
-  height: 44px;
-  margin-bottom: 4px;
-  border-radius: 8px;
-  color: #4a5568;
-}
-
-.menu :deep(.el-menu-item.is-active) {
-  background: #eef3ff;
-  color: var(--hdr-primary);
-  font-weight: 600;
-}
-
-.sidebar-foot {
-  padding: 16px 22px;
-  font-size: 12px;
-  color: #a0a8b8;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 64px;
-  background: #ffffff;
-  border-bottom: 1px solid #e6eaf2;
-}
-
-.header-title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.user-trigger {
-  cursor: pointer;
-  color: #4a5568;
-  outline: none;
-}
-
-.main {
-  padding: 0;
-  background: var(--hdr-bg);
-  overflow-y: auto;
-}
-</style>
