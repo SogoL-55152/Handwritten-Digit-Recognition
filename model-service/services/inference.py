@@ -1,4 +1,5 @@
 """W2 只读 CPU 推理。导入此模块/创建 Flask app 不加载 torch 或权重。"""
+from dataclasses import dataclass
 import hashlib
 import io
 import logging
@@ -15,10 +16,33 @@ class ModelUnavailable(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class Artifact:
+    """一个可信模型文件及其身份；摘要与大小在加载时强制校验。"""
+
+    path: Path
+    sha256: str
+    size_bytes: int
+    model_id: str
+    version: str
+    preprocess_version: str
+
+    def identity(self):
+        return {"modelId": self.model_id, "modelVersion": self.version,
+                "preprocessVersion": self.preprocess_version}
+
+
+def artifact_from_manifest(path):
+    """用冻结的 W1 清单构造 Artifact，供单模型调用方与历史测试使用。"""
+    return Artifact(Path(path), BASELINE.sha256, BASELINE.checkpoint_bytes,
+                    BASELINE.model_id, BASELINE.model_version, BASELINE.preprocess_version)
+
+
 class InferenceService:
-    def __init__(self, checkpoint_path, policy=None):
+    def __init__(self, checkpoint_path, policy=None, artifact=None):
         self.policy = policy if policy is not None else AcceptancePolicy()
-        self._checkpoint_path = Path(checkpoint_path)
+        self.artifact = artifact if artifact is not None else artifact_from_manifest(checkpoint_path)
+        self._checkpoint_path = Path(self.artifact.path)
         self._load_lock = threading.Lock()
         self._load_attempted = False
         self._model = None
@@ -32,10 +56,10 @@ class InferenceService:
                 try:
                     # 同一份有界 bytes 完成摘要验证与反序列化，防止验证/加载路径竞态。
                     with self._checkpoint_path.open("rb") as stream:
-                        payload = stream.read(BASELINE.checkpoint_bytes + 1)
-                    if len(payload) != BASELINE.checkpoint_bytes:
+                        payload = stream.read(self.artifact.size_bytes + 1)
+                    if len(payload) != self.artifact.size_bytes:
                         raise ValueError("checkpoint size mismatch")
-                    if hashlib.sha256(payload).hexdigest() != BASELINE.sha256:
+                    if hashlib.sha256(payload).hexdigest() != self.artifact.sha256:
                         raise ValueError("checkpoint digest mismatch")
                     import torch
                     from models.cnn import ARCHITECTURE
@@ -44,7 +68,7 @@ class InferenceService:
                     if ARCHITECTURE != BASELINE.architecture():
                         raise ValueError("manifest architecture mismatch")
                     model, metadata = load_checkpoint(io.BytesIO(payload), device="cpu")
-                    if metadata.get("epoch") != 3 or metadata.get("checkpoint_selection") != "final_epoch":
+                    if metadata.get("checkpoint_selection") != "final_epoch":
                         raise ValueError("checkpoint selection mismatch")
                     self._torch = torch
                     self._model = model
@@ -53,7 +77,7 @@ class InferenceService:
                     logger.warning("Baseline unavailable (%s)", type(exc).__name__)
             if self._model is None:
                 raise ModelUnavailable("可信基线未就绪，请检查服务配置后重启")
-        return {"status": "UP", **BASELINE.identity(), "sha256": BASELINE.sha256}
+        return {"status": "UP", **self.artifact.identity(), "sha256": self.artifact.sha256}
 
     def probabilities(self, normalized):
         self.ensure_ready()

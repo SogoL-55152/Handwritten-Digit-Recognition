@@ -1,4 +1,5 @@
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 function nativeUuid(result) {
   const value = result && result.randomValues
@@ -93,12 +94,17 @@ function validWorkspace(value) {
     value.status === 'ACTIVE')
 }
 
+function modelToken(value) {
+  // W3：模型版本由服务端决定，客户端只校验形状；允许/拒绝由服务端注册表与数据库裁决。
+  return typeof value === 'string' && MODEL_TOKEN.test(value)
+}
+
 function validateResult(result, requestId) {
   if (!result || result.requestId !== requestId || typeof result.recognitionId !== 'string' || !result.recognitionId ||
       !Number.isInteger(result.digit) || result.digit < 0 || result.digit > 9 ||
       !Number.isFinite(result.confidence) || result.confidence < 0 || result.confidence > 1 ||
-      typeof result.modelId !== 'string' || !result.modelId || result.modelVersion !== 'w2-canvas-photo-3epoch' ||
-      result.preprocessVersion !== 'adaptive-mnist-v2' || result.source !== 'MINIPROGRAM' ||
+      !modelToken(result.modelId) || !modelToken(result.modelVersion) || !modelToken(result.preprocessVersion) ||
+      result.source !== 'MINIPROGRAM' ||
       !Number.isFinite(result.processingMs) || result.processingMs < 0 ||
       typeof result.createdAt !== 'string' || !Number.isFinite(Date.parse(result.createdAt))) {
     throw new Error('识别响应与请求或基线合同不一致，请重新操作')

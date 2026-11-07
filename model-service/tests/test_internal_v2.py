@@ -1,5 +1,7 @@
 """Lightweight Flask contract tests; fake predictor is test-only, not an accuracy claim."""
 from io import BytesIO
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +18,25 @@ from services.inference_manifest import BASELINE, IMAGE_MAX_BYTES, REQUEST_MAX_B
 TOKEN = "local-test-internal-token-not-a-real-secret"
 RID = "f740afce-7fd9-4b81-89d0-a08de3a55fe3"
 HEADERS = {"X-HDR-Internal-Token": TOKEN}
+ARTIFACT = b"test-only-artifact-bytes-not-a-real-checkpoint"
+
+
+def registry_entry(**overrides):
+    identity = BASELINE.identity()
+    entry = {"modelId": identity["modelId"], "version": identity["modelVersion"],
+             "preprocessVersion": identity["preprocessVersion"], "artifact": "models/m.pt",
+             "sha256": hashlib.sha256(ARTIFACT).hexdigest(), "sizeBytes": len(ARTIFACT)}
+    entry.update(overrides)
+    return entry
+
+
+def write_registry(root, entries):
+    artifact = root / "models" / "m.pt"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(ARTIFACT)
+    path = root / "registry.json"
+    path.write_text(json.dumps({"models": entries}), encoding="utf-8")
+    return path
 
 
 def png():
@@ -43,7 +64,9 @@ def form(**overrides):
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app({"TESTING": True, "MODEL_INTERNAL_TOKEN": TOKEN, "MODEL_CHECKPOINT_PATH": tmp_path / "missing.pt"})
+    return create_app({"TESTING": True, "MODEL_INTERNAL_TOKEN": TOKEN,
+                       "MODEL_REGISTRY_PATH": write_registry(tmp_path, [registry_entry()]),
+                       "WEIGHTS_DIR": tmp_path})
 
 
 @pytest.fixture
@@ -59,9 +82,12 @@ def fake(app):
         return 7, 0.9
     service = SimpleNamespace(
         slots=threading.BoundedSemaphore(2), predict=predict,
-        ensure_ready=lambda: {"status": "UP", **BASELINE.identity(), "sha256": BASELINE.sha256},
+        ensure_ready=lambda: {"status": "UP", **BASELINE.identity(), "sha256": "test"},
+        artifact=SimpleNamespace(identity=BASELINE.identity),
     )
-    app.extensions["inference_service"] = service
+    registry = app.extensions["model_registry"]
+    registry._service_factory = lambda *args, **kwargs: service
+    registry._services = {}
     return calls
 
 
@@ -82,17 +108,60 @@ def test_missing_token_configuration_fails_closed(app, token):
     assert response.json["data"]["category"] == "NOT_CONFIGURED"
 
 
-def test_ready_exact_schema(client, fake):
+def fake_service(app):
+    """取注册表为该模型创建的服务实例（测试里已被替换成假实现）。"""
+    identity = BASELINE.identity()
+    return app.extensions["model_registry"].service(identity["modelId"], identity["modelVersion"],
+                                                     identity["preprocessVersion"])
+
+
+def test_ready_reports_verified_model(client, fake):
     response = client.get("/internal/v2/ready", headers=HEADERS)
     assert response.status_code == 200
-    assert response.json == {"code": 0, "message": "ok", "data": {"status": "UP", **BASELINE.identity(), "sha256": BASELINE.sha256}}
+    data = response.json["data"]
+    assert data["status"] == "UP" and data["verifiedModels"] == 1
+    assert data["registry"] == "registry.json"
+    entry = data["models"][0]
+    assert {key: entry[key] for key in ("modelId", "modelVersion", "preprocessVersion")} == BASELINE.identity()
+    assert entry["verified"] is True
 
 
-def test_missing_checkpoint_returns_sanitized_503(client):
-    response = client.get("/internal/v2/ready", headers=HEADERS)
+def test_missing_registry_returns_sanitized_503(tmp_path):
+    app = create_app({"TESTING": True, "MODEL_INTERNAL_TOKEN": TOKEN,
+                      "MODEL_REGISTRY_PATH": tmp_path / "secret-registry.json", "WEIGHTS_DIR": tmp_path})
+    response = app.test_client().get("/internal/v2/ready", headers=HEADERS)
     assert response.status_code == 503
-    assert "missing.pt" not in response.get_data(as_text=True)
-    assert TOKEN not in response.get_data(as_text=True)
+    body = response.get_data(as_text=True)
+    assert "secret-registry.json" not in body and TOKEN not in body
+
+
+def test_digest_mismatch_is_not_usable(tmp_path, client=None, fake=None):
+    entry = registry_entry(sha256="0" * 64)
+    app = create_app({"TESTING": True, "MODEL_INTERNAL_TOKEN": TOKEN,
+                      "MODEL_REGISTRY_PATH": write_registry(tmp_path, [entry]), "WEIGHTS_DIR": tmp_path})
+    probe = app.test_client()
+    assert probe.get("/internal/v2/ready", headers=HEADERS).status_code == 503
+    listed = probe.get("/internal/v2/models", headers=HEADERS).json["data"]["models"]
+    assert listed[0]["verified"] is False and listed[0]["reason"] == "RegistryInvalid"
+    rejected = probe.post("/internal/v2/predict", headers=HEADERS, data=form())
+    assert rejected.status_code == 400 and rejected.json["data"]["category"] == "MODEL_NOT_ALLOWED"
+
+
+def test_models_listing_and_reload(client, fake):
+    listed = client.get("/internal/v2/models", headers=HEADERS)
+    assert listed.status_code == 200
+    assert [entry["verified"] for entry in listed.json["data"]["models"]] == [True]
+    reloaded = client.post("/internal/v2/models/reload", headers=HEADERS)
+    assert reloaded.status_code == 200 and reloaded.json["data"]["models"][0]["verified"] is True
+    with_query = client.post("/internal/v2/models/reload?x=1", headers=HEADERS)
+    assert with_query.status_code == 400
+
+
+def test_unknown_model_version_is_rejected(client, fake):
+    response = client.post("/internal/v2/predict", headers=HEADERS,
+                           data=form(modelVersion="not-registered"))
+    assert response.status_code == 400 and response.json["data"]["category"] == "MODEL_NOT_ALLOWED"
+    assert not fake
 
 
 def test_predict_exact_schema(client, fake):
@@ -183,7 +252,7 @@ def test_large_valid_png_below_five_mib_is_accepted(client, fake):
 
 def test_uncertain_prediction_is_422_without_a_guessed_digit_and_releases_slot(app, client, fake):
     from services.inference_policy import UncertainPrediction, REJECTION_MESSAGE
-    service = app.extensions["inference_service"]
+    service = fake_service(app)
     service.predict = lambda _normalized: (_ for _ in ()).throw(UncertainPrediction("low_score"))
     response = client.post("/internal/v2/predict", headers=HEADERS, data=form())
     assert response.status_code == 422
@@ -206,7 +275,7 @@ def test_blank_http_error(client, fake):
 
 
 def test_concurrency_limit_and_slot_release(app, client, fake):
-    service = app.extensions["inference_service"]
+    service = fake_service(app)
     assert service.slots.acquire(False) and service.slots.acquire(False)
     try:
         response = client.post("/internal/v2/predict", headers=HEADERS, data=form())
@@ -225,7 +294,7 @@ def test_concurrency_limit_and_slot_release(app, client, fake):
 
 @pytest.mark.parametrize("exception,status", [(ModelUnavailable("不可用"), 503), (RuntimeError("secret/path.pt"), 500)])
 def test_inference_failure_sanitized_and_releases_slot(app, client, fake, exception, status):
-    service = app.extensions["inference_service"]
+    service = fake_service(app)
     def fail(_normalized):
         raise exception
     service.predict = fail
@@ -262,7 +331,7 @@ class NoTorch:
             raise AssertionError('Unexpected heavyweight import: ' + fullname)
 sys.meta_path.insert(0, NoTorch())
 from app import create_app
-app = create_app({'MODEL_INTERNAL_TOKEN': 'test', 'MODEL_CHECKPOINT_PATH': '/missing.pt'})
+app = create_app({'MODEL_INTERNAL_TOKEN': 'test', 'MODEL_REGISTRY_PATH': '/missing-registry.json', 'WEIGHTS_DIR': '/'})
 assert app.test_client().get('/api/v1/health').status_code == 200
 assert app.test_client().get('/internal/v2/ready', headers={'X-HDR-Internal-Token':'test'}).status_code == 503
 assert 'torch' not in sys.modules and 'torchvision' not in sys.modules

@@ -14,7 +14,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 PORTS = {"mysql": 13316, "backend": 8080, "model": 5001, "web": 5173}
-CHECKPOINT_SHA = "72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa"
+MODEL_WEIGHTS = ROOT / "model-service/weights"
 ENV_KEYS = {"DB_URL", "DB_USERNAME", "DB_PASSWORD", "V2_JWT_SECRET", "JWT_SECRET",
             "MODEL_INTERNAL_TOKEN", "V2_JWT_EXPIRE_HOURS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
             "PILOT_REGISTRATION_CODE", "PILOT_OPERATOR", "PILOT_CONTACT", "PILOT_PRIVACY_VERSION"}
@@ -56,7 +56,8 @@ def environment(args):
     env = dict(os.environ, **private_environment(args.env_file))
     env.update({"SERVER_ADDRESS": "127.0.0.1", "SERVER_PORT": "8080",
                 "HOST": "127.0.0.1", "PORT": "5001", "MODEL_SERVICE_URL": "http://127.0.0.1:5001",
-                "MODEL_CHECKPOINT_PATH": str(ROOT / "model-service/weights/w2-canvas-photo/checkpoint.pt"),
+                "MODEL_REGISTRY_PATH": str(MODEL_WEIGHTS / "registry.json"),
+                "WEIGHTS_DIR": str(MODEL_WEIGHTS),
                 "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2",
                 "HDR_LEGACY_AUTH_ENABLED": "false", "HDR_LEGACY_BOOTSTRAP_ENABLED": "false",
                 "SPRING_PROFILES_ACTIVE": "default" if args.allow_development_registration else "pilot",
@@ -126,7 +127,10 @@ def check(env):
             raise ValueError("Missing internal token")
         _, raw = fetch("http://127.0.0.1:5001/internal/v2/ready", {"X-HDR-Internal-Token": env["MODEL_INTERNAL_TOKEN"]})
         body = json.loads(raw)
-        result["model"]["trustedReady"] = body.get("code") == 0 and body.get("data", {}).get("status") == "UP" and body["data"].get("sha256") == CHECKPOINT_SHA
+        data = body.get("data", {}) if body.get("code") == 0 else {}
+        # 多模型：只要注册表里至少有一个通过摘要校验的模型就算可信就绪。
+        result["model"]["trustedReady"] = data.get("status") == "UP" and int(data.get("verifiedModels", 0)) >= 1
+        result["model"]["verifiedModels"] = int(data.get("verifiedModels", 0))
     except Exception:
         result["model"]["trustedReady"] = False
     try:

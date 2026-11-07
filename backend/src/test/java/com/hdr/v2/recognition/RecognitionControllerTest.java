@@ -44,7 +44,7 @@ class RecognitionControllerTest {
         for (String source : new String[]{"WEB", "MINIPROGRAM"}) {
             when(service.predict(eq(1L), eq(2L), eq(REQUEST), eq(source), any())).thenReturn(
                     new RecognitionService.Recognition("9007199254740993", REQUEST, 7, .98, "1",
-                            ModelClient.VERSION, ModelClient.PREPROCESS, source, 12, "2026-11-02T00:00:00Z"));
+                            "w2-canvas-photo-3epoch", "adaptive-mnist-v2", source, 12, "2026-11-02T00:00:00Z"));
             mvc.perform(multipart(PATH).file(image).param("source", source)
                             .header("Authorization", "Bearer valid").header("Idempotency-Key", REQUEST.toUpperCase()))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.data.digit").value(7))

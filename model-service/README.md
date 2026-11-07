@@ -25,7 +25,7 @@ python -I serve.py                  # Waitress，默认 127.0.0.1:5001
 ```
 
 - `MODEL_INTERNAL_TOKEN` 必填，使用足够长的随机共享密钥；不写进 Git、前端、小程序或镜像。未配置时两个内部入口都返回 503；错误凭据返回 401。比较使用常量时间函数，解析上传前先鉴权。
-- `MODEL_CHECKPOINT_PATH` 只能由服务端环境配置，默认是源码目录下 `weights/w2-canvas-photo/checkpoint.pt`；推荐绝对路径。不能从 multipart、查询参数、URL 或文件名选择路径。缺权重、摘要/大小不符、加载失败均 503，不降级随机网络或 smoke 权重。
+- `WEIGHTS_DIR` 与 `MODEL_REGISTRY_PATH` 只能由服务端环境配置，默认是源码目录下 `weights/` 与 `weights/registry.json`。注册表里每个 artifact 只能是 WEIGHTS_DIR 内的相对路径；多模型由注册表声明。不能从 multipart、查询参数、URL 或文件名选择路径。缺文件、摘要/大小不符、加载失败均 503，不降级随机网络或 smoke 权重。
 - 本地 `HOST=127.0.0.1`；容器 Dockerfile 显式 `HOST=0.0.0.0`，不要将模型端口发布到公网，浏览器 CORS 不对内部路由开放。内部认证不是最终用户授权，workspaceId 权限仍由 Java 检查。
 - `serve.py` 使用单进程 Waitress，4 个请求线程、最多 32 个连接，推理/解码并发严格限制为 2；额外推理返回 429 `MODEL_BUSY`、`Retry-After: 1`。设置 `OMP_NUM_THREADS=2`、`MKL_NUM_THREADS=2` 限制 CPU 线程；多进程会各自加载模型并拥有独立的并发预算，不应在 W2 随意增加 worker。
 - 首次鉴权 readiness/预测按需加载一次，重用 `services/mnist_training.py::load_checkpoint` 的 `weights_only=True`、架构校验、strict state_dict 和 eval 行为；torch/torchvision 均不在 Flask 导入时加载，推理不导入 torchvision。仅经固定 SHA 验证的同一份有界 bytes 传给加载器，避免摘要校验与重开路径之间的替换。运行 torch.inference_mode；加载失败缓存，修复配置/文件后需重启。
@@ -99,8 +99,8 @@ python -I train_canvas_aug.py --data-dir data/MNIST/raw --emnist-zip <本地>/gz
 ```bash
 docker build -t hdr-model-w2 .
 docker run --rm --network hdr-internal \
-  -e MODEL_INTERNAL_TOKEN -e MODEL_CHECKPOINT_PATH=/weights/checkpoint.pt \
-  --mount type=bind,source=/absolute/trusted/checkpoint.pt,target=/weights/checkpoint.pt,readonly \
+  -e MODEL_INTERNAL_TOKEN -e WEIGHTS_DIR=/weights -e MODEL_REGISTRY_PATH=/weights/registry.json \
+  --mount type=bind,source=/absolute/trusted/weights,target=/weights,readonly \
   hdr-model-w2
 ```
 

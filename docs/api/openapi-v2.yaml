@@ -756,6 +756,188 @@ paths:
           $ref: '#/components/responses/JavaDatabaseUnavailable'
         default:
           $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models:
+    get:
+      tags: [AdminModels]
+      operationId: listAdminModels
+      summary: 模型管理列表（SUPER_ADMIN）
+      description: |
+        返回全部 PUBLIC 模型行（含 INACTIVE / DISABLED）。verified 表示模型服务的本地
+        registry.json 中该文件是否通过大小与 SHA-256 校验；verified=false 的模型不能激活。
+      responses:
+        '200':
+          description: 模型行与注册表校验状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelListResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '502':
+          $ref: '#/components/responses/JavaOtherError'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/register:
+    post:
+      tags: [AdminModels]
+      operationId: registerAdminModel
+      summary: 从模型服务注册表登记模型（SUPER_ADMIN）
+      description: |
+        请求只给 externalId 与 version；sha256、大小、artifact 与预处理版本一律取自模型服务
+        的本地注册表，不能由客户端自报。先让模型服务重载注册表，未通过校验则拒绝登记。
+        新登记的行状态为 INACTIVE，不会立即改变线上生效模型。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminModelRegisterRequest'
+      responses:
+        '200':
+          description: 已登记（INACTIVE）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/{id}/activate:
+    post:
+      tags: [AdminModels]
+      operationId: activateAdminModel
+      summary: 切换生效模型（SUPER_ADMIN）
+      description: |
+        同一时刻只有一个 PUBLIC 模型为 ACTIVE（数据库唯一索引保证）。激活前要求模型服务
+        注册表中存在同版本、已通过摘要校验且摘要与数据库行一致的文件；否则 409。
+        切换只影响新的识别请求，历史识别记录保留当时的 model_version。
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 已生效的模型
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/{id}/disable:
+    post:
+      tags: [AdminModels]
+      operationId: disableAdminModel
+      summary: 停用模型（SUPER_ADMIN）
+      description: |
+        当前活跃模型不能直接停用（409），必须先激活其他模型，保证任何时刻都有生效模型。
+        已停用模型重新启用需要再次调用 activate。
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 已停用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/{id}:
+    delete:
+      tags: [AdminModels]
+      operationId: deleteAdminModel
+      summary: 删除模型行（SUPER_ADMIN）
+      description: |
+        活跃模型不能删除；已有识别记录引用的模型只能停用不能删除（409 MODEL_IN_USE），
+        避免历史记录指向不存在的模型。文件本身留在服务器权重目录，由管理员处置。
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/registry/reload:
+    post:
+      tags: [AdminModels]
+      operationId: reloadModelRegistry
+      summary: 让模型服务重载本地注册表（SUPER_ADMIN）
+      description: 管理员新增权重文件并写入 registry.json 后调用；返回重载后的注册表视图。不接受任何参数。
+      responses:
+        '200':
+          description: 注册表条目（含校验结果）
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /internal/v2/models:
+    get:
+      tags: [Internal]
+      operationId: listInternalModels
+      summary: 模型服务本地注册表（内部）
+      description: |
+        只有 verified=true 的条目允许推理。响应包含 artifact 相对路径、sha256 与大小；
+        未通过校验的条目带 reason，且不会出现在可推理集合中。
+      responses:
+        '200':
+          description: 注册表视图
+        '401':
+          $ref: '#/components/responses/InternalUnauthorized'
+        '503':
+          $ref: '#/components/responses/InternalUnavailable'
+        default:
+          $ref: '#/components/responses/InternalOtherError'
+  /internal/v2/models/reload:
+    post:
+      tags: [Internal]
+      operationId: reloadInternalModels
+      summary: 重新读取 registry.json（内部）
+      description: 不接受任何参数；返回重载后的注册表视图。
+      responses:
+        '200':
+          description: 注册表视图
+        '400':
+          $ref: '#/components/responses/InternalUnauthorized'
+        '401':
+          $ref: '#/components/responses/InternalUnauthorized'
+        default:
+          $ref: '#/components/responses/InternalOtherError'
   /internal/v2/ready:
     servers:
       - url: http://127.0.0.1:5001
@@ -769,7 +951,7 @@ paths:
         错误/缺失调用凭据返回 401。检查权重大小、SHA256、架构及 epoch/checkpoint_selection。
         固定权重大小 1690340 bytes，摘要见 sha256 字段；无随机权重兜底。
         第一次加载失败会缓存失败状态，修正配置/权重后须重启 Python。
-        检查路径只来自管理员的 MODEL_CHECKPOINT_PATH，不能由请求指定。
+        模型文件由管理员的 weights/registry.json 与 WEIGHTS_DIR 声明，不能由请求指定；多模型注册表为唯一可信来源。
       security:
         - InternalToken: []
       responses:
@@ -915,6 +1097,13 @@ components:
       description: |
         工作空间的十进制数据库字符串 ID。非 Java long 可解析文本或溢出返回 400；
         解析成功但空间不存在/不可访问返回 404，SUPER_ADMIN 不豁免。
+      schema:
+        $ref: '#/components/schemas/DatabaseId'
+    ModelId:
+      name: id
+      in: path
+      required: true
+      description: 模型行的十进制字符串 ID（不是 externalId，也不是模型版本）
       schema:
         $ref: '#/components/schemas/DatabaseId'
     ResourceId:
@@ -1353,13 +1542,14 @@ components:
           $ref: '#/components/schemas/RequestUuid'
         modelId:
           type: string
-          const: mnist-cnn-w1
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+          description: 必须是模型服务本地注册表中已注册且通过摘要校验的模型
         modelVersion:
           type: string
-          const: w2-canvas-photo-3epoch
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         preprocessVersion:
           type: string
-          const: adaptive-mnist-v2
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
     InternalPrediction:
       type: object
       additionalProperties: false
@@ -1380,13 +1570,13 @@ components:
           description: 有限概率值，禁止 NaN/Infinity
         modelId:
           type: string
-          const: mnist-cnn-w1
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         modelVersion:
           type: string
-          const: w2-canvas-photo-3epoch
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         preprocessVersion:
           type: string
-          const: adaptive-mnist-v2
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         processingMs:
           type: integer
           format: int64
@@ -1395,24 +1585,117 @@ components:
     InternalReady:
       type: object
       additionalProperties: false
-      required: [status, modelId, modelVersion, preprocessVersion, sha256]
+      required: [status, verifiedModels, models, registry]
       properties:
         status:
           type: string
           const: UP
+        verifiedModels:
+          type: integer
+          minimum: 1
+          description: 通过大小与 SHA-256 校验、允许推理的模型数量
+        registry:
+          type: string
+          description: 注册表文件名（不含路径）
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegisteredModel'
+    RegisteredModel:
+      type: object
+      additionalProperties: false
+      required: [modelId, modelVersion, preprocessVersion, verified]
+      properties:
         modelId:
           type: string
-          const: mnist-cnn-w1
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         modelVersion:
           type: string
-          const: w2-canvas-photo-3epoch
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         preprocessVersion:
           type: string
-          const: adaptive-mnist-v2
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
         sha256:
           type: string
-          const: 72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa
-          description: 冻结的 1690340-byte checkpoint 的 SHA256；请求不能更改路径或基线
+          pattern: '^[0-9a-f]{64}$'
+        sizeBytes:
+          type: integer
+          format: int64
+        artifact:
+          type: string
+          description: 相对 WEIGHTS_DIR 的路径；未通过校验时为空串
+        verified:
+          type: boolean
+        loaded:
+          type: boolean
+        reason:
+          type: string
+          description: verified=false 时的失败类别；不暴露服务器路径
+    AdminModel:
+      type: object
+      additionalProperties: false
+      required: [id, externalId, version, preprocessVersion, status, verified]
+      properties:
+        id:
+          type: string
+        externalId:
+          type: string
+        version:
+          type: string
+        preprocessVersion:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, DISABLED]
+        accuracy:
+          type: number
+          nullable: true
+        accuracyDataset:
+          type: string
+          nullable: true
+        sha256:
+          type: string
+          nullable: true
+        sizeBytes:
+          type: integer
+          format: int64
+          nullable: true
+        artifact:
+          type: string
+          nullable: true
+        inRegistry:
+          type: boolean
+        verified:
+          type: boolean
+        registryReason:
+          type: string
+    AdminModelResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminModel'
+    AdminModelListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminModel'
+    AdminModelRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [externalId, version]
+      properties:
+        externalId:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        version:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
     SuccessEnvelope:
       type: object
       additionalProperties: false
@@ -1617,6 +1900,15 @@ components:
           schema:
             $ref: '#/components/schemas/JavaError'
           example: {code: 404, message: 空间不存在或不可访问, data: {}}
+    JavaConflict:
+      description: |
+        模型管理状态冲突，HTTP 409。category 取 MODEL_EXISTS / MODEL_NOT_REGISTERED /
+        MODEL_UNVERIFIED / MODEL_DIGEST_MISMATCH / MODEL_ACTIVE / MODEL_IN_USE；不会自动重试。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+          example: {code: 409, message: 数据库与模型文件的摘要不一致, data: {category: MODEL_DIGEST_MISMATCH}}
     JavaUnsupportedMediaType:
       description: 外层请求媒体类型不支持（如识别请求不是 multipart/form-data），HTTP 415，category=VALIDATION
       content:

@@ -568,7 +568,7 @@ for (const category of ['IN_PROGRESS', 'IDEMPOTENCY_CONFLICT', 'REQUEST_FAILED']
 }
 
 for (const patch of [{ digit: 10 }, { confidence: Infinity }, { confidence: -0.1 }, { requestId: 'mismatch' },
-  { modelVersion: 'wrong' }, { recognitionId: 9007199254740992 }, { source: 'WEB' }, { processingMs: NaN }]) {
+  { modelVersion: '' }, { recognitionId: 9007199254740992 }, { source: 'WEB' }, { processingMs: NaN }]) {
   test(`invalid recognition response is not displayed: ${Object.keys(patch)[0]}`, () => {
     const result = resultFor({ header: { 'Idempotency-Key': 'expected' } })
     assert.throws(() => validateResult({ ...result, ...patch }, 'expected'), /合同不一致/)

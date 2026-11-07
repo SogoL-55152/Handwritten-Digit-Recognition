@@ -354,5 +354,7 @@ test('workspace and recognition result validation retain their contract and expo
   assert.deepEqual(validateResult(result, NATIVE_ID), { ...result, confidencePercent: '98.76' })
   assert.throws(() => validateResult(result, SERVER_ID), /合同不一致/)
   assert.throws(() => validateResult({ ...result, digit: 10 }, NATIVE_ID), /合同不一致/)
-  assert.throws(() => validateResult({ ...result, modelVersion: 'other' }, NATIVE_ID), /合同不一致/)
+  // W3：模型版本由服务端决定，客户端只拒绝形状非法的值。
+  assert.throws(() => validateResult({ ...result, modelVersion: '' }, NATIVE_ID), /合同不一致/)
+  assert.ok(validateResult({ ...result, modelVersion: 'another-registered-model' }, NATIVE_ID))
 })

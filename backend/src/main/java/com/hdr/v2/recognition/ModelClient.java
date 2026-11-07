@@ -14,13 +14,19 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * 模型服务客户端。W3 起不再固定单一基线：模型身份来自数据库行，是否允许推理由
+ * 模型服务的本地注册表（摘要校验）决定；这里只做格式、回显一致性与错误映射。
+ */
 @Component
 public class ModelClient {
-    public static final String SHA="72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa";
-    public static final String MODEL="mnist-cnn-w1",VERSION="w2-canvas-photo-3epoch",PREPROCESS="adaptive-mnist-v2";
     public record Prediction(int digit,double confidence) {}
+    public record RegisteredModel(String modelId,String modelVersion,String preprocessVersion,String sha256,
+                                  long sizeBytes,String artifact,boolean verified,boolean loaded,String reason) {}
     private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ModelClient.class);
     private final RestClient client;
     private final ObjectMapper mapper;
@@ -38,22 +44,57 @@ public class ModelClient {
     public ModelClient(RestClient client,ObjectMapper mapper,String internalToken) {
         this.client=client; this.mapper=mapper; this.internalToken=internalToken;
     }
+
+    /** 模型服务本地注册表：只有 verified 的条目允许推理。 */
+    public List<RegisteredModel> registry() {
+        requireConfigured();
+        try {
+            JsonNode data=client.get().uri("/internal/v2/models").header("X-HDR-Internal-Token",internalToken)
+                    .exchange((request,response)->read(response));
+            List<RegisteredModel> models=new ArrayList<>();
+            for(JsonNode node:data.path("models")) {
+                if(!node.path("verified").isBoolean()) throw invalidResponse();
+                models.add(new RegisteredModel(node.path("modelId").asText(""),node.path("modelVersion").asText(""),
+                        node.path("preprocessVersion").asText(""),node.path("sha256").asText(""),
+                        node.path("sizeBytes").asLong(0),node.path("artifact").asText(""),
+                        node.path("verified").asBoolean(false),
+                        node.path("loaded").asBoolean(false),node.path("reason").asText("")));
+            }
+            return models;
+        } catch(V2Exception error) { throw error; }
+        catch(Exception error) { throw unavailable(); }
+    }
+
+    /** 让模型服务重新读取 registry.json；返回重载后的注册表视图。 */
+    public List<RegisteredModel> reloadRegistry() {
+        requireConfigured();
+        try {
+            client.post().uri("/internal/v2/models/reload").header("X-HDR-Internal-Token",internalToken)
+                    .exchange((request,response)->read(response));
+            return registry();
+        } catch(V2Exception error) { throw error; }
+        catch(Exception error) { throw unavailable(); }
+    }
+
     public Prediction predict(long workspaceId,String requestId,CatalogueService.Model model,ImageValidator.Image image) {
         requireConfigured();
-        if(!MODEL.equals(model.externalId()) || !VERSION.equals(model.version()) || !PREPROCESS.equals(model.preprocessVersion()))
-            throw new V2Exception(503,"当前模型版本尚未部署","MODEL_UNAVAILABLE");
+        if(model.sha256()==null || model.sha256().isBlank() || model.artifact()==null || model.artifact().isBlank())
+            throw new V2Exception(503,"当前模型缺少可信文件信息","MODEL_UNAVAILABLE");
         var body=new LinkedMultiValueMap<String,Object>();
         var headers=new HttpHeaders(); headers.setContentType(MediaType.parseMediaType(image.contentType()));
         body.add("image",new HttpEntity<>(new ByteArrayResource(image.bytes()) {
             @Override public String getFilename() { return "drawing"; }
         },headers));
         body.add("workspaceId",Long.toString(workspaceId)); body.add("requestId",requestId);
-        body.add("modelId",model.externalId()); body.add("modelVersion",model.version()); body.add("preprocessVersion",model.preprocessVersion());
+        body.add("modelId",model.externalId()); body.add("modelVersion",model.version());
+        body.add("preprocessVersion",model.preprocessVersion());
         try {
             JsonNode data=client.post().uri("/internal/v2/predict").header("X-HDR-Internal-Token",internalToken)
                     .contentType(MediaType.MULTIPART_FORM_DATA).body(body).exchange((request,response)->read(response));
-            if(!requestId.equals(data.path("requestId").asText()) || !MODEL.equals(data.path("modelId").asText())
-                    || !VERSION.equals(data.path("modelVersion").asText()) || !PREPROCESS.equals(data.path("preprocessVersion").asText())
+            if(!requestId.equals(data.path("requestId").asText())
+                    || !model.externalId().equals(data.path("modelId").asText())
+                    || !model.version().equals(data.path("modelVersion").asText())
+                    || !model.preprocessVersion().equals(data.path("preprocessVersion").asText())
                     || !data.path("digit").isIntegralNumber() || !data.path("digit").canConvertToInt()
                     || !data.path("confidence").isNumber()) throw invalidResponse();
             int digit=data.path("digit").asInt(-1); double confidence=data.path("confidence").asDouble(Double.NaN);
@@ -66,17 +107,20 @@ public class ModelClient {
             throw new V2Exception(502,"模型调用失败或超时，请使用新的请求重试","MODEL_UNAVAILABLE");
         }
     }
+
     public Map<String,Object> ready() {
         requireConfigured();
         try {
             JsonNode data=client.get().uri("/internal/v2/ready").header("X-HDR-Internal-Token",internalToken)
                     .exchange((request,response)->read(response));
-            if(!"UP".equals(data.path("status").asText()) || !MODEL.equals(data.path("modelId").asText())
-                    || !VERSION.equals(data.path("modelVersion").asText()) || !PREPROCESS.equals(data.path("preprocessVersion").asText())
-                    || !SHA.equals(data.path("sha256").asText())) throw invalidResponse();
-            return Map.of("name","model-service","status","UP","detail",MODEL+" / "+VERSION);
-        } catch(Exception error) { return Map.of("name","model-service","status","DOWN","detail","模型服务或可信基线未就绪"); }
+            int verified=data.path("verifiedModels").asInt(0);
+            if(!"UP".equals(data.path("status").asText()) || verified<1) throw invalidResponse();
+            return Map.of("name","model-service","status","UP","detail",verified+" verified model(s)");
+        } catch(Exception error) { return Map.of("name","model-service","status","DOWN","detail","模型服务或可信模型未就绪"); }
     }
+
+    private V2Exception unavailable() { return new V2Exception(502,"模型注册表暂时不可用，请稍后重试","MODEL_UNAVAILABLE"); }
+
     private JsonNode read(org.springframework.http.client.ClientHttpResponse response) throws IOException {
         // HttpURLConnection initializes its error stream when status is resolved.
         // Reading the body first makes non-2xx responses throw before we can map them.

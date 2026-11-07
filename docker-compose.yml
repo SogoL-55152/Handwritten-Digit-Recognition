@@ -30,13 +30,14 @@ services:
       HOST: 0.0.0.0
       PORT: "5001"
       MODEL_INTERNAL_TOKEN: ${MODEL_INTERNAL_TOKEN:?Set the internal model credential}
-      MODEL_CHECKPOINT_PATH: /weights/checkpoint.pt
+      WEIGHTS_DIR: /weights
+      MODEL_REGISTRY_PATH: /weights/registry.json
       RECOGNITION_MIN_CONFIDENCE: ${RECOGNITION_MIN_CONFIDENCE:-0.90}
       RECOGNITION_MIN_MARGIN: ${RECOGNITION_MIN_MARGIN:-0.85}
     volumes:
       - type: bind
-        source: ${MODEL_CHECKPOINT_PATH:?Set an absolute path to the verified W1 full checkpoint}
-        target: /weights/checkpoint.pt
+        source: ${MODEL_WEIGHTS_DIR:?Set an absolute path to the directory holding registry.json and verified checkpoints}
+        target: /weights
         read_only: true
         bind:
           create_host_path: false

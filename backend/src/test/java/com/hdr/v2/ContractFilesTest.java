@@ -33,7 +33,7 @@ class ContractFilesTest {
         assertEquals("3.1.0", document.get("openapi"));
         Set<String> ids = new HashSet<>();
         check(document, document, ids);
-        assertEquals(21, ids.size());
+        assertEquals(29, ids.size());
     }
 
     private void check(Object node, Map<?, ?> root, Set<String> ids) {

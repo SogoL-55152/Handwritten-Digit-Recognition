@@ -19,8 +19,13 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class ModelClientTest {
     private static final String REQUEST = "00000000-0000-4000-8000-000000000001";
-    private final CatalogueService.Model model = new CatalogueService.Model("1", "MNIST", ModelClient.VERSION,
-            "PUBLIC", null, ModelClient.MODEL, .991, "MNIST test", ModelClient.PREPROCESS, "Baseline");
+    private static final String MODEL_ID = "mnist-cnn-w1";
+    private static final String VERSION = "w2-canvas-photo-3epoch";
+    private static final String PREPROCESS = "adaptive-mnist-v2";
+    private static final String SHA = "72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa";
+    private final CatalogueService.Model model = new CatalogueService.Model("1", "MNIST", VERSION,
+            "PUBLIC", null, MODEL_ID, .977, "MNIST test", PREPROCESS, "Baseline", "ACTIVE", SHA, 1690340L,
+            "w2-canvas-photo/checkpoint.pt");
     private final ImageValidator.Image image = new ImageValidator.Image(new byte[]{1, 2}, "digest", "image/png");
     private MockRestServiceServer server;
     private ModelClient client;
@@ -34,8 +39,8 @@ class ModelClientTest {
 
     private String response(String code, String digit, String confidence) {
         return "{\"code\":" + code + ",\"data\":{\"requestId\":\"" + REQUEST
-                + "\",\"modelId\":\"" + ModelClient.MODEL + "\",\"modelVersion\":\"" + ModelClient.VERSION
-                + "\",\"preprocessVersion\":\"" + ModelClient.PREPROCESS
+                + "\",\"modelId\":\"" + MODEL_ID + "\",\"modelVersion\":\"" + VERSION
+                + "\",\"preprocessVersion\":\"" + PREPROCESS
                 + "\",\"digit\":" + digit + ",\"confidence\":" + confidence + "}}";
     }
 
@@ -148,11 +153,50 @@ class ModelClientTest {
     }
 
     @Test
-    void readinessRequiresManifestDigest() {
+    void readinessRequiresAtLeastOneVerifiedModel() {
         server.expect(requestTo("http://model.test/internal/v2/ready"))
                 .andExpect(header("X-HDR-Internal-Token", "internal-test-token"))
-                .andRespond(withSuccess("{\"code\":0,\"data\":{\"status\":\"UP\",\"sha256\":\"wrong\"}}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("{\"code\":0,\"data\":{\"status\":\"UP\",\"verifiedModels\":0}}",
+                        MediaType.APPLICATION_JSON));
         assertEquals("DOWN", client.ready().get("status"));
+        server.verify();
+    }
+
+    @Test
+    void readinessReportsVerifiedModels() {
+        server.expect(requestTo("http://model.test/internal/v2/ready"))
+                .andRespond(withSuccess("{\"code\":0,\"data\":{\"status\":\"UP\",\"verifiedModels\":2}}",
+                        MediaType.APPLICATION_JSON));
+        assertEquals("UP", client.ready().get("status"));
+        server.verify();
+    }
+
+    @Test
+    void registryListingParsesVerifiedAndRejectedEntries() {
+        server.expect(requestTo("http://model.test/internal/v2/models"))
+                .andExpect(header("X-HDR-Internal-Token", "internal-test-token"))
+                .andRespond(withSuccess("{\"code\":0,\"data\":{\"models\":["
+                        + "{\"modelId\":\"mnist-cnn-w1\",\"modelVersion\":\"" + VERSION + "\",\"preprocessVersion\":\""
+                        + PREPROCESS + "\",\"sha256\":\"" + SHA + "\",\"sizeBytes\":1690340,"
+                        + "\"artifact\":\"w2-canvas-photo/checkpoint.pt\",\"verified\":true,\"loaded\":false},"
+                        + "{\"modelId\":\"mnist-cnn-w1\",\"modelVersion\":\"broken\",\"verified\":false,"
+                        + "\"reason\":\"RegistryInvalid\"}]}}", MediaType.APPLICATION_JSON));
+        var models = client.registry();
+        assertEquals(2, models.size());
+        assertTrue(models.get(0).verified());
+        assertEquals(SHA, models.get(0).sha256());
+        assertEquals("w2-canvas-photo/checkpoint.pt", models.get(0).artifact());
+        assertFalse(models.get(1).verified());
+        assertEquals("RegistryInvalid", models.get(1).reason());
+        server.verify();
+    }
+
+    @Test
+    void modelWithoutArtifactIdentityIsUnavailable() {
+        var unidentified = new CatalogueService.Model("1", "MNIST", VERSION, "PUBLIC", null, MODEL_ID, .9,
+                "MNIST test", PREPROCESS, "Baseline", "INACTIVE", null, null, null);
+        var error = assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, unidentified, image));
+        assertEquals(503, error.getStatus());
         server.verify();
     }
 }

@@ -73,28 +73,29 @@ public class WorkspaceService {
     }
 
     private Workspace insert(long userId, String name, boolean personal) {
-        // A missing/disabled trusted baseline is a configuration error, not an orphan default.
+        // The single ACTIVE public model is the only valid default; a missing one is a
+        // configuration error rather than an orphan workspace.
         List<Long> models = jdbc.query("""
-                SELECT id FROM t_v2_model WHERE id=1 AND scope='PUBLIC' AND status='ACTIVE'
-                AND external_id='mnist-cnn-w1' AND version='w2-canvas-photo-3epoch'
-                AND preprocess_version='adaptive-mnist-v2'
+                SELECT id FROM t_v2_model WHERE scope='PUBLIC' AND status='ACTIVE'
                 """, (rs, row) -> rs.getLong(1));
         if (models.isEmpty()) throw new V2Exception(503, "默认公共模型未就绪");
+        long defaultModelId = models.get(0);
         GeneratedKeyHolder key = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO t_workspace(owner_id,name,personal_user_id,default_model_id) VALUES (?,?,?,1)",
+                    "INSERT INTO t_workspace(owner_id,name,personal_user_id,default_model_id) VALUES (?,?,?,?)",
                     Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, userId);
             statement.setString(2, name);
             if (personal) statement.setLong(3, userId); else statement.setNull(3, java.sql.Types.BIGINT);
+            statement.setLong(4, defaultModelId);
             return statement;
         }, key);
         Number generated = key.getKey();
         if (generated == null) throw new IllegalStateException("Workspace ID was not generated");
         long workspaceId = generated.longValue();
         jdbc.update("INSERT INTO t_workspace_member(workspace_id,user_id,role) VALUES (?,?,'OWNER')", workspaceId, userId);
-        return new Workspace(Long.toString(workspaceId), name, "OWNER", "ACTIVE", "1");
+        return new Workspace(Long.toString(workspaceId), name, "OWNER", "ACTIVE", Long.toString(defaultModelId));
     }
 
     private void validateName(String name) {
