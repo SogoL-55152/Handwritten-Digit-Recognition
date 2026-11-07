@@ -72,7 +72,9 @@ export function createDrawingBoard({ canvas, onChange = () => {}, getDpr = () =>
     changed()
   }
   function resize() {
-    size = Math.max(1, canvas.getBoundingClientRect().width || 320)
+    const width = canvas.getBoundingClientRect().width
+    if (disposed || !Number.isFinite(width) || width <= 0) return // v-show: never resize a hidden canvas.
+    size = Math.max(1, width)
     const pixels = Math.min(2048, Math.max(1, Math.round(size * Math.min(3, Math.max(1, getDpr())))))
     if (canvas.width === pixels && canvas.height === pixels) return
     canvas.width = pixels

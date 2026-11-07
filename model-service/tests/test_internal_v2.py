@@ -168,6 +168,7 @@ def test_field_memory_limit(client, fake):
 
 
 def test_large_valid_png_below_five_mib_is_accepted(client, fake):
+    # Format/transport test only: a fake predictor deliberately bypasses real input-quality policy.
     # Incompressible 800×800 RGB (~1.9MiB): catches accidental 16KiB multipart limits.
     import numpy as np
     from PIL import Image
@@ -178,6 +179,19 @@ def test_large_valid_png_below_five_mib_is_accepted(client, fake):
     fields["image"] = (BytesIO(stream.getvalue()), "large.png", "image/png")
     response = client.post("/internal/v2/predict", headers=HEADERS, data=fields)
     assert response.status_code == 200 and len(fake) == 1
+
+
+def test_uncertain_prediction_is_422_without_a_guessed_digit_and_releases_slot(app, client, fake):
+    from services.inference_policy import UncertainPrediction, REJECTION_MESSAGE
+    service = app.extensions["inference_service"]
+    service.predict = lambda _normalized: (_ for _ in ()).throw(UncertainPrediction("low_score"))
+    response = client.post("/internal/v2/predict", headers=HEADERS, data=form())
+    assert response.status_code == 422
+    assert response.json == {"code": 422, "message": REJECTION_MESSAGE, "data": {"category": "UNRECOGNIZED_INPUT"}}
+    assert "digit" not in response.json["data"]
+    assert service.slots.acquire(False) and service.slots.acquire(False)
+    service.slots.release()
+    service.slots.release()
 
 
 def test_blank_http_error(client, fake):

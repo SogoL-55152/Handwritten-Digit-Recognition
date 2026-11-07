@@ -1,0 +1,40 @@
+{
+  "checks": [
+    "real handwritten 7 accepted",
+    "dense scribble is 422 without guessed result, logout or success count",
+    "explicit new drawing recovers with a new request"
+  ],
+  "first": {
+    "recognitionId": "1",
+    "requestId": "ab7e0afb-ecde-4af8-90f3-287e842cbfef",
+    "digit": 7,
+    "confidence": 0.9949969053268433,
+    "modelId": "1",
+    "modelVersion": "w1-full-3epoch",
+    "preprocessVersion": "canvas-mnist-v1",
+    "source": "WEB",
+    "processingMs": 2299,
+    "createdAt": "2026-11-04T15:33:30.291Z"
+  },
+  "declined": {
+    "code": 422,
+    "message": "无法可靠识别该输入，请清空后重新书写单个数字。",
+    "data": {
+      "category": "UNRECOGNIZED_INPUT"
+    }
+  },
+  "retry": {
+    "recognitionId": "3",
+    "requestId": "bf6802cd-4e0f-4944-b479-0e2c325e5601",
+    "digit": 7,
+    "confidence": 0.9949969053268433,
+    "modelId": "1",
+    "modelVersion": "w1-full-3epoch",
+    "preprocessVersion": "canvas-mnist-v1",
+    "source": "WEB",
+    "processingMs": 16,
+    "createdAt": "2026-11-04T15:33:34.261Z"
+  },
+  "errors": [],
+  "limitations": "Dense scribble example only; not all random shapes or real WeChat; original 9 missing."
+}

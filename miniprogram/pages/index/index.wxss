@@ -16,3 +16,10 @@
 .result { font-size: 26rpx; line-height: 1.9; overflow-wrap: anywhere; }
 .links { display: flex; gap: 16rpx; margin-bottom: 24rpx; }
 .links button { flex: 1; font-size: 26rpx; }
+.input-modes { display: flex; gap: 16rpx; margin-bottom: 24rpx; }
+.mode-button { flex: 1; min-width: 0; height: 80rpx; margin: 0; padding: 0 16rpx; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.2; font-size: 28rpx; color: #2345c4; background: #eaf0ff; border-radius: 16rpx; }
+.mode-button.selected { background: #2f54eb; color: #ffffff; }
+.mode-button::after, .image-button::after { border: none; }
+.image-button { width: 100%; height: 92rpx; min-height: 92rpx; margin: 16rpx 0 0; padding: 0 24rpx; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.2; font-size: 28rpx; border-radius: 16rpx; background: #2f54eb; color: #ffffff; }
+.image-button.secondary { color: #2345c4; background: #eaf0ff; }
+.image-preview { display: block; width: 100%; height: 440rpx; margin-top: 24rpx; background: #f4f6fa; border-radius: 16rpx; }

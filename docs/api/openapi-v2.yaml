@@ -46,7 +46,7 @@ tags:
   - name: Catalogue
     description: 经空间成员鉴权的只读模型与数据集元数据
   - name: Recognitions
-    description: 画板输入识别及本人成功结果
+    description: 单数字画板/用户主动导入图片识别及本人成功结果
   - name: Usage
     description: 当前用户在当前空间的记录统计，不是日配额账本
   - name: Platform
@@ -512,7 +512,7 @@ paths:
     post:
       tags: [Recognitions]
       operationId: createRecognitionV2
-      summary: 使用空间默认模型识别一张画板图片
+      summary: 使用空间默认模型识别手写画板或导入的单数字图片
       description: |
         标准请求为 multipart/form-data，唯一 image 文件及唯一 source 字段，
         并提供一次 Idempotency-Key UUID 头。禁止选择模型、传入文件路径或附带额外字段。
@@ -520,7 +520,8 @@ paths:
         图片字节数最多 5242880（5 MiB），完整请求最多 6291456（6 MiB）；
         PNG/JPEG，宽高各 1..2048，总像素不超过 4194304，不接受动画、损坏或空白图。
         Java 根据实际字节识别格式并规范化 MIME，Python 内部接口另外校验 MIME 与实际格式一致。
-        仅适用于画板手写数字，不能将 MNIST test accuracy 当作此输入的在线准确率。
+        可提交手写画板或用户主动导入的单个0–9数字PNG/JPEG；只选图/预览不发起识别。
+        不提供拍照、多数字分割或任意照片OCR保证，不能将MNIST test accuracy当作该输入的在线准确率。
 
         成功与成功重放都为 200（不是 201/202）。幂等作用域为当前空间+当前用户+UUID，
         按原始文件字节 SHA-256 和 source 比较；不同编码的相同视觉图片也可能冲突。
@@ -530,7 +531,8 @@ paths:
         重放遇到超过 30 秒的 PROCESSING 记录会将其转为 FAILED 并返回 REQUEST_FAILED；
         这不是后台任务，也不是允许客户端自动重新 POST 的信号。
         409/429/网络超时后禁止自动重发；用户明确发起新操作时使用新 UUID。
-        结果、错误、loading 状态须有会话/空间/画板 revision 三重过期保护。
+        结果、错误、loading状态须有会话/空间/当前输入revision三重过期保护，
+        替换或移除导入图片、切换输入方式后不使用旧结果。
 
         上传前限流（包括重放）为全局 240 次/60 秒、真实对端 IP 120 次/60 秒。
         新识别另有全局 240 次/60 秒，以及每用户、每空间各 recognitionPerMinute 次/60 秒
@@ -591,13 +593,22 @@ paths:
           $ref: '#/components/responses/JavaImageTooLarge'
         '415':
           $ref: '#/components/responses/JavaUnsupportedMediaType'
+        '422':
+          description: |
+            实验性接受策略未通过，category=UNRECOGNIZED_INPUT；不返回猜测数字。
+            上游响应须符合422错误合同，否则按502处理。当前记录置为FAILED，不算成功。
+            客户端提示清空后重新书写，保留登录，不自动重发。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
         '429':
           $ref: '#/components/responses/JavaRateLimited'
         '500':
           $ref: '#/components/responses/JavaInternalError'
         '502':
           description: |
-            模型连接/读取超时、通信失败、内部非 200/400/413/429/503 状态（包括内部 401/415）
+            模型连接/读取超时、通信失败、内部非 200/400/413/422/429/503 状态（包括内部 401/415）
             映射为 MODEL_UNAVAILABLE；无效模型成功回包映射为 MODEL_RESPONSE_INVALID。
             没有自动 POST 重试，原请求可能已记录 FAILED；也不保证返回 requestId。
           content:
@@ -655,6 +666,7 @@ paths:
         scope 固定 SELF，所有成员角色相同，不是团队合计，也不是日配额账本。
         totalRequests 为该用户该空间全部已写入识别记录数（含 PROCESSING），
         successfulRequests/failedRequests 分别统计 SUCCEEDED/FAILED，因此二者之和可小于总数。
+        进入识别服务后的拒识422也会写入FAILED，计入totalRequests/failedRequests，不是成功识别或准确率分母。
         在写入识别记录之前被校验或限流拒绝的请求不计入；成功幂等重放不新增记录。
         limits 为当前配置/预留能力描述，不包含训练、存储用量或剩余日次数。
       responses:
@@ -845,6 +857,12 @@ paths:
                 $ref: '#/components/schemas/InternalError'
         '415':
           description: 非 multipart（UNSUPPORTED_MEDIA_TYPE），或图片 MIME 不允许/与实际格式不符（UNSUPPORTED_IMAGE）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+        '422':
+          description: 实验性接受策略未通过；category=UNRECOGNIZED_INPUT，不返回猜测数字，客户端应提示重新书写，不能自动重发
           content:
             application/json:
               schema:
@@ -1541,7 +1559,7 @@ components:
               description: |
                 按错误可选；当前包括 VALIDATION、USERNAME_EXISTS、WORKSPACE_LIMIT、INVALID_IMAGE、
                 BLANK_IMAGE、IMAGE_DIMENSIONS、IMAGE_TOO_LARGE、IDEMPOTENCY_CONFLICT、IN_PROGRESS、
-                REQUEST_FAILED、RATE_LIMIT、CONCURRENCY_LIMIT、MODEL_BUSY、MODEL_UNAVAILABLE、MODEL_RESPONSE_INVALID、
+                REQUEST_FAILED、RATE_LIMIT、CONCURRENCY_LIMIT、MODEL_BUSY、UNRECOGNIZED_INPUT、MODEL_UNAVAILABLE、MODEL_RESPONSE_INVALID、
                 DATABASE_UNAVAILABLE、INTERNAL_ERROR。多数 401/403/404 的 data 是 {}。
             retryAfterSeconds:
               type: integer
@@ -1566,7 +1584,7 @@ components:
           properties:
             category:
               type: string
-              enum: [NOT_CONFIGURED, UNAUTHORIZED, MODEL_UNAVAILABLE, UNSUPPORTED_MEDIA_TYPE, INVALID_REQUEST, MODEL_NOT_ALLOWED, MODEL_BUSY, INVALID_IMAGE, UNSUPPORTED_IMAGE, IMAGE_TOO_LARGE, BLANK_IMAGE, HTTP_ERROR, INTERNAL_ERROR]
+              enum: [NOT_CONFIGURED, UNAUTHORIZED, MODEL_UNAVAILABLE, UNSUPPORTED_MEDIA_TYPE, INVALID_REQUEST, MODEL_NOT_ALLOWED, MODEL_BUSY, UNRECOGNIZED_INPUT, INVALID_IMAGE, UNSUPPORTED_IMAGE, IMAGE_TOO_LARGE, BLANK_IMAGE, HTTP_ERROR, INTERNAL_ERROR]
             retryAfterSeconds:
               type: integer
               const: 1

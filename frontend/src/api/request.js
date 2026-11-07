@@ -20,6 +20,9 @@ export function createRequest({ hooks = {}, adapter } = {}) {
   })
 
   function reject(error, config) {
+    // An obsolete input must not log out the still-current account on a late 401.
+    // Other APIs omit this hook and retain their existing session behavior.
+    if (config?.inputCurrent && !config.inputCurrent()) return Promise.reject(error)
     // Validation owns its failure state; other requests invalidate only their own session.
     if (isUnauthorized(error) && !config?.skipAuth && !config?.sessionValidation) {
       hooks.onUnauthorized?.(config?.authSession)

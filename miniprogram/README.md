@@ -1,6 +1,20 @@
 # miniprogram — 微信小程序
 
-同平台账号注册/登录、个人空间手写识别、改密/退出、帮助与隐私说明。普通 USER / MEMBER 可以使用，不要求管理员。**免登录W1画板已取消**，识别必须先登录；共用Canvas组件和识别功能保留。无历史CRUD、私有资产或训练功能，无需先在PC注册。
+同平台账号注册/登录、个人空间手写或导入图片识别、改密/退出、帮助与隐私说明。普通 USER / MEMBER 可以使用，不要求管理员。**免登录W1画板已取消**，识别必须先登录；共用Canvas组件和识别功能保留。无历史CRUD、私有资产或训练功能，无需先在PC注册。
+
+## 导入图片（本地候选）
+
+- 首页“手写数字 / 导入图片”切换；相册一次选择一张原图，检查后展示本地预览、类型和尺寸，可更换或移除。只有明确点击“识别图片”才生成请求标识并上传，选择/预览不调用 UUID 或识别接口。图片模式不要求 Canvas 初始化成功。
+- `utils/image-import.js` 优先 `wx.chooseMedia({count:1,mediaType:['image'],sourceType:['album'],sizeType:['original']})`；仅 API 不存在时使用 `wx.chooseImage`，仍只相册、原图。不因取消或权限失败回退，更不调用相机。
+- 先读取实际文件大小（最大 5 MiB），最多读取 64 KiB 文件头核验 PNG/JPEG 真实格式及尺寸，再用 `wx.getImageInfo` 检查可打开性、类型与尺寸一致；边长≤2048、总像素≤4194304。扩展名不作依据。头部过长、无法在限额内取得尺寸的 JPEG 会拒绝；不自动压缩、转码或复制来绕过限制。
+- 原路径仅在当前页面内用于预览/提交，不写 storage、不存相册，不删除平台拥有的原文件。读取/图片信息各阶段最多 10 秒，原生选图最多 120 秒，取消会立即结束等待，迟到或重复回调不影响新操作。
+- 原生选择器引起的第一次 hide/show 仅保留独立选图意图/待核验候选；隐藏照常取消认证和识别，不上传。回调先于或晚于 show 都必须重新通过同账号、同 origin、原空间的 `/me`、空间列表与成员详情核验才可显示和提交。再次隐藏、卸载、退出、模式/空间/账号变化或移除均使旧意图失效；重新选择先清除旧图片和旧结果，取消后不恢复旧图。
+- Node v22.23.4 本轮 **432 项通过，0 失败/取消/跳过**：原 311 项全部保留，新增文件校验 51 项、实际 Page/Component 生命周期 68 项、模板/隐私检查 2 项。包含原有未提交的 422 拒识回归。仅 wx/Canvas stub 验证，不代表真实相册/解码、设备 UI、微信隐私配置或 `wx.uploadFile` 已验收。
+- 微信开发者工具及真机仍须检查 PNG/JPEG 原图、真实 picker 回调/生命周期、取消/权限/超限、相册隐私声明与授权、上传 multipart 和后端结果。没有相机、多数字 OCR 或复杂背景照片准确率承诺；未修改 AppID 或两个 project 配置，也未发布。
+
+## 拒识提示（新本地功能）
+
+Python接受策略未通过时，Java返回422 `UNRECOGNIZED_INPUT`，小程序提示更换图片或重新书写单个数字，不展示猜测数字，不退出当前账号或自动重试。已补生产Page拒识/清空后的旧响应测试；真实微信工具/设备仍需复测。该实验策略仍有乱画漏拒，不承诺所有非数字都能识别为无效，用户9→7原样例仍待提供，见 [验证与局限](../docs/通用拒识-验证与局限.md)。
 
 ### 2026-11-04 演示界面修正
 
@@ -18,7 +32,7 @@
 4. **W2 业务**：启动项目 W2 Java API 和真实模型服务，完成团队的数据库/基线准备。可在小程序注册普通账号，或使用已有同平台账号。不预填演示账号或密码，不使用旧 W1 token。
 5. `config/public.js` 默认 `mode: 'development'`、`apiBaseUrl: 'http://127.0.0.1:8080'`（不带 `/api/v2`），operator/contact/privacyVersion 均为空。`config/runtime.js` 读取 `wx.getAccountInfoSync().miniProgram.envVersion`；仅确认 develop 环境才允许 development 配置。仅在受控本机开发者工具联调中，可在「详情 → 本地设置」勾选「不校验合法域名、web-view（业务域名）、TLS 版本以及 HTTPS 证书」。离线帮助不需要此设置。
 6. 登录后必须成功核验 `GET /api/v2/auth/me`，再加载 `/workspaces`、核验所选 `/workspaces/{id}`。有缓存时点击「继续上次登录」，不会仅因缓存而进入业务页。每次业务页重新显示也重新核验身份。
-7. 在首页书写单个数字，点击「识别这个数字」，查看数字、置信度、耗时；置信度不是准确率。开发配置仍可选择本人空间，pilot自动选择个人空间。
+7. 在首页书写单个数字，点击「识别这个数字」；或选择「导入图片」从相册选一张图片并预览，再明确点击「识别图片」。查看数字、置信度、耗时；置信度不是准确率。开发配置仍可选择本人空间，pilot自动选择个人空间。
 
 ### 真机受控 LAN 设置（需要团队明确准备，不由本次代码自动开放）
 
@@ -36,18 +50,19 @@
 | `pages/account/account` | 重新 `/me` 核验，修改密码、退出，找回/删除联系说明 |
 | `pages/help/help`、`pages/privacy/privacy` | 无需会话与网络的只读说明；维护者/联系方式/版本未配置时如实显示 |
 | `config/public.js`、`config/runtime.js` | 公开配置模板、微信环境判定与 fail-closed 域名校验 |
-| `pages/index/index` | 受保护识别页；真实成员空间列表/详情核验、空间选择、画板上传、真实结果、退出 |
+| `pages/index/index` | 受保护识别页；真实成员空间列表/详情核验、空间选择、手写/图片输入、真实结果、退出 |
 | `components/drawing-board/drawing-board` | 复用 Canvas 2D 与本地预览；增加 revision/change 和异步导出接口 |
 | `utils/session.js` | v2 token 候选缓存、服务端核验、会话/空间代次、过期保护 |
 | `utils/request.js` | HTTP + envelope 校验、可取消请求/上传、15 秒预算、无全局过期 toast |
 | `utils/recognition.js` | UUID v4 请求标识、空间/结果合同校验 |
+| `utils/image-import.js` | 单张相册原图选择、大小/有界文件头/图片信息校验、可取消等待 |
 
 合同以 `../docs/W2-接口实现约定.md` 为准：
 
 - 登录 `POST /api/v2/auth/login`，身份 `GET /api/v2/auth/me`，退出 `POST /api/v2/auth/logout`。退出先发服务器撤销，再立即清本地会话；断网时不能声称服务器撤销成功，旧响应也不能清掉随后新登录。
 - 缓存只保存 `hdr_v2_session={token,origin}` 候选，不缓存授权角色、密码或注册码。缺少 origin 的旧候选、服务地址改变或配置失效时清旧会话；旧 token 不会发往新地址。App 启动清除 `hdr_token` / `hdr_user`。身份来自 `/me`，成员列表/空间详情来自服务端；前端选择只是请求上下文，不能替代后端逐请求鉴权。
 - `POST /api/v2/workspaces/{wid}/recognitions` 使用 `wx.uploadFile` 的 **`name: 'image'`**、`formData: {source: 'MINIPROGRAM'}`，Bearer 与 `Idempotency-Key: <UUID v4>` 请求头。由平台生成 multipart boundary；不添加第二套正文 requestId。
-- 单图 PNG/JPEG 最大 5 MiB，请求 6 MiB、最大边长 2048、总像素 4194304；仅上传画板 PNG，服务端仍负责校验字节、尺寸、空白图和成员权限。不长期保存原图。
+- 单图 PNG/JPEG 最大 5 MiB，请求 6 MiB、最大边长 2048、总像素 4194304；上传画板 PNG 或已检查的相册 PNG/JPEG 原图，服务端仍负责校验字节、尺寸、空白图和成员权限。不长期保存原图。
 - 校验返回 requestId 与本次 UUID 相同、字符串业务 ID、digit 整数 0..9、有限置信度 0..1、非负耗时，以及 W2 固定模型版本 `w1-full-3epoch` / 预处理 `canvas-mnist-v1`。错误/假格式不显示为识别结果。
 - 同时检查 HTTP 状态和 `{code,message,data}`，包括代理非 JSON 413；401 只清当前请求所属会话，403/404 不赶普通成员回登录页。429 展示 Retry-After，409 保留冲突消息。超时/断网/409 **不自动重发 POST**，用户明确再次点击才生成新 UUID。
 - 请求与上传默认 15 秒（长于 Java 初始 2 秒连接 + 10 秒读取预算），Canvas 导出 10 秒，随机 UUID 生成 3 秒。`abort()` 即使平台不回调也会结束 Promise；服务器已经收到的请求不保证因本地 abort 而撤销。
@@ -69,7 +84,7 @@
 - pilot自动核验并选择默认个人空间，不回退其他空间；不显示空间选择，所有模式业务页使用简洁画板和数字/置信度/耗时结果，不展示开发详情或导出预览。后端仍逐次校验权限。
 - 注册 `POST /api/v2/auth/register`，用户输入 pilotCode；confirmation 不提交。新用户名 3–32、新密码 6–32，按合同明确 Unicode 空白列表拒绝（含 U+0085），不自动 trim；昵称最多 64。旧登录凭据和改密的 currentPassword 原样提交，不新增内部空白限制。
 - 改密 `POST /api/v2/auth/password` 仅 `{currentPassword,newPassword}`，200 data=null 才清本次会话并回登录；400 保留有效会话，401 清当前失效会话，429/网络失败可读且不自动重试。成功撤销所有设备会话由服务器执行；本地退出不等于删除账号。
-- 密码、确认密码和注册码在完成、隐藏、卸载后清空；取消/过期回包不覆盖新账号或页面。帮助/隐私准确说明仅数字识别、不训练、不长期保存原图、不读取手机号/相册/位置；临时文件、日志/备份单列。元数据 30 天、日志/备份 7 天为维护者须落实的参考留存，不声称已有自动清理。
+- 密码、确认密码和注册码在完成、隐藏、卸载后清空；取消/过期回包不覆盖新账号或页面。帮助/隐私准确说明仅数字识别、不训练、不长期保存原图、不读取手机号/位置，仅访问用户明确选择的单张图片、不扫描或批量读取相册、不使用相机；临时文件、日志/备份单列。元数据 30 天、日志/备份 7 天为维护者须落实的参考留存，不声称已有自动清理。
 
 ## 自动化验证（stub 层，不是微信 UI 验收）
 
@@ -83,7 +98,7 @@ npm test
 
 ```sh
 "D:/Temp/hdr-w1-node-runtime/node-v22.23.4-win-x64/node.exe" --test \
-  tests/drawing-board.test.js tests/session.test.js tests/pilot.test.js tests/recognition.test.js tests/interface.test.js
+  tests/drawing-board.test.js tests/session.test.js tests/pilot.test.js tests/recognition.test.js tests/interface.test.js tests/image-import.test.js
 ```
 
 测试无第三方依赖，加载实际 **Component / Page / App** 定义和真实 session/request 模块，以 wx stub 和最小 Canvas 软件栅格 stub 验证：
@@ -103,6 +118,8 @@ W1 历史证据：此前 Node v20.15.0 的 45 项通过，随后获准 Node v22.
 
 以下方框保持未勾选；团队会前内部验收并记录真实结果，周四会议只展示已完成成果。**Node stub 通过不代表真实 Canvas、PNG 字节、网络域名、设备 UI 或双端 AC-02 全部通过。**
 
+- [ ] 从相册明确选择 PNG/JPEG 原图 → 本地预览 → 明确识别 → Java/Python 结果；取消/重选/移除/格式与超限失败不上传，选择本身不生成请求标识。核验真实临时路径、图片头与 `wx.getImageInfo` 返回类型/尺寸（含带方向信息的 JPEG）。
+- [ ] 真机选择器回调先于/晚于 onShow、切后台/返回、账号/空间变化、退出/卸载及旧 401/422 不复活旧图；确认相册相关微信平台隐私声明、授权与正式审核要求，没有相机入口。
 - [ ] 登录前无缓存/旧缓存/v2候选缓存均不直接授权识别；确认没有免登录画板入口。
 - [ ] 登录后画板单点、多笔、多指、边缘触摸、取消/清空及DPR1/2/3的实际PNG尺寸/完整性。
 - [ ] 初始化/导出失败可重试，清空/重画/离开后没有旧结果或错误。

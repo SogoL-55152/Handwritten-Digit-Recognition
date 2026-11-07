@@ -21,6 +21,7 @@ public class ModelClient {
     public static final String SHA="656afea28cd929a15da8dad24fe69d278554c061380e34bf679be03a45b781b4";
     public static final String MODEL="mnist-cnn-w1",VERSION="w1-full-3epoch",PREPROCESS="canvas-mnist-v1";
     public record Prediction(int digit,double confidence) {}
+    private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ModelClient.class);
     private final RestClient client;
     private final ObjectMapper mapper;
     private final String internalToken;
@@ -59,7 +60,11 @@ public class ModelClient {
             if(digit<0 || digit>9 || !Double.isFinite(confidence) || confidence<0 || confidence>1) throw invalidResponse();
             return new Prediction(digit,confidence);
         } catch(V2Exception error) { throw error; }
-        catch(Exception error) { throw new V2Exception(502,"模型调用失败或超时，请使用新的请求重试","MODEL_UNAVAILABLE"); }
+        catch(Exception error) {
+            LOG.warn("Internal prediction transport failed ({}, cause={})",error.getClass().getSimpleName(),
+                    error.getCause()==null?"none":error.getCause().getClass().getSimpleName());
+            throw new V2Exception(502,"模型调用失败或超时，请使用新的请求重试","MODEL_UNAVAILABLE");
+        }
     }
     public Map<String,Object> ready() {
         requireConfigured();
@@ -73,11 +78,22 @@ public class ModelClient {
         } catch(Exception error) { return Map.of("name","model-service","status","DOWN","detail","模型服务或可信基线未就绪"); }
     }
     private JsonNode read(org.springframework.http.client.ClientHttpResponse response) throws IOException {
+        // HttpURLConnection initializes its error stream when status is resolved.
+        // Reading the body first makes non-2xx responses throw before we can map them.
+        int status=response.getStatusCode().value();
         byte[] bytes=response.getBody().readNBytes(65537);
         if(bytes.length>65536) throw invalidResponse();
-        int status=response.getStatusCode().value();
         if(status==400) throw new V2Exception(400,"图片未通过模型服务校验","INVALID_IMAGE");
         if(status==413) throw new V2Exception(413,"图片超出模型服务限制","IMAGE_TOO_LARGE");
+        if(status==422) {
+            JsonNode rejected;
+            try { rejected=mapper.readTree(bytes); }
+            catch(IOException invalid) { throw invalidResponse(); }
+            if(rejected==null || !rejected.path("code").isIntegralNumber() || !rejected.path("code").canConvertToInt()
+                    || rejected.path("code").intValue()!=422 || !rejected.path("data").isObject()
+                    || !"UNRECOGNIZED_INPUT".equals(rejected.path("data").path("category").asText())) throw invalidResponse();
+            throw new V2Exception(422,"无法可靠识别该输入，请清空后重新书写单个数字。","UNRECOGNIZED_INPUT");
+        }
         if(status==429) throw new V2Exception(429,"模型服务正忙，请稍后发起新的识别","MODEL_BUSY",1);
         if(status!=200) throw new V2Exception(status==503?503:502,"模型服务暂不可用","MODEL_UNAVAILABLE");
         JsonNode root=mapper.readTree(bytes);

@@ -2,7 +2,7 @@
   <view class="header">
     <view class="header-title">
       <view class="title">手写数字识别</view>
-      <view class="subtitle">在画板写一个 0–9 的数字</view>
+      <view class="subtitle">书写或导入一张单个数字图片</view>
     </view>
     <button wx:if="{{authorized}}" class="logout" bindtap="logout">退出</button>
   </view>
@@ -24,9 +24,25 @@
       <view class="note" wx:if="{{spaceLoading}}">正在切换…</view>
     </view>
     <view wx:if="{{workspaceReady}}">
-      <drawing-board id="business-board" simple="{{true}}" bind:change="onDrawingChange" />
-      <button class="recognize" bindtap="recognize" loading="{{recognizing}}" disabled="{{!hasInk || recognizing}}">{{recognizing ? '正在识别…' : '识别这个数字'}}</button>
-      <view class="note">每次写一个数字，再点击识别。</view>
+      <view class="input-modes">
+        <button id="drawing-mode" class="mode-button {{inputKind === 'drawing' ? 'selected' : ''}}" data-kind="drawing" bindtap="onInputKindChange">手写数字</button>
+        <button id="image-mode" class="mode-button {{inputKind === 'image' ? 'selected' : ''}}" data-kind="image" bindtap="onInputKindChange">导入图片</button>
+      </view>
+      <view hidden="{{inputKind !== 'drawing'}}">
+        <drawing-board id="business-board" simple="{{true}}" bind:change="onDrawingChange" />
+      </view>
+      <view class="card image-input" wx:if="{{inputKind === 'image'}}">
+        <view class="note">从相册选择一张 PNG / JPEG，只包含一个 0–9 数字。单张最多 5 MiB，最长边 2048 像素。</view>
+        <button id="choose-image" class="image-button" bindtap="chooseImage">{{imageBusy ? '重新选择图片' : imagePath ? '更换图片' : '从相册选择'}}</button>
+        <view class="note" wx:if="{{imageBusy}}">正在选择或检查图片…</view>
+        <image id="import-preview" wx:if="{{imagePath}}" class="image-preview" src="{{imagePath}}" mode="aspectFit" />
+        <view class="note" wx:if="{{imageInfo}}">{{imageInfo.type}} · {{imageInfo.width}} × {{imageInfo.height}} 像素 · {{imageInfo.sizeKiB}} KiB</view>
+        <button id="remove-image" wx:if="{{imagePath || imageBusy}}" class="image-button secondary" bindtap="removeImage">移除图片</button>
+        <view class="error" wx:if="{{imageError}}">{{imageError}}</view>
+        <view class="note">选择后仅预览，点击“识别图片”才上传。不扫描相册，不使用相机。</view>
+      </view>
+      <button id="recognize-input" class="recognize" bindtap="recognize" loading="{{recognizing}}" disabled="{{recognizing || (inputKind === 'image' ? (!imagePath || imageBusy) : !hasInk)}}">{{recognizing ? '正在识别…' : inputKind === 'image' ? '识别图片' : '识别这个数字'}}</button>
+      <view class="note">每次只识别一个数字。请使用白底黑字、清晰且适当留白的图片。</view>
       <view class="error" wx:if="{{recognitionError}}">{{recognitionError}}</view>
       <view class="card result" wx:if="{{result}}">
         <view class="welcome">识别数字：{{result.digit}}</view>

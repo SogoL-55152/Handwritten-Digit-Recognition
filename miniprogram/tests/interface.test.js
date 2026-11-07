@@ -38,3 +38,30 @@ test('both business headers show authenticated logout in their right-hand slot',
     assert.equal((template.match(/bindtap="logout"/g) || []).length, 1)
   }
 })
+
+test('image controls stay separate from drawing and require explicit recognition', () => {
+  const template = read('pages/index/index.wxml')
+  for (const id of ['drawing-mode', 'image-mode', 'choose-image', 'remove-image', 'import-preview', 'recognize-input']) {
+    assert.match(template, new RegExp(`id="${id}"`))
+  }
+  assert.match(template, /hidden="\{\{inputKind !== 'drawing'\}\}"/)
+  assert.match(template, /bindtap="chooseImage"/)
+  assert.match(template, /bindtap="removeImage"/)
+  assert.match(template, /!imagePath \|\| imageBusy/)
+  assert.match(template, /PNG \/ JPEG/)
+  assert.match(template, /5 MiB/)
+  assert.match(template, /2048/)
+  assert.match(template, /点击“识别图片”才上传/)
+  assert.match(read('pages/index/index.wxss'), /\.image-button \{[^}]*justify-content: center[^}]*background: #2f54eb/)
+})
+
+test('help and privacy accurately disclose selected-image access without album scanning or camera', () => {
+  for (const page of ['help', 'privacy']) {
+    const template = read(`pages/${page}/${page}.wxml`)
+    assert.match(template, /明确选择/)
+    assert.match(template, /不扫描或批量读取相册/)
+    assert.match(template, /不使用相机/)
+    assert.doesNotMatch(template, /不读取相册|不收集手机号、相册|只提交本次画板/)
+  }
+  assert.match(read('pages/privacy/privacy.wxml'), /不代替微信平台的正式隐私配置与审核/)
+})

@@ -42,10 +42,11 @@ function page(definition) {
   return {
     ...definition, data: structuredClone(definition.data || {}), updates: [],
     selectComponent() { return this.board || null },
-    setData(patch) {
+    setData(patch, callback) {
       assert.notEqual(this.unloaded, true, 'No Page.setData after unload')
       this.updates.push(patch)
       Object.assign(this.data, patch)
+      if (callback) callback()
     }
   }
 }
@@ -667,6 +668,32 @@ test('HTML413 and malformed result are visible on the actual page without losing
   assert.equal(h.app.globalData.token, 'token-A')
 })
 
+test('422 shows a rewrite hint with no guess or automatic retry and preserves login', async () => {
+  const h = harness()
+  const index = await authorizedPage(h)
+  const operation = await startUpload(h, index)
+  operation.options.success({ statusCode: 422, data: { code: 422, data: { category: 'UNRECOGNIZED_INPUT' } } })
+  await operation.pending
+  assert.equal(index.data.result, null)
+  assert.match(index.data.recognitionError, /重新书写/)
+  assert.equal(index.data.recognizing, false)
+  assert.equal(h.app.globalData.token, 'token-A')
+  assert.equal(h.uploads.length, 1)
+  assert.equal(h.redirects.length, 0)
+})
+
+test('422 arriving after clear does not revive a rejected result or error', async () => {
+  const h = harness()
+  const index = await authorizedPage(h)
+  const operation = await startUpload(h, index)
+  index.board.clear()
+  failure(operation.options, 422, 'UNRECOGNIZED_INPUT')
+  await operation.pending
+  assert.equal(index.data.result, null)
+  assert.equal(index.data.recognitionError, '')
+  assert.equal(index.data.recognizing, false)
+})
+
 test('native UUID failure requests one server identifier without uploading until it succeeds', async () => {
   const h = harness()
   const index = await authorizedPage(h)
@@ -774,4 +801,409 @@ test('session and workspace snapshots distinguish A to B to A switches and repla
   saveSession({ token: 'same', ...identity })
   assert.equal(isSessionCurrent(old), false)
   assert.equal(snapshot().workspaceId, '')
+})
+
+// Image-import tests use the same actual Page, App, Component and network modules above.
+function imageInput(h, index, { stage, jpeg = false, size, width = 28 } = {}) {
+  const picks = [], local = [], reads = []
+  let ids = 0
+  const random = h.wx.getRandomValues
+  h.wx.getRandomValues = options => { ids++; return random(options) }
+  const bytes = jpeg ? Uint8Array.from([255, 216, 255, 192, 0, 11, 8, 0, 28, 0, 28, 1, 1, 17, 0, 255, 217]) : new Uint8Array(33)
+  if (!jpeg) {
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82])
+    new DataView(bytes.buffer).setUint32(16, width)
+    new DataView(bytes.buffer).setUint32(20, 28)
+  }
+  const invoke = (name, options, response) => {
+    reads.push(name)
+    if (stage === name) local.push({ options, response })
+    else options.success(response)
+  }
+  h.wx.chooseMedia = options => { picks.push(options) }
+  h.wx.getFileSystemManager = () => ({
+    getFileInfo: options => invoke('size', options, { size: size === undefined ? bytes.length : size }),
+    readFile: options => invoke('header', options, { data: bytes.buffer }),
+    unlink: () => assert.fail('Platform owns original files'),
+    copyFile: () => assert.fail('No original copies')
+  })
+  h.wx.getImageInfo = options => invoke('decode', options, { type: jpeg ? 'jpeg' : 'png', width, height: 28, path: 'wxfile://not-original' })
+  h.wx.compressImage = () => assert.fail('No image compression')
+  index.onInputKindChange({ currentTarget: { dataset: { kind: 'image' } } })
+  return { picks, local, reads, get ids() { return ids },
+    pick(path = 'wxfile://selected-original.png', pick = picks.at(-1)) { pick.success({ tempFiles: [{ tempFilePath: path }] }) }
+  }
+}
+async function resumeIndex(h, index, me = identity, detail = spaces[0]) {
+  const pending = index.onShow()
+  success(h.requests.at(-1), me)
+  await flush()
+  success(h.requests.at(-1), spaces)
+  await flush()
+  success(h.requests.at(-1), detail)
+  await pending
+}
+async function importImage(h, index, options) {
+  const images = imageInput(h, index, options)
+  const pending = index.chooseImage()
+  images.pick()
+  await pending
+  return images
+}
+
+for (const jpeg of [false, true]) {
+  test(`actual Page imports ${jpeg ? 'JPEG' : 'PNG'} locally, explicit click uploads original without Canvas readiness`, async () => {
+    const h = harness(), index = await authorizedPage(h)
+    const beforeStorage = [...h.storage]
+    const images = await importImage(h, index, { jpeg })
+    assert.equal(images.ids, 0)
+    assert.equal(h.requests.length, 3)
+    assert.equal(h.uploads.length, 0)
+    assert.equal(h.exports.length, 0)
+    assert.equal(index.data.imageInfo.type, jpeg ? 'JPEG' : 'PNG')
+    assert.equal(index.data.imagePath, 'wxfile://selected-original.png')
+    assert.deepEqual([...h.storage], beforeStorage)
+    index.board = null // Canvas unavailable must not block imported images.
+    const pending = index.recognize()
+    index.recognize()
+    await flush()
+    assert.equal(images.ids, 1)
+    assert.equal(h.uploads.length, 1)
+    const upload = h.uploads[0]
+    assert.equal(upload.filePath, 'wxfile://selected-original.png')
+    assert.equal(upload.name, 'image')
+    assert.deepEqual(upload.formData, { source: 'MINIPROGRAM' })
+    assert.equal(upload.header.Authorization, 'Bearer token-A')
+    assert.ok(upload.url.endsWith(`/workspaces/${spaces[0].id}/recognitions`))
+    success(upload, resultFor(upload))
+    await pending
+    assert.equal(index.data.result.digit, 7)
+    assert.equal(index.data.recognizing, false)
+    const retry = index.recognize()
+    await flush()
+    assert.notEqual(h.uploads[1].header['Idempotency-Key'], upload.header['Idempotency-Key'])
+    success(h.uploads[1], resultFor(h.uploads[1]))
+    await retry
+    index.onUnload()
+    assert.equal(index.data.imagePath, '')
+  })
+}
+
+for (const order of ['before-show', 'during-me', 'during-list', 'during-detail', 'after-show']) {
+  test(`picker callback ${order} only promotes after fresh same-account membership verification`, async () => {
+    const h = harness(), index = await authorizedPage(h), images = imageInput(h, index)
+    const selected = index.chooseImage()
+    index.onHide()
+    const choose = async () => {
+      images.pick()
+      await selected
+      await index.recognize()
+      assert.equal(images.ids, 0)
+      assert.equal(h.uploads.length, 0)
+    }
+    if (order === 'before-show') {
+      await choose()
+      assert.equal(index.data.imagePath, '')
+      assert.equal(index._pickerIntent.candidate.filePath, 'wxfile://selected-original.png')
+    }
+    const showing = index.onShow()
+    assert.equal(index.data.imagePath, '')
+    assert.equal(index.data.workspaceReady, false)
+    if (order === 'during-me') await choose()
+    success(h.requests.at(-1), identity)
+    await flush()
+    if (order === 'during-list') await choose()
+    assert.equal(index.data.imagePath, '')
+    success(h.requests.at(-1), spaces)
+    await flush()
+    if (order === 'during-detail') await choose()
+    assert.equal(index.data.imagePath, '')
+    success(h.requests.at(-1), spaces[0])
+    await showing
+    if (order === 'after-show') {
+      assert.equal(index.data.imagePath, '')
+      images.pick()
+      await selected
+    }
+    assert.equal(index.data.imagePath, 'wxfile://selected-original.png')
+    assert.equal(index.data.imageBusy, false)
+    assert.equal(images.ids, 0)
+    assert.equal(h.requests.length, 6)
+    assert.equal(h.uploads.length, 0)
+    const pending = index.recognize()
+    await flush()
+    success(h.uploads[0], resultFor(h.uploads[0]))
+    await pending
+    index.onUnload()
+  })
+}
+
+for (const order of ['before-show', 'after-show']) {
+  test(`picker cancellation ${order} produces no error, ID or upload`, async () => {
+    const h = harness(), index = await authorizedPage(h), images = imageInput(h, index)
+    const selected = index.chooseImage()
+    index.onHide()
+    if (order === 'after-show') await resumeIndex(h, index)
+    images.picks[0].fail({ errMsg: 'chooseMedia:fail cancel' })
+    await selected
+    if (order === 'before-show') await resumeIndex(h, index)
+    assert.equal(index.data.imagePath, '')
+    assert.equal(index.data.imageError, '')
+    assert.equal(index.data.imageBusy, false)
+    assert.equal(index._pickerIntent, null)
+    assert.equal(images.ids, 0)
+    assert.equal(h.uploads.length, 0)
+    index.onUnload()
+  })
+}
+
+for (const issue of ['size', 'dimensions', 'decode', 'permission', 'missing-api']) {
+  test(`Page ${issue} failure is visible and never requests IDs or uploads`, async () => {
+    const h = harness(), index = await authorizedPage(h)
+    const images = imageInput(h, index, { size: issue === 'size' ? 5242881 : undefined,
+      width: issue === 'dimensions' ? 2049 : 28, stage: issue === 'decode' ? 'decode' : undefined })
+    if (issue === 'missing-api') delete h.wx.chooseMedia
+    const selected = index.chooseImage()
+    if (issue === 'permission') images.picks[0].fail({ errMsg: 'permission denied' })
+    else if (issue !== 'missing-api') images.pick()
+    await flush()
+    if (issue === 'decode') images.local[0].options.fail({ errMsg: 'corrupt' })
+    await selected
+    assert.equal(index.data.imagePath, '')
+    assert.ok(index.data.imageError)
+    assert.equal(index.data.imageBusy, false)
+    await index.recognize()
+    assert.equal(images.ids, 0)
+    assert.equal(h.requests.length, 3)
+    assert.equal(h.uploads.length, 0)
+    index.onUnload()
+  })
+}
+
+for (const stage of ['picker', 'decode']) {
+  for (const action of ['reselect', 'remove', 'mode', 'workspace', 'logout', 'account', 'unload']) {
+    test(`late ${stage} after ${action} cannot revive image/error/busy or upload`, async () => {
+      const h = harness(), index = await authorizedPage(h), images = imageInput(h, index, { stage: stage === 'decode' ? 'decode' : undefined })
+      const first = index.chooseImage()
+      if (stage === 'decode') { images.pick(); await flush() }
+      let second
+      if (action === 'reselect') second = index.chooseImage()
+      if (action === 'remove') index.removeImage()
+      if (action === 'mode') index.onInputKindChange({ currentTarget: { dataset: { kind: 'drawing' } } })
+      if (action === 'workspace') {
+        const switching = index.onWorkspaceChange({ detail: { value: 1 } })
+        success(h.requests.at(-1), spaces[1])
+        await switching
+      }
+      if (action === 'logout') index.logout()
+      if (action === 'account') saveSession({ token: 'new-account', ...identity })
+      if (action === 'unload') { index.onUnload(); index.unloaded = true }
+      const before = structuredClone(index.data), updates = index.updates.length
+      if (stage === 'decode') images.local[0].options.success(images.local[0].response)
+      else images.pick('wxfile://old.png', images.picks[0])
+      await first
+      assert.deepEqual(index.data, before)
+      assert.equal(index.updates.length, updates)
+      assert.equal(images.ids, 0)
+      assert.equal(h.uploads.length, 0)
+      if (second) {
+        images.pick('wxfile://new.png')
+        await flush()
+        if (stage === 'decode') images.local[1].options.success(images.local[1].response)
+        await second
+        assert.equal(index.data.imagePath, 'wxfile://new.png')
+        index.onUnload()
+      } else if (!index.unloaded) index.onUnload()
+    })
+  }
+}
+
+for (const action of ['second-hide', 'logout-hidden', 'account-hidden', 'origin-hidden', 'workspace-away-back']) {
+  test(`${action} invalidates preserved picker intent rather than bypassing scope guards`, async () => {
+    const h = harness(), index = await authorizedPage(h), images = imageInput(h, index)
+    const selected = index.chooseImage()
+    index.onHide()
+    if (action === 'second-hide') { const showing = index.onShow(); index.onHide(); await showing }
+    if (action === 'logout-hidden') index.logout()
+    if (action === 'account-hidden') saveSession({ token: 'new-account', ...identity })
+    if (action === 'origin-hidden') {
+      h.app._runtimeOptions.publicConfig.apiBaseUrl = 'http://127.0.0.1:8080'
+      snapshot()
+    }
+    if (action === 'workspace-away-back') { selectWorkspace(spaces[1].id); selectWorkspace(spaces[0].id) }
+    images.pick()
+    await selected
+    assert.equal(index._pickerIntent, null)
+    assert.equal(index._image, null)
+    assert.equal(index.data.imagePath, '')
+    assert.equal(images.ids, 0)
+    assert.equal(h.uploads.length, 0)
+    index.onUnload()
+  })
+}
+
+for (const stage of ['me', 'list', 'detail']) {
+  test(`picker resume ${stage} rejection discards candidate and never uploads`, async () => {
+    const h = harness(), index = await authorizedPage(h), images = imageInput(h, index)
+    const selected = index.chooseImage()
+    index.onHide()
+    images.pick()
+    await selected
+    const showing = index.onShow()
+    if (stage !== 'me') { success(h.requests.at(-1), identity); await flush() }
+    if (stage === 'detail') { success(h.requests.at(-1), spaces); await flush() }
+    failure(h.requests.at(-1), stage === 'me' ? 401 : 403)
+    await showing
+    assert.equal(index._pickerIntent, null)
+    assert.equal(index._image, null)
+    assert.equal(index.data.imagePath, '')
+    assert.equal(index.data.imageBusy, false)
+    assert.equal(images.ids, 0)
+    assert.equal(h.uploads.length, 0)
+    index.onUnload()
+  })
+}
+
+test('fresh me identifying a different user with the same token cannot promote candidate', async () => {
+  const h = harness(), index = await authorizedPage(h), images = imageInput(h, index)
+  const selected = index.chooseImage()
+  index.onHide()
+  images.pick()
+  await selected
+  await resumeIndex(h, index, { ...identity, user: { ...user, id: 'another-user' } })
+  assert.equal(index.data.imagePath, '')
+  assert.equal(index._image, null)
+  assert.equal(images.ids, 0)
+  index.onUnload()
+})
+
+for (const callback of ['success', '401', '422']) {
+  for (const action of ['reselect', 'remove', 'mode', 'workspace', 'hide', 'logout', 'account', 'unload']) {
+    test(`import upload ${callback} after ${action} cannot mutate newer state or revoke auth`, async () => {
+      const h = harness(), index = await authorizedPage(h), images = await importImage(h, index)
+      const uploading = index.recognize()
+      await flush()
+      const old = h.uploads[0]
+      let selecting
+      if (action === 'reselect') selecting = index.chooseImage()
+      if (action === 'remove') index.removeImage()
+      if (action === 'mode') index.onInputKindChange({ currentTarget: { dataset: { kind: 'drawing' } } })
+      if (action === 'workspace') {
+        const changing = index.onWorkspaceChange({ detail: { value: 1 } })
+        success(h.requests.at(-1), spaces[1])
+        await changing
+      }
+      if (action === 'hide') index.onHide()
+      if (action === 'logout') index.logout()
+      if (action === 'account') saveSession({ token: 'new-account', ...identity })
+      if (action === 'unload') { index.onUnload(); index.unloaded = true }
+      const before = structuredClone(index.data), updates = index.updates.length
+      if (callback === 'success') success(old, resultFor(old))
+      else failure(old, Number(callback), 'UNRECOGNIZED_INPUT')
+      await uploading
+      assert.equal(old.aborted, true)
+      assert.deepEqual(index.data, before)
+      assert.equal(index.updates.length, updates)
+      assert.equal(h.app.globalData.token, action === 'logout' ? '' : action === 'account' ? 'new-account' : 'token-A')
+      if (selecting) { images.picks.at(-1).fail({ errMsg: 'cancel' }); await selecting }
+      if (!index.unloaded) index.onUnload()
+    })
+  }
+}
+
+test('imported 422 gives replace/rewrite guidance, retains input and does not retry', async () => {
+  const h = harness(), index = await authorizedPage(h)
+  await importImage(h, index)
+  const pending = index.recognize()
+  await flush()
+  failure(h.uploads[0], 422, 'UNRECOGNIZED_INPUT')
+  await pending
+  assert.match(index.data.recognitionError, /更换图片或重新书写/)
+  assert.equal(index.data.result, null)
+  assert.equal(index.data.imagePath, 'wxfile://selected-original.png')
+  assert.equal(index.data.recognizing, false)
+  assert.equal(h.uploads.length, 1)
+  assert.equal(h.app.globalData.token, 'token-A')
+  index.onUnload()
+})
+
+test('inactive production drawing changes cannot invalidate imported result; switch back uses actual ink', async () => {
+  const h = harness(), index = await authorizedPage(h)
+  await importImage(h, index)
+  const pending = index.recognize()
+  await flush()
+  success(h.uploads[0], resultFor(h.uploads[0]))
+  await pending
+  dot(index.board)
+  assert.equal(index.data.result.digit, 7)
+  assert.equal(index.data.imagePath, 'wxfile://selected-original.png')
+  index.onInputKindChange({ currentTarget: { dataset: { kind: 'drawing' } } })
+  assert.equal(index.data.imagePath, '')
+  assert.equal(index.data.result, null)
+  assert.equal(index.data.hasInk, true)
+  index.onUnload()
+})
+
+test('switching back initializes a real board that previously measured hidden zero size', async () => {
+  const h = harness(), index = await authorizedPage(h)
+  await importImage(h, index)
+  const query = index.board.createSelectorQuery
+  index.board.createSelectorQuery = () => ({ select() { return this }, fields() { return this }, exec(callback) { callback([]) } })
+  index.board.initCanvas()
+  assert.equal(index.board.getSnapshot().ready, false)
+  assert.equal(index.data.imagePath, 'wxfile://selected-original.png')
+  index.board.createSelectorQuery = query
+  index.onInputKindChange({ currentTarget: { dataset: { kind: 'drawing' } } })
+  assert.equal(index.board.getSnapshot().ready, true)
+  dot(index.board)
+  assert.equal(index.data.hasInk, true)
+  index.onUnload()
+})
+
+for (const stage of ['me', 'list', 'detail']) {
+  test(`hide during picker-resume ${stage} aborts auth and ignores late 401`, async () => {
+    const h = harness(), index = await authorizedPage(h), images = imageInput(h, index)
+    const selected = index.chooseImage()
+    index.onHide()
+    const showing = index.onShow()
+    if (stage !== 'me') { success(h.requests.at(-1), identity); await flush() }
+    if (stage === 'detail') { success(h.requests.at(-1), spaces); await flush() }
+    const old = h.requests.at(-1)
+    index.onHide()
+    const before = structuredClone(index.data)
+    failure(old, 401)
+    images.pick()
+    await selected
+    await showing
+    assert.equal(old.aborted, true)
+    assert.deepEqual(index.data, before)
+    assert.equal(h.app.globalData.token, 'token-A')
+    assert.equal(h.uploads.length, 0)
+    assert.equal(index._pickerIntent, null)
+    index.onUnload()
+  })
+}
+
+test('image request-ID fallback only starts on explicit click and is cancelled on hide', async () => {
+  const h = harness(), index = await authorizedPage(h)
+  delete h.wx.getRandomValues
+  const images = imageInput(h, index)
+  delete h.wx.getRandomValues
+  await index.recognize()
+  const selected = index.chooseImage()
+  await index.recognize()
+  images.pick()
+  await selected
+  assert.equal(h.requests.length, 3)
+  const pending = index.recognize()
+  await flush()
+  const fallback = h.requests.at(-1)
+  assert.ok(fallback.url.endsWith('/recognitions/request-id'))
+  assert.equal(h.uploads.length, 0)
+  index.onHide()
+  assert.equal(fallback.aborted, true)
+  success(fallback, { requestId: '00000000-0000-4000-8000-000000000123' })
+  await pending
+  assert.equal(h.uploads.length, 0)
+  index.onUnload()
 })

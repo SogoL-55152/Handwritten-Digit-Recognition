@@ -2,11 +2,11 @@
 import hashlib
 import io
 import logging
-import math
 import threading
 from pathlib import Path
 
 from services.inference_manifest import BASELINE, INFERENCE_CONCURRENCY
+from services.inference_policy import AcceptancePolicy, UncertainPrediction
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,8 @@ class ModelUnavailable(RuntimeError):
 
 
 class InferenceService:
-    def __init__(self, checkpoint_path):
+    def __init__(self, checkpoint_path, policy=None):
+        self.policy = policy if policy is not None else AcceptancePolicy()
         self._checkpoint_path = Path(checkpoint_path)
         self._load_lock = threading.Lock()
         self._load_attempted = False
@@ -54,16 +55,22 @@ class InferenceService:
                 raise ModelUnavailable("可信基线未就绪，请检查服务配置后重启")
         return {"status": "UP", **BASELINE.identity(), "sha256": BASELINE.sha256}
 
-    def predict(self, normalized):
+    def probabilities(self, normalized):
         self.ensure_ready()
         torch = self._torch
         with torch.inference_mode():
             logits = self._model(torch.from_numpy(normalized).unsqueeze(0))
             if tuple(logits.shape) != (1, 10) or not torch.isfinite(logits).all().item():
                 raise ModelUnavailable("模型输出无效")
-            probabilities = torch.softmax(logits, dim=1)
-            confidence, digit = probabilities.max(dim=1)
-            result = int(digit.item()), float(confidence.item())
-        if not 0 <= result[0] <= 9 or not math.isfinite(result[1]) or not 0 <= result[1] <= 1:
-            raise ModelUnavailable("模型输出无效")
-        return result
+            return torch.softmax(logits, dim=1)[0].tolist()
+
+    def predict(self, normalized):
+        self.ensure_ready()
+        try:
+            self.policy.check_input(normalized)
+            return self.policy.select(self.probabilities(normalized))
+        except UncertainPrediction as error:
+            logger.info("Recognition declined (%s, %s)", self.policy.describe()["version"], error.reason)
+            raise
+        except ValueError as error:
+            raise ModelUnavailable("模型输出或输入无效") from error

@@ -17,6 +17,7 @@ from api.internal_v2 import (
 )
 from config import Config
 from services.inference import InferenceService
+from services.inference_policy import AcceptancePolicy
 
 API_PREFIX = "/api/v1"
 
@@ -28,7 +29,9 @@ def create_app(config=None) -> Flask:
         app.config.update(config)
     app.json.ensure_ascii = False
     CORS(app, resources={r"/api/v1/*": {"origins": "*"}})
-    app.extensions["inference_service"] = InferenceService(app.config["MODEL_CHECKPOINT_PATH"])
+    policy = AcceptancePolicy(app.config["RECOGNITION_MIN_CONFIDENCE"], app.config["RECOGNITION_MIN_MARGIN"])
+    app.extensions["inference_service"] = InferenceService(app.config["MODEL_CHECKPOINT_PATH"], policy)
+    app.logger.info("Recognition acceptance policy: %s", policy.describe())
     app.before_request(authenticate_internal)
     app.register_blueprint(health_bp, url_prefix=API_PREFIX)
     app.register_blueprint(internal_bp, url_prefix="/internal/v2")

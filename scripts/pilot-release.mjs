@@ -16,7 +16,7 @@ const SOURCE_EXTENSIONS = ['.js', '.json', '.wxml', '.wxss']
 const ASSET_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.ttf', '.woff', '.woff2']
 const SOURCE_FILES = [
   'app.js', 'app.wxss', 'config/runtime.js',
-  'utils/credentials.js', 'utils/request.js', 'utils/session.js', 'utils/recognition.js',
+  'utils/credentials.js', 'utils/request.js', 'utils/session.js', 'utils/recognition.js', 'utils/image-import.js',
   ...SOURCE_EXTENSIONS.map((extension) => `components/drawing-board/drawing-board${extension}`),
   ...PAGES.flatMap((page) => SOURCE_EXTENSIONS.map((extension) => `${page}${extension}`))
 ]

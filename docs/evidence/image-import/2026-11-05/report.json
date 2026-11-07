@@ -1,0 +1,48 @@
+{
+  "checks": [
+    "empty import input cannot submit",
+    "digit-seven.png previews locally and uploads original bytes for real prediction",
+    "digit-seven.jpeg previews locally and uploads original bytes for real prediction",
+    "removal clears preview prediction and submission state",
+    "not-image.png rejected locally without upload",
+    "oversize-pixels.png rejected locally without upload",
+    "oversize bytes rejected before upload",
+    "imported non-digit can decline without guessed result or logout",
+    "returning to handwriting releases imported preview"
+  ],
+  "results": [
+    {
+      "filename": "digit-seven.png",
+      "format": "image/png",
+      "sha256": "1a37e01fe7679607bf3706a301439669e68657bb8317e9e0363ed7c46c675326",
+      "recognitionId": "7",
+      "requestId": "4a03f776-1492-4259-bb15-094eaba28229",
+      "digit": 7,
+      "confidence": 0.9950060248374939,
+      "modelId": "1",
+      "modelVersion": "w1-full-3epoch",
+      "preprocessVersion": "canvas-mnist-v1",
+      "source": "WEB",
+      "processingMs": 3875,
+      "createdAt": "2026-11-05T02:48:42.032Z"
+    },
+    {
+      "filename": "digit-seven.jpeg",
+      "format": "image/jpeg",
+      "sha256": "e020535dba7958eecfc738e6bbcf52a2b368cc573be4e0dd737f23fb229f924f",
+      "recognitionId": "8",
+      "requestId": "687e8414-9bfe-483a-ab7f-01091bcc6824",
+      "digit": 7,
+      "confidence": 0.9950084686279297,
+      "modelId": "1",
+      "modelVersion": "w1-full-3epoch",
+      "preprocessVersion": "canvas-mnist-v1",
+      "source": "WEB",
+      "processingMs": 23,
+      "createdAt": "2026-11-05T02:48:46.280Z"
+    }
+  ],
+  "errors": [],
+  "browser": "156.0.4314.58",
+  "limitations": "Browser file import only; not WeChat album UI, no photo/multi-digit guarantee."
+}

@@ -34,7 +34,7 @@ function fixture(t) {
   write(source, 'sitemap.json', JSON.stringify({ desc: 'Synthetic sitemap', rules: [{ action: 'allow', page: '*' }] }))
   write(source, 'config/public.js', "// Public template: never execute it.\nmodule.exports = {\n mode: 'development', apiBaseUrl: 'http://127.0.0.1:8080',\n operator: '', contact: '', privacyVersion: '',\n}\n")
   write(source, 'config/runtime.js', "const config = require('./public')\nmodule.exports = { config }\n")
-  for (const name of ['session', 'request', 'recognition', 'credentials']) write(source, `utils/${name}.js`, 'module.exports = {}\n')
+  for (const name of ['session', 'request', 'recognition', 'credentials', 'image-import']) write(source, `utils/${name}.js`, 'module.exports = {}\n')
   write(source, 'utils/request.js', 'function headers(saved) { return { Authorization: `Bearer ${saved.token}` } }\nmodule.exports = { headers }\n')
   for (const page of PAGES) {
     for (const extension of EXTENSIONS) {
@@ -167,7 +167,7 @@ test('package is a new allowlisted source-only candidate; source AppID/private d
   assert.deepEqual(snapshot(f.source), before)
   const files = listFiles(output)
   assert.equal(files.length, result.fileCount)
-  assert.equal(files.length, 39)
+  assert.equal(files.length, 40)
   assert.equal(files.some((name) => /prototype|private|tests|node_modules|debug|local|\.env|README|\.map/.test(name)), false)
   for (const name of files) assert.ok(!fs.readFileSync(path.join(output, name)).includes(SECRET))
   assert.deepEqual(readJson(output, 'app.json').pages, PAGES)
@@ -294,7 +294,7 @@ test('only explicitly referenced approved assets are copied', (t) => {
   assert.deepEqual(fs.readFileSync(path.join(output, 'assets/icons/digit.png')), icon)
   assert.equal(fs.existsSync(path.join(output, 'assets/background.webp')), true)
   assert.equal(fs.existsSync(path.join(output, 'assets/unreferenced.png')), false)
-  assert.equal(validatePackage(output, CONFIG).files, 41)
+  assert.equal(validatePackage(output, CONFIG).files, 42)
 })
 for (const asset of ['/assets/../project.private.config.json', '/assets/icon.js', '/assets/token.png', '/assets/%2e%2e/picture.png', '/assets/{{name}}.png', 'https://digits.pilot-team.cn/assets/icon.png', '/assets/missing.png']) {
   test(`unsafe, secret-named or missing asset blocks ${asset}`, (t) => {
@@ -391,7 +391,7 @@ test('CLI supports public JSON plus explicit public overrides; package stays loc
   const result = JSON.parse(packaged.stdout)
   assert.equal(result.output, 'dist/pilot-miniprogram-cli')
   assert.ok(result.unverified.length)
-  assert.equal(validatePackage(path.join(f.root, result.output), CONFIG).files, 39)
+  assert.equal(validatePackage(path.join(f.root, result.output), CONFIG).files, 40)
 })
 test('CLI accepts all public fields directly and does not print their values', (t) => {
   const f = fixture(t)

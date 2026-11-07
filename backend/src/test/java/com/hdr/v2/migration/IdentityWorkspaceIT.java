@@ -299,6 +299,23 @@ class IdentityWorkspaceIT {
     }
 
     @Test
+    void declinedInputIsFailedWithoutSavedGuessOrSuccessfulDetail() {
+        var owner = register();
+        long wid = Long.parseLong(owner.defaultWorkspaceId()), uid = Long.parseLong(owner.user().id());
+        ModelClient model = mock(ModelClient.class);
+        when(model.predict(anyLong(), anyString(), any(), any())).thenThrow(new V2Exception(422, "rewrite", "UNRECOGNIZED_INPUT"));
+        var service = recognitionService(model);
+        String request = UUID.randomUUID().toString();
+        var image = new ImageValidator.Image(new byte[]{1}, "a".repeat(64), "image/png");
+        assertEquals(422, assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "WEB", image)).getStatus());
+        long id = jdbc.queryForObject("SELECT id FROM t_recognition_v2 WHERE workspace_id=?", Long.class, wid);
+        assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM t_recognition_v2 WHERE id=? AND status='FAILED' AND digit IS NULL AND confidence IS NULL", Long.class, id));
+        assertEquals(404, assertThrows(V2Exception.class, () -> service.get(wid, uid, id)).getStatus());
+        assertEquals("REQUEST_FAILED", assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "WEB", image)).getCategory());
+        verify(model, times(1)).predict(anyLong(), anyString(), any(), any());
+    }
+
+    @Test
     void inFlightDuplicateIsNotReplayedAndCanLaterReadTheSavedResult() throws Exception {
         var owner = register();
         long wid = Long.parseLong(owner.defaultWorkspaceId()), uid = Long.parseLong(owner.user().id());

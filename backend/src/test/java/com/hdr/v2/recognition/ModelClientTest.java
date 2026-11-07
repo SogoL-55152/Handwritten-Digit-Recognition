@@ -102,6 +102,45 @@ class ModelClientTest {
     }
 
     @Test
+    void uncertainInputIsBusiness422WithSanitizedMessageAndNoRetry() {
+        server.expect(requestTo("http://model.test/internal/v2/predict"))
+                .andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":422,\"message\":\"private internal path\",\"data\":{\"category\":\"UNRECOGNIZED_INPUT\",\"digit\":7}}"));
+        var error = assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, model, image));
+        assertEquals(422, error.getStatus());
+        assertEquals("UNRECOGNIZED_INPUT", error.getCategory());
+        assertFalse(error.getMessage().contains("private"));
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{", "{\"code\":422,\"data\":{\"category\":\"UNKNOWN\"}}", "{\"code\":\"422\",\"data\":{\"category\":\"UNRECOGNIZED_INPUT\"}}"})
+    void malformedOrUnknown422RemainsUpstreamError(String body) {
+        server.expect(requestTo("http://model.test/internal/v2/predict"))
+                .andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY).contentType(MediaType.APPLICATION_JSON).body(body));
+        assertEquals(502, assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, model, image)).getStatus());
+    }
+
+    @Test
+    void realHttpRejectionIsNotTurnedIntoTransportFailure() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/v2/predict", exchange -> {
+            try (exchange) {
+                exchange.getRequestBody().readAllBytes();
+                byte[] body = "{\"code\":422,\"data\":{\"category\":\"UNRECOGNIZED_INPUT\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(422, body.length);
+                exchange.getResponseBody().write(body);
+            }
+        });
+        server.start();
+        try {
+            var liveClient = new ModelClient(new ObjectMapper(), "http://127.0.0.1:" + server.getAddress().getPort(), "test-token");
+            assertEquals(422, assertThrows(V2Exception.class, () -> liveClient.predict(2, REQUEST, model, image)).getStatus());
+        } finally { server.stop(0); }
+    }
+
+    @Test
     void missingCredentialDoesNotSendNetworkRequest() {
         ModelClient unconfigured = new ModelClient(RestClient.create("http://unused.test"), new ObjectMapper(), "");
         assertEquals(503, assertThrows(V2Exception.class, () -> unconfigured.predict(2, REQUEST, model, image)).getStatus());

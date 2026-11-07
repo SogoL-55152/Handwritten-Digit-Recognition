@@ -13,6 +13,8 @@ class Config:
     PORT = int(os.getenv("PORT", "5001"))
     HOST = os.getenv("HOST", "127.0.0.1")
     MODEL_INTERNAL_TOKEN = os.getenv("MODEL_INTERNAL_TOKEN", "")
+    RECOGNITION_MIN_CONFIDENCE = float(os.getenv("RECOGNITION_MIN_CONFIDENCE", "0.90"))
+    RECOGNITION_MIN_MARGIN = float(os.getenv("RECOGNITION_MIN_MARGIN", "0.85"))
     MODEL_CHECKPOINT_PATH = Path(os.getenv(
         "MODEL_CHECKPOINT_PATH", BASE_DIR / "weights" / "w1-full" / "checkpoint.pt"
     ))

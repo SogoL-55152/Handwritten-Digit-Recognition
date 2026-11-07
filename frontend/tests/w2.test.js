@@ -300,6 +300,36 @@ test('invalid predictions fail closed; explicit retry uses a new UUID and never 
   assert.notEqual(ids[0], ids[1])
 })
 
+test('422 declines an input without displaying a guess, logging out or retrying', async () => {
+  const { session, workspace } = await fixture()
+  let calls = 0
+  const controller = createRecognitionController({ session, workspace, randomUUID, exportPng: async () => new Blob(['png']),
+    send: async () => { calls += 1; throw Object.assign(new Error('declined'), { status: 422, data: { category: 'UNRECOGNIZED_INPUT' } }) } })
+  drawing(controller)
+  await controller.submit()
+  assert.equal(calls, 1)
+  assert.equal(controller.state.result, null)
+  assert.match(controller.state.error, /重新书写/)
+  assert.equal(session.isAuthenticated, true)
+  controller.dispose()
+})
+
+test('late 422 response cannot overwrite the next drawing operation', async () => {
+  const { session, workspace } = await fixture()
+  const pending = deferred()
+  const controller = createRecognitionController({ session, workspace, randomUUID, exportPng: async () => new Blob(['png']), send: () => pending.promise })
+  drawing(controller)
+  const old = controller.submit()
+  await Promise.resolve()
+  controller.drawingChanged({ hasInk: false })
+  pending.reject(Object.assign(new Error('declined'), { status: 422 }))
+  await old
+  assert.equal(controller.state.error, '')
+  assert.equal(controller.state.result, null)
+  assert.equal(controller.state.loading, false)
+  controller.dispose()
+})
+
 test('real request adapter uses v2 Java multipart endpoint, PNG/source/UUID only and captured logout token', async () => {
   const original = request.defaults.adapter
   const id = randomUUID()

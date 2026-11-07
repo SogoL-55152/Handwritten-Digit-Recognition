@@ -6,6 +6,7 @@ import time
 from flask import Blueprint, current_app, jsonify, request
 
 from services.inference import ModelUnavailable
+from services.inference_policy import UncertainPrediction
 from services.inference_manifest import BASELINE, IMAGE_MAX_BYTES, REQUEST_MAX_BYTES
 from services.inference_preprocess import InvalidImage, preprocess_image
 
@@ -94,6 +95,8 @@ def predict():
                 "processingMs": max(0, round((time.perf_counter() - started) * 1000)),
             },
         })
+    except UncertainPrediction as exc:
+        return error_response(422, str(exc), "UNRECOGNIZED_INPUT")
     except InvalidImage as exc:
         return error_response(exc.status, str(exc), exc.category)
     except ImportError:
