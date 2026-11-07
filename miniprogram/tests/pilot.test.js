@@ -540,7 +540,7 @@ test('pilot verifies server default workspace, ignores prior selection and block
   assert.deepEqual(options.formData, { source: 'MINIPROGRAM' })
   assert.equal(options.name, 'image')
   success(options, { recognitionId: '9007199254741111', requestId: options.header['Idempotency-Key'], digit: 7, confidence: 0.98,
-    modelId: spaces[0].defaultModelId, modelVersion: 'w2-canvas-aug-3epoch', preprocessVersion: 'canvas-mnist-v1', source: 'MINIPROGRAM', processingMs: 12, createdAt: '2026-11-04T00:00:00Z' })
+    modelId: spaces[0].defaultModelId, modelVersion: 'w2-canvas-photo-3epoch', preprocessVersion: 'adaptive-mnist-v2', source: 'MINIPROGRAM', processingMs: 12, createdAt: '2026-11-04T00:00:00Z' })
   await recognition
   assert.equal(index.data.result.digit, 7)
   assert.equal(index.data.recognizing, false)

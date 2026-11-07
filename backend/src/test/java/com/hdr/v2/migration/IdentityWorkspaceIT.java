@@ -100,8 +100,8 @@ class IdentityWorkspaceIT {
     @Test
     void newDatabaseAndRepeatedMigrationKeepOneTrustedPublicBaseline() {
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM t_v2_model WHERE scope='PUBLIC'", Long.class));
-        assertEquals("w2-canvas-aug-3epoch", jdbc.queryForObject("SELECT version FROM t_v2_model WHERE id=1", String.class));
-        assertEquals(0.989, jdbc.queryForObject("SELECT accuracy FROM t_v2_model WHERE id=1", Double.class));
+        assertEquals("w2-canvas-photo-3epoch", jdbc.queryForObject("SELECT version FROM t_v2_model WHERE id=1", String.class));
+        assertEquals(0.977, jdbc.queryForObject("SELECT accuracy FROM t_v2_model WHERE id=1", Double.class));
         migrate(context.getBean(DataSource.class));
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM t_v2_dataset", Long.class));
     }
@@ -273,7 +273,7 @@ class IdentityWorkspaceIT {
         var image = new ImageValidator.Image(new byte[]{1}, "a".repeat(64), "image/png");
         var result = service.predict(wid, uid, request, "WEB", image);
         assertEquals(result, service.predict(wid, uid, request, "WEB", image));
-        assertEquals("w2-canvas-aug-3epoch", result.modelVersion());
+        assertEquals("w2-canvas-photo-3epoch", result.modelVersion());
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM t_recognition_v2 WHERE workspace_id=? AND creator_id=?", Long.class, wid, uid));
         assertEquals(404, assertThrows(V2Exception.class, () -> service.get(wid, memberId, Long.parseLong(result.recognitionId()))).getStatus());
         assertEquals(404, assertThrows(V2Exception.class, () -> service.get(Long.parseLong(member.defaultWorkspaceId()), uid, Long.parseLong(result.recognitionId()))).getStatus());
@@ -345,7 +345,7 @@ class IdentityWorkspaceIT {
         var owner = register();
         long wid = Long.parseLong(owner.defaultWorkspaceId()), uid = Long.parseLong(owner.user().id());
         String request = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO t_recognition_v2(workspace_id,creator_id,request_id,image_digest,source,model_id,model_version,preprocess_version,created_at) VALUES (?,?,?,?,'WEB',1,'w2-canvas-aug-3epoch','canvas-mnist-v1',DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE))", wid, uid, request, "a".repeat(64));
+        jdbc.update("INSERT INTO t_recognition_v2(workspace_id,creator_id,request_id,image_digest,source,model_id,model_version,preprocess_version,created_at) VALUES (?,?,?,?,'WEB',1,'w2-canvas-photo-3epoch','adaptive-mnist-v2',DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE))", wid, uid, request, "a".repeat(64));
         ModelClient model = mock(ModelClient.class);
         assertEquals("REQUEST_FAILED", assertThrows(V2Exception.class, () -> recognitionService(model).predict(wid, uid, request, "WEB",
                 new ImageValidator.Image(new byte[]{1}, "a".repeat(64), "image/png"))).getCategory());

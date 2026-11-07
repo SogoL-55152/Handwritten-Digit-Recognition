@@ -6,7 +6,7 @@
 
 新增 `selective-digit-v1` 接受策略：明显宽幅实心块/显著分散区域，或最高分低于0.90/前两类分差低于0.85时，内部返回422 `UNRECOGNIZED_INPUT`，不返回猜测数字。权重、预处理和成功响应不变；这不是经过真实手写校准的非数字检测器，已测留出乱画仍有漏拒。环境变量 `RECOGNITION_MIN_CONFIDENCE`/`RECOGNITION_MIN_MARGIN` 必须为有限合法值。
 
-本地离线评估工具 `evaluate_acceptance.py` 只读已有可信权重及MNIST测试IDX，拒绝覆盖输出、不下载/训练。不要仅凭接受子集准确率报告质量提高；同时报告覆盖率、合法数字拒绝率和非数字漏拒。用户 9→7 的原样例仍未提供（只有开发者工具截图），但已用截图裁切复现：换成 `w2-canvas-aug-3epoch` 基线后同一输入 top-1 从 7 变为 9，只是分数 0.802/分差 0.607 低于当前阈值、按诚实拒识处理。完整数据、失败案例和真实422链路见 [拒识验证与局限](../docs/通用拒识-验证与局限.md) 与 [画板识别失败诊断](../docs/画板识别失败诊断-20261107.md)。
+本地离线评估工具 `evaluate_acceptance.py` 只读已有可信权重及MNIST测试IDX，拒绝覆盖输出、不下载/训练。不要仅凭接受子集准确率报告质量提高；同时报告覆盖率、合法数字拒绝率和非数字漏拒。用户 9→7 的原样例仍未提供（只有开发者工具截图），但已用截图裁切复现：换成 `w2-canvas-photo-3epoch` 基线后同一输入 top-1 从 7 变为 9，只是分数 0.802/分差 0.607 低于当前阈值、按诚实拒识处理。完整数据、失败案例和真实422链路见 [拒识验证与局限](../docs/通用拒识-验证与局限.md) 与 [画板识别失败诊断](../docs/画板识别失败诊断-20261107.md)。
 
 ## W2：本地推理与部署
 
@@ -25,7 +25,7 @@ python -I serve.py                  # Waitress，默认 127.0.0.1:5001
 ```
 
 - `MODEL_INTERNAL_TOKEN` 必填，使用足够长的随机共享密钥；不写进 Git、前端、小程序或镜像。未配置时两个内部入口都返回 503；错误凭据返回 401。比较使用常量时间函数，解析上传前先鉴权。
-- `MODEL_CHECKPOINT_PATH` 只能由服务端环境配置，默认是源码目录下 `weights/w2-canvas-aug/checkpoint.pt`；推荐绝对路径。不能从 multipart、查询参数、URL 或文件名选择路径。缺权重、摘要/大小不符、加载失败均 503，不降级随机网络或 smoke 权重。
+- `MODEL_CHECKPOINT_PATH` 只能由服务端环境配置，默认是源码目录下 `weights/w2-canvas-photo/checkpoint.pt`；推荐绝对路径。不能从 multipart、查询参数、URL 或文件名选择路径。缺权重、摘要/大小不符、加载失败均 503，不降级随机网络或 smoke 权重。
 - 本地 `HOST=127.0.0.1`；容器 Dockerfile 显式 `HOST=0.0.0.0`，不要将模型端口发布到公网，浏览器 CORS 不对内部路由开放。内部认证不是最终用户授权，workspaceId 权限仍由 Java 检查。
 - `serve.py` 使用单进程 Waitress，4 个请求线程、最多 32 个连接，推理/解码并发严格限制为 2；额外推理返回 429 `MODEL_BUSY`、`Retry-After: 1`。设置 `OMP_NUM_THREADS=2`、`MKL_NUM_THREADS=2` 限制 CPU 线程；多进程会各自加载模型并拥有独立的并发预算，不应在 W2 随意增加 worker。
 - 首次鉴权 readiness/预测按需加载一次，重用 `services/mnist_training.py::load_checkpoint` 的 `weights_only=True`、架构校验、strict state_dict 和 eval 行为；torch/torchvision 均不在 Flask 导入时加载，推理不导入 torchvision。仅经固定 SHA 验证的同一份有界 bytes 传给加载器，避免摘要校验与重开路径之间的替换。运行 torch.inference_mode；加载失败缓存，修复配置/文件后需重启。
@@ -45,10 +45,10 @@ python -I serve.py                  # Waitress，默认 127.0.0.1:5001
 
 | manifest 字段 | 固定值 |
 |---|---|
-| modelId / modelVersion | `mnist-cnn-w1` / `w2-canvas-aug-3epoch` |
-| preprocessVersion | `canvas-mnist-v1` |
-| checkpoint SHA-256 | `f6e1862dae34ff13b7cab29ebb61b22b49fe0041cb9e347289d50d62695deaed` |
-| checkpoint 大小 | 1,690,276 bytes |
+| modelId / modelVersion | `mnist-cnn-w1` / `w2-canvas-photo-3epoch` |
+| preprocessVersion | `adaptive-mnist-v2` |
+| checkpoint SHA-256 | `72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa` |
+| checkpoint 大小 | 1,690,340 bytes |
 | 架构 / 输入 / 输出 | DigitCNN v1 / 1×28×28 / 10 logits |
 | MNIST mean / std | 0.1307 / 0.3081 |
 
@@ -62,27 +62,35 @@ python -I serve.py                  # Waitress，默认 127.0.0.1:5001
 - 保持宽高比，将前景缩至 20×20 内，几何居中到黑色 28×28，不随意旋转、拉伸；最后按 MNIST mean/std 归一化 float32。透明图等价于在白底上绘制，不是把透明黑色误判成墨迹。
 - 仅面向单字画板，不承诺自然场景照片识别；MNIST 99.10% 是 W1 历史测试集指标，单次 confidence 不是线上准确率。
 
-### 画板域基线（w2-canvas-aug-3epoch）
+### 画板与照片域基线（w2-canvas-photo-3epoch / adaptive-mnist-v2）
 
-W1 基线只在 MNIST 原图上训练，真实画板笔迹上 top-1 明显下降，且"裁剪墨迹外接框→缩放到 20px"的几何归一化与训练分布不一致（对照实验：同一批 MNIST 数字直喂 99.0%，走完整链路仅 93.8%）。现基线改为**用同一套几何归一化生成训练输入**，并叠加画板风格增广（随机画布 280/320/360、笔画加粗 0–3px、±12° 倾斜、0.55–0.95 缩放），从 W1 权重初始化微调 3 轮。
+W1 基线只在 MNIST 原图上训练，真实画板笔迹上 top-1 明显下降，且"裁剪墨迹外接框→缩放到 20px"的几何归一化与训练分布不一致（对照实验：同一批 MNIST 数字直喂 99.0%，走完整链路仅 93.8%）。相册照片还有第二个问题：固定 32/255 阈值会把灰纸背景整片当成墨迹。现方案：
 
-复现命令（在 `model-service/` 下，需 torch 训练环境；输出目录必须是新目录）：
+1. 预处理改为**背景归一化**（相对背景的归一化偏离 + 逐像素模糊背景兜底），灰纸浅笔、白底黑字、黑底白字走同一条对称路径；
+2. 训练输入**直接复用线上 `canvas_input`**，训练与线上逐像素同源；
+3. 增广同时覆盖画板风格（大画布、粗笔画、倾斜、缩放）与**照片风格**（纸面底色、光照渐变、低对比笔迹、模糊、噪声、JPEG 伪影）；
+4. 数据加入官方 EMNIST digits（24 万张、不同书写者），与 MNIST 各半。
+
+复现命令（在 `model-service/` 下，需 torch 训练环境与本地 EMNIST 压缩包；输出目录必须是新目录）：
 
 ```text
-python -I train_canvas_aug.py --data-dir data/MNIST/raw --output-dir weights/w2-canvas-aug \
-  --init weights/w1-full/checkpoint.pt --epochs 3 --samples 48000 --seed 20261107 --threads 2
+python -I train_canvas_aug.py --data-dir data/MNIST/raw --emnist-zip <本地>/gzip.zip \
+  --output-dir weights/w2-canvas-photo --init weights/w2-canvas-aug/checkpoint.pt \
+  --epochs 3 --samples 60000 --photo-ratio 0.5 --seed 20261107 --threads 2
 ```
 
-| 指标 | W1 基线 | 现基线 |
-|---|---|---|
-| MNIST test 直喂（1000 张） | 98.9% | 98.9% |
-| 画板风格模拟集（1000 张，与训练增广同源） | 92.1% | 98.2% |
-| 真实生产链路下的 MNIST 拒绝率（600 张，阈值 0.90/0.85） | 14.2% | **5.3%** |
-| 同上，被接受样本的正确率 | 98.6% | **100%** |
+| 指标 | W1 基线 | 上一版基线 | 现基线 |
+|---|---|---|---|
+| MNIST test 直喂（1000 张） | 98.9% | 98.6% | 97.7% |
+| 画板风格模拟集（1000 张） | 92.1% | 98.3% | **99.1%** |
+| 照片风格模拟集（1000 张） | — | 38.7% | **84.0%** |
+| EMNIST digits 未见书写者（1000 张，画板风格） | — | — | **98.5%** |
+| 真实生产链路 MNIST 拒绝率（1000 张，阈值 0.90/0.85） | 14.2% | 5.3% | 3.8%（画板域） |
+| 照片风格模拟集：接受覆盖率 / 接受后正确率（0.90/0.85） | — | — | 63.1% / 99.37% |
 
-边界：画板风格模拟集与训练增广同源，98.2% 偏乐观；MNIST 是域内指标；**两者都不是真实画板准确率**。真实结论仍需 W3 自采画板数据。诊断与逐例证据见 [画板识别失败诊断](../docs/画板识别失败诊断-20261107.md)。
+边界：画板/照片模拟集与训练增广同源，数字偏乐观；MNIST 与 EMNIST 都是域内指标；**没有一项是真实画板或真实相册照片准确率**。真实结论仍需 W3 自采画板与相册数据。诊断与逐例证据见 [画板识别失败诊断](../docs/画板识别失败诊断-20261107.md) 与 [照片导入修复与基线切换记录](../docs/照片导入修复与基线切换-20261107.md)。
 
-拒识阈值保持 0.90/0.85 不变：实测放宽到 0.70/0.50 会让用户"7 被认成 1"这类案例变成自信的错误答案，宁可诚实拒识。
+拒识阈值保持 0.90/0.85：照片域实测放宽到 0.70/0.50 可把覆盖率从 63.1% 提到 73.8%、接受后正确率降到 98.2%，属于产品取舍，尚未采用。
 
 ### 镜像与只读权重
 

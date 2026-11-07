@@ -32,7 +32,7 @@ async function fixture(options = {}) {
   return { session, workspace, storage }
 }
 function result(requestId, digit = 7) {
-  return { recognitionId: '9007199254740995', requestId, digit, confidence: 0.97, modelId: '1', modelVersion: 'w2-canvas-aug-3epoch', preprocessVersion: 'canvas-mnist-v1', source: 'WEB', processingMs: 18, createdAt: '2026-11-02T07:00:00Z' }
+  return { recognitionId: '9007199254740995', requestId, digit, confidence: 0.97, modelId: '1', modelVersion: 'w2-canvas-photo-3epoch', preprocessVersion: 'adaptive-mnist-v2', source: 'WEB', processingMs: 18, createdAt: '2026-11-02T07:00:00Z' }
 }
 function drawing(controller) { controller.drawingChanged({ hasInk: true, drawing: false }) }
 function response(config, data, status = 200) { return { config, data, status, headers: {}, statusText: 'OK' } }

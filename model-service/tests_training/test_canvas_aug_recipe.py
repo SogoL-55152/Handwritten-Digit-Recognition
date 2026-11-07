@@ -1,50 +1,63 @@
-"""train_canvas_aug 的配方/几何校验：不加载 torch，不训练，不读真实数据。"""
+"""train_canvas_aug 的配方/渲染校验：不加载 torch，不训练，不读真实数据。"""
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 from PIL import Image
 
-import sys
-from pathlib import Path
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from train_canvas_aug import CanvasAugConfig, canvas_style, production_geometry, read_idx, read_labels
+from services.inference_preprocess import InvalidImage, canvas_input
+from train_canvas_aug import (CanvasAugConfig, canvas_style, photo_style, read_idx, read_labels)
 
 
 def test_config_rejects_out_of_range_values():
-    for kwargs in ({'epochs': 0}, {'epochs': 21}, {'samples': 10}, {'samples': 60001},
+    for kwargs in ({'epochs': 0}, {'epochs': 21}, {'samples': 10}, {'samples': 200001},
                    {'batch': 50}, {'learning_rate': 0.0}, {'learning_rate': 0.5},
-                   {'seed': -1}, {'seed': 2**32}):
+                   {'seed': -1}, {'seed': 2**32}, {'photo_ratio': -0.1}, {'photo_ratio': 1.1}):
         with pytest.raises(ValueError):
             CanvasAugConfig(**kwargs)
 
 
 def test_config_accepts_documented_recipe():
-    config = CanvasAugConfig(epochs=3, samples=48000, batch=64, learning_rate=0.001, seed=20261107)
-    assert (config.epochs, config.samples, config.batch) == (3, 48000, 64)
+    config = CanvasAugConfig(epochs=3, samples=60000, batch=64, learning_rate=0.001,
+                             seed=20261107, photo_ratio=0.5)
+    assert (config.epochs, config.samples, config.batch) == (3, 60000, 64)
+    assert config.photo_ratio == 0.5
 
 
-def test_production_geometry_matches_model_input_contract():
-    image = Image.new('L', (280, 280), 0)
-    image.paste(Image.new('L', (60, 200), 255), (110, 40))  # 一条竖笔画，模拟墨迹
-    prepared = production_geometry(image)
-    assert prepared is not None
-    assert prepared.shape == (28, 28)
-    assert prepared.dtype == np.float32
-    assert np.isfinite(prepared).all()
-
-
-def test_production_geometry_returns_none_for_blank_input():
-    assert production_geometry(Image.new('L', (280, 280), 0)) is None
+def digit():
+    image = np.zeros((28, 28), dtype=np.uint8)
+    image[4:24, 10:18] = 255
+    return image
 
 
 def test_canvas_style_is_deterministic_per_seed():
-    digit = np.zeros((28, 28), dtype=np.uint8)
-    digit[4:24, 10:18] = 255
-    first = np.asarray(canvas_style(digit, np.random.default_rng(7)))
-    second = np.asarray(canvas_style(digit, np.random.default_rng(7)))
+    first = canvas_style(digit(), np.random.default_rng(7))
+    second = canvas_style(digit(), np.random.default_rng(7))
     assert np.array_equal(first, second)
-    assert first.shape in {(280, 280), (320, 320), (360, 360)}
+    assert first.shape[0] == first.shape[1] and first.shape[0] in (280, 320, 360)
+
+
+def test_photo_style_produces_paper_levels_and_darker_ink():
+    rendered = photo_style(digit(), np.random.default_rng(11))
+    assert rendered.dtype == np.uint8
+    assert rendered.shape[0] == rendered.shape[1]
+    # 纸面是多数像素，笔迹显著更暗。
+    assert float(np.median(rendered)) > float(rendered.min()) + 10
+
+
+def test_canvas_input_matches_model_contract():
+    prepared = canvas_input(canvas_style(digit(), np.random.default_rng(3)))
+    assert prepared.shape == (1, 28, 28) and prepared.dtype == np.float32
+    assert np.isfinite(prepared).all()
+
+
+def test_canvas_input_rejects_blank():
+    with pytest.raises(InvalidImage) as caught:
+        canvas_input(np.full((60, 60), 200, dtype=np.uint8))
+    assert caught.value.category == 'BLANK_IMAGE'
 
 
 def test_idx_readers_reject_foreign_files(tmp_path):
@@ -54,3 +67,9 @@ def test_idx_readers_reject_foreign_files(tmp_path):
         read_idx(bad)
     with pytest.raises(ValueError):
         read_labels(bad)
+
+
+def test_emnist_reader_rejects_missing_archive(tmp_path):
+    from train_canvas_aug import read_emnist_digits
+    with pytest.raises(Exception):
+        read_emnist_digits(tmp_path / 'missing.zip', 'train', 10)

@@ -14,7 +14,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 PORTS = {"mysql": 13316, "backend": 8080, "model": 5001, "web": 5173}
-CHECKPOINT_SHA = "f6e1862dae34ff13b7cab29ebb61b22b49fe0041cb9e347289d50d62695deaed"
+CHECKPOINT_SHA = "72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa"
 ENV_KEYS = {"DB_URL", "DB_USERNAME", "DB_PASSWORD", "V2_JWT_SECRET", "JWT_SECRET",
             "MODEL_INTERNAL_TOKEN", "V2_JWT_EXPIRE_HOURS", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
             "PILOT_REGISTRATION_CODE", "PILOT_OPERATOR", "PILOT_CONTACT", "PILOT_PRIVACY_VERSION"}
@@ -56,7 +56,7 @@ def environment(args):
     env = dict(os.environ, **private_environment(args.env_file))
     env.update({"SERVER_ADDRESS": "127.0.0.1", "SERVER_PORT": "8080",
                 "HOST": "127.0.0.1", "PORT": "5001", "MODEL_SERVICE_URL": "http://127.0.0.1:5001",
-                "MODEL_CHECKPOINT_PATH": str(ROOT / "model-service/weights/w2-canvas-aug/checkpoint.pt"),
+                "MODEL_CHECKPOINT_PATH": str(ROOT / "model-service/weights/w2-canvas-photo/checkpoint.pt"),
                 "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2",
                 "HDR_LEGACY_AUTH_ENABLED": "false", "HDR_LEGACY_BOOTSTRAP_ENABLED": "false",
                 "SPRING_PROFILES_ACTIVE": "default" if args.allow_development_registration else "pilot",

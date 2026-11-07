@@ -145,3 +145,36 @@ def test_corrupted_png_crc_rejected():
     payload[-5] ^= 0xFF
     with pytest.raises(InvalidImage):
         preprocess_image(bytes(payload), "image/png")
+
+
+def photo_like(paper, ink, size=(200, 200), gradient=0):
+    """模拟相册照片：整幅纸面 + 光照渐变 + 低对比笔迹。"""
+    image = Image.new("L", size, paper)
+    pixels = image.load()
+    if gradient:
+        for x in range(size[1]):
+            level = max(0, min(255, int(paper + gradient * (x / size[1] - 0.5) * 2)))
+            for y in range(size[0]):
+                pixels[x, y] = level
+    ImageDraw.Draw(image).line([(size[0] // 2, 40), (size[0] // 2, size[1] - 40)], fill=ink, width=14)
+    return image
+
+
+def test_photo_like_low_contrast_keeps_only_the_stroke():
+    # 灰纸 150、浅笔 110：旧实现会把整张纸当成墨迹，外接框变成整幅图。
+    normalized = preprocess_image(encode(photo_like(150, 110)), "image/png")
+    foreground = int((values(normalized) > 0.5).sum())
+    assert 20 <= foreground <= 140, foreground
+    ys, xs = np.nonzero(values(normalized) > 0.5)
+    assert ys.max() - ys.min() > 2 * (xs.max() - xs.min())  # 笔画保持竖长，没有扩散成整块
+
+
+def test_photo_like_gradient_does_not_become_ink():
+    normalized = preprocess_image(encode(photo_like(190, 120, gradient=60)), "image/png")
+    assert int((values(normalized) > 0.5).sum()) <= 160
+
+
+def test_photo_like_polarity_equivalence():
+    dark = preprocess_image(encode(photo_like(150, 110)), "image/png")
+    light = preprocess_image(encode(photo_like(90, 190)), "image/png")
+    np.testing.assert_array_equal(dark, light)

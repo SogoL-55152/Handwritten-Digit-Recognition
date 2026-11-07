@@ -16,7 +16,7 @@ class Config:
     RECOGNITION_MIN_CONFIDENCE = float(os.getenv("RECOGNITION_MIN_CONFIDENCE", "0.90"))
     RECOGNITION_MIN_MARGIN = float(os.getenv("RECOGNITION_MIN_MARGIN", "0.85"))
     MODEL_CHECKPOINT_PATH = Path(os.getenv(
-        "MODEL_CHECKPOINT_PATH", BASE_DIR / "weights" / "w2-canvas-aug" / "checkpoint.pt"
+        "MODEL_CHECKPOINT_PATH", BASE_DIR / "weights" / "w2-canvas-photo" / "checkpoint.pt"
     ))
 
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

@@ -97,8 +97,8 @@ function validateResult(result, requestId) {
   if (!result || result.requestId !== requestId || typeof result.recognitionId !== 'string' || !result.recognitionId ||
       !Number.isInteger(result.digit) || result.digit < 0 || result.digit > 9 ||
       !Number.isFinite(result.confidence) || result.confidence < 0 || result.confidence > 1 ||
-      typeof result.modelId !== 'string' || !result.modelId || result.modelVersion !== 'w2-canvas-aug-3epoch' ||
-      result.preprocessVersion !== 'canvas-mnist-v1' || result.source !== 'MINIPROGRAM' ||
+      typeof result.modelId !== 'string' || !result.modelId || result.modelVersion !== 'w2-canvas-photo-3epoch' ||
+      result.preprocessVersion !== 'adaptive-mnist-v2' || result.source !== 'MINIPROGRAM' ||
       !Number.isFinite(result.processingMs) || result.processingMs < 0 ||
       typeof result.createdAt !== 'string' || !Number.isFinite(Date.parse(result.createdAt))) {
     throw new Error('识别响应与请求或基线合同不一致，请重新操作')

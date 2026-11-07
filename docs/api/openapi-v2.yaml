@@ -767,7 +767,7 @@ paths:
       description: |
         先内部认证。缺 MODEL_INTERNAL_TOKEN 时 fail closed 返回 503 NOT_CONFIGURED；
         错误/缺失调用凭据返回 401。检查权重大小、SHA256、架构及 epoch/checkpoint_selection。
-        固定权重大小 1690276 bytes，摘要见 sha256 字段；无随机权重兜底。
+        固定权重大小 1690340 bytes，摘要见 sha256 字段；无随机权重兜底。
         第一次加载失败会缓存失败状态，修正配置/权重后须重启 Python。
         检查路径只来自管理员的 MODEL_CHECKPOINT_PATH，不能由请求指定。
       security:
@@ -1085,7 +1085,7 @@ components:
         version:
           type: string
           maxLength: 64
-          examples: [w2-canvas-aug-3epoch]
+          examples: [w2-canvas-photo-3epoch]
         scope:
           type: string
           enum: [PUBLIC, WORKSPACE]
@@ -1110,20 +1110,20 @@ components:
         preprocessVersion:
           type: string
           maxLength: 64
-          examples: [canvas-mnist-v1]
+          examples: [adaptive-mnist-v2]
         description:
           type: [string, 'null']
           maxLength: 255
       example:
         id: '1'
         name: MNIST CNN W1
-        version: w2-canvas-aug-3epoch
+        version: w2-canvas-photo-3epoch
         scope: PUBLIC
         workspaceId: null
         externalId: mnist-cnn-w1
         accuracy: 0.991
         accuracyDataset: MNIST test
-        preprocessVersion: canvas-mnist-v1
+        preprocessVersion: adaptive-mnist-v2
         description: W1 full baseline; MNIST test accuracy, not online accuracy
     Dataset:
       type: object
@@ -1210,10 +1210,10 @@ components:
           description: Java 数据库模型 ID，不是 Python 的 modelId=mnist-cnn-w1
         modelVersion:
           type: string
-          examples: [w2-canvas-aug-3epoch]
+          examples: [w2-canvas-photo-3epoch]
         preprocessVersion:
           type: string
-          examples: [canvas-mnist-v1]
+          examples: [adaptive-mnist-v2]
         source:
           $ref: '#/components/schemas/Source'
         processingMs:
@@ -1356,10 +1356,10 @@ components:
           const: mnist-cnn-w1
         modelVersion:
           type: string
-          const: w2-canvas-aug-3epoch
+          const: w2-canvas-photo-3epoch
         preprocessVersion:
           type: string
-          const: canvas-mnist-v1
+          const: adaptive-mnist-v2
     InternalPrediction:
       type: object
       additionalProperties: false
@@ -1383,10 +1383,10 @@ components:
           const: mnist-cnn-w1
         modelVersion:
           type: string
-          const: w2-canvas-aug-3epoch
+          const: w2-canvas-photo-3epoch
         preprocessVersion:
           type: string
-          const: canvas-mnist-v1
+          const: adaptive-mnist-v2
         processingMs:
           type: integer
           format: int64
@@ -1405,14 +1405,14 @@ components:
           const: mnist-cnn-w1
         modelVersion:
           type: string
-          const: w2-canvas-aug-3epoch
+          const: w2-canvas-photo-3epoch
         preprocessVersion:
           type: string
-          const: canvas-mnist-v1
+          const: adaptive-mnist-v2
         sha256:
           type: string
-          const: f6e1862dae34ff13b7cab29ebb61b22b49fe0041cb9e347289d50d62695deaed
-          description: 冻结的 1690276-byte checkpoint 的 SHA256；请求不能更改路径或基线
+          const: 72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa
+          description: 冻结的 1690340-byte checkpoint 的 SHA256；请求不能更改路径或基线
     SuccessEnvelope:
       type: object
       additionalProperties: false
