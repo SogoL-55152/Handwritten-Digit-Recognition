@@ -1,11 +1,11 @@
 <script setup>
 import { ref } from 'vue'
 import * as api from '@/api/models.js'
-import { useAuthStore } from '@/stores/user.js'
+import { useUserStore } from '@/stores/user.js'
 import { createModelAdmin, summarize, canActivate, canDisable, canDelete } from '@/models/controller.js'
 
-const auth = useAuthStore()
-const admin = createModelAdmin({ api, getSession: () => ({ token: auth.token }) })
+const user = useUserStore()
+const admin = createModelAdmin({ api, getSession: () => user.getSnapshot() })
 const models = ref([])
 const error = ref('')
 const notice = ref('')
