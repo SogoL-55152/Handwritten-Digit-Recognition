@@ -34,7 +34,7 @@ function failure(options, code, category) {
 function resultFor(options) {
   return {
     recognitionId: '9007199254741999', requestId: options.header['Idempotency-Key'], digit: 7, confidence: 0.9876,
-    modelId: '9007199254741011', modelVersion: 'w1-full-3epoch', preprocessVersion: 'canvas-mnist-v1',
+    modelId: '9007199254741011', modelVersion: 'w2-canvas-aug-3epoch', preprocessVersion: 'canvas-mnist-v1',
     source: 'MINIPROGRAM', processingMs: 31, createdAt: '2026-11-02T01:02:03Z'
   }
 }

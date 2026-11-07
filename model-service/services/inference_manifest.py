@@ -36,10 +36,10 @@ class ModelManifest:
 
 BASELINE = ModelManifest(
     model_id="mnist-cnn-w1",
-    model_version="w1-full-3epoch",
+    model_version="w2-canvas-aug-3epoch",
     preprocess_version="canvas-mnist-v1",
-    sha256="656afea28cd929a15da8dad24fe69d278554c061380e34bf679be03a45b781b4",
-    checkpoint_bytes=1689984,
+    sha256="f6e1862dae34ff13b7cab29ebb61b22b49fe0041cb9e347289d50d62695deaed",
+    checkpoint_bytes=1690276,
     architecture_name="DigitCNN",
     architecture_version=1,
     input_shape=(1, 28, 28),

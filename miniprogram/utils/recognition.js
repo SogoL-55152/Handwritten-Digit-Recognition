@@ -97,7 +97,7 @@ function validateResult(result, requestId) {
   if (!result || result.requestId !== requestId || typeof result.recognitionId !== 'string' || !result.recognitionId ||
       !Number.isInteger(result.digit) || result.digit < 0 || result.digit > 9 ||
       !Number.isFinite(result.confidence) || result.confidence < 0 || result.confidence > 1 ||
-      typeof result.modelId !== 'string' || !result.modelId || result.modelVersion !== 'w1-full-3epoch' ||
+      typeof result.modelId !== 'string' || !result.modelId || result.modelVersion !== 'w2-canvas-aug-3epoch' ||
       result.preprocessVersion !== 'canvas-mnist-v1' || result.source !== 'MINIPROGRAM' ||
       !Number.isFinite(result.processingMs) || result.processingMs < 0 ||
       typeof result.createdAt !== 'string' || !Number.isFinite(Date.parse(result.createdAt))) {

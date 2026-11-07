@@ -767,7 +767,7 @@ paths:
       description: |
         先内部认证。缺 MODEL_INTERNAL_TOKEN 时 fail closed 返回 503 NOT_CONFIGURED；
         错误/缺失调用凭据返回 401。检查权重大小、SHA256、架构及 epoch/checkpoint_selection。
-        固定权重大小 1689984 bytes，摘要见 sha256 字段；无随机权重兜底。
+        固定权重大小 1690276 bytes，摘要见 sha256 字段；无随机权重兜底。
         第一次加载失败会缓存失败状态，修正配置/权重后须重启 Python。
         检查路径只来自管理员的 MODEL_CHECKPOINT_PATH，不能由请求指定。
       security:
@@ -1085,7 +1085,7 @@ components:
         version:
           type: string
           maxLength: 64
-          examples: [w1-full-3epoch]
+          examples: [w2-canvas-aug-3epoch]
         scope:
           type: string
           enum: [PUBLIC, WORKSPACE]
@@ -1117,7 +1117,7 @@ components:
       example:
         id: '1'
         name: MNIST CNN W1
-        version: w1-full-3epoch
+        version: w2-canvas-aug-3epoch
         scope: PUBLIC
         workspaceId: null
         externalId: mnist-cnn-w1
@@ -1210,7 +1210,7 @@ components:
           description: Java 数据库模型 ID，不是 Python 的 modelId=mnist-cnn-w1
         modelVersion:
           type: string
-          examples: [w1-full-3epoch]
+          examples: [w2-canvas-aug-3epoch]
         preprocessVersion:
           type: string
           examples: [canvas-mnist-v1]
@@ -1356,7 +1356,7 @@ components:
           const: mnist-cnn-w1
         modelVersion:
           type: string
-          const: w1-full-3epoch
+          const: w2-canvas-aug-3epoch
         preprocessVersion:
           type: string
           const: canvas-mnist-v1
@@ -1383,7 +1383,7 @@ components:
           const: mnist-cnn-w1
         modelVersion:
           type: string
-          const: w1-full-3epoch
+          const: w2-canvas-aug-3epoch
         preprocessVersion:
           type: string
           const: canvas-mnist-v1
@@ -1405,14 +1405,14 @@ components:
           const: mnist-cnn-w1
         modelVersion:
           type: string
-          const: w1-full-3epoch
+          const: w2-canvas-aug-3epoch
         preprocessVersion:
           type: string
           const: canvas-mnist-v1
         sha256:
           type: string
-          const: 656afea28cd929a15da8dad24fe69d278554c061380e34bf679be03a45b781b4
-          description: 冻结的 1689984-byte checkpoint 的 SHA256；请求不能更改路径或基线
+          const: f6e1862dae34ff13b7cab29ebb61b22b49fe0041cb9e347289d50d62695deaed
+          description: 冻结的 1690276-byte checkpoint 的 SHA256；请求不能更改路径或基线
     SuccessEnvelope:
       type: object
       additionalProperties: false

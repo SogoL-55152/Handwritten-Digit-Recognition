@@ -76,7 +76,7 @@ public class WorkspaceService {
         // A missing/disabled trusted baseline is a configuration error, not an orphan default.
         List<Long> models = jdbc.query("""
                 SELECT id FROM t_v2_model WHERE id=1 AND scope='PUBLIC' AND status='ACTIVE'
-                AND external_id='mnist-cnn-w1' AND version='w1-full-3epoch'
+                AND external_id='mnist-cnn-w1' AND version='w2-canvas-aug-3epoch'
                 AND preprocess_version='canvas-mnist-v1'
                 """, (rs, row) -> rs.getLong(1));
         if (models.isEmpty()) throw new V2Exception(503, "默认公共模型未就绪");

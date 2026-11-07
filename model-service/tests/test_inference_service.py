@@ -19,7 +19,7 @@ def test_manifest_is_frozen_and_identity_copies_do_not_mutate():
     identity["modelId"] = "attacker"
     assert BASELINE.model_id == "mnist-cnn-w1"
     assert BASELINE.architecture()["input_shape"] == [1, 28, 28]
-    assert BASELINE.checkpoint_bytes == 1689984
+    assert BASELINE.checkpoint_bytes == 1690276
 
 
 def test_missing_weights_not_ready(tmp_path):

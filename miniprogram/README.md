@@ -63,7 +63,7 @@ Python接受策略未通过时，Java返回422 `UNRECOGNIZED_INPUT`，小程序�
 - 缓存只保存 `hdr_v2_session={token,origin}` 候选，不缓存授权角色、密码或注册码。缺少 origin 的旧候选、服务地址改变或配置失效时清旧会话；旧 token 不会发往新地址。App 启动清除 `hdr_token` / `hdr_user`。身份来自 `/me`，成员列表/空间详情来自服务端；前端选择只是请求上下文，不能替代后端逐请求鉴权。
 - `POST /api/v2/workspaces/{wid}/recognitions` 使用 `wx.uploadFile` 的 **`name: 'image'`**、`formData: {source: 'MINIPROGRAM'}`，Bearer 与 `Idempotency-Key: <UUID v4>` 请求头。由平台生成 multipart boundary；不添加第二套正文 requestId。
 - 单图 PNG/JPEG 最大 5 MiB，请求 6 MiB、最大边长 2048、总像素 4194304；上传画板 PNG 或已检查的相册 PNG/JPEG 原图，服务端仍负责校验字节、尺寸、空白图和成员权限。不长期保存原图。
-- 校验返回 requestId 与本次 UUID 相同、字符串业务 ID、digit 整数 0..9、有限置信度 0..1、非负耗时，以及 W2 固定模型版本 `w1-full-3epoch` / 预处理 `canvas-mnist-v1`。错误/假格式不显示为识别结果。
+- 校验返回 requestId 与本次 UUID 相同、字符串业务 ID、digit 整数 0..9、有限置信度 0..1、非负耗时，以及 W2 固定模型版本 `w2-canvas-aug-3epoch` / 预处理 `canvas-mnist-v1`。错误/假格式不显示为识别结果。
 - 同时检查 HTTP 状态和 `{code,message,data}`，包括代理非 JSON 413；401 只清当前请求所属会话，403/404 不赶普通成员回登录页。429 展示 Retry-After，409 保留冲突消息。超时/断网/409 **不自动重发 POST**，用户明确再次点击才生成新 UUID。
 - 请求与上传默认 15 秒（长于 Java 初始 2 秒连接 + 10 秒读取预算），Canvas 导出 10 秒，随机 UUID 生成 3 秒。`abort()` 即使平台不回调也会结束 Promise；服务器已经收到的请求不保证因本地 abort 而撤销。
 - 成功、错误、finally 同时检查会话代次、空间代次、画板 revision 与当前操作。切换空间、清空、重画、隐藏/卸载、退出或换账号时，旧导出/请求不能覆盖新预览、结果、错误或 loading；不对旧失败发全局 toast。

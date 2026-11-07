@@ -18,8 +18,8 @@ import java.util.Map;
 
 @Component
 public class ModelClient {
-    public static final String SHA="656afea28cd929a15da8dad24fe69d278554c061380e34bf679be03a45b781b4";
-    public static final String MODEL="mnist-cnn-w1",VERSION="w1-full-3epoch",PREPROCESS="canvas-mnist-v1";
+    public static final String SHA="f6e1862dae34ff13b7cab29ebb61b22b49fe0041cb9e347289d50d62695deaed";
+    public static final String MODEL="mnist-cnn-w1",VERSION="w2-canvas-aug-3epoch",PREPROCESS="canvas-mnist-v1";
     public record Prediction(int digit,double confidence) {}
     private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ModelClient.class);
     private final RestClient client;
