@@ -119,6 +119,23 @@ public class ModelClient {
         } catch(Exception error) { return Map.of("name","model-service","status","DOWN","detail","模型服务或可信模型未就绪"); }
     }
 
+    /** 把训练任务交给模型服务的 Celery 队列；返回 Celery 任务 ID。 */
+    public String enqueueTraining(String taskId, Map<String,Object> params) {
+        requireConfigured();
+        try {
+            var body = Map.of("taskId", taskId, "params", params);
+            JsonNode data = client.post().uri("/internal/v2/training").header("X-HDR-Internal-Token", internalToken)
+                    .contentType(MediaType.APPLICATION_JSON).body(body).exchange((request, response) -> read(response));
+            String celeryTaskId = data.path("celeryTaskId").asText("");
+            if (celeryTaskId.isBlank() || celeryTaskId.length() > 64) throw invalidResponse();
+            return celeryTaskId;
+        } catch(V2Exception error) { throw error; }
+        catch(Exception error) {
+            LOG.warn("Training enqueue transport failed ({})",error.getClass().getSimpleName());
+            throw new V2Exception(503,"训练队列暂不可用，请稍后重试","QUEUE_UNAVAILABLE");
+        }
+    }
+
     private V2Exception unavailable() { return new V2Exception(502,"模型注册表暂时不可用，请稍后重试","MODEL_UNAVAILABLE"); }
 
     private JsonNode read(org.springframework.http.client.ClientHttpResponse response) throws IOException {

@@ -108,6 +108,58 @@ def _validate_form():
     return None
 
 
+TRAINING_FIELDS = {"epochs", "samples", "batchSize", "learningRate", "seed", "photoRatio", "useEmnist"}
+MAX_TASK_ID = 19
+
+
+def _validate_training_params(params):
+    """与前端冻结原型一致的参数边界；返回错误文案或 None。"""
+    if not isinstance(params, dict) or set(params) != TRAINING_FIELDS:
+        return "训练参数字段必须与约定一致"
+    epochs, samples, batch = params["epochs"], params["samples"], params["batchSize"]
+    if isinstance(epochs, bool) or not isinstance(epochs, int) or not 1 <= epochs <= 5:
+        return "epochs 必须在 1..5"
+    if isinstance(samples, bool) or not isinstance(samples, int) or not 1000 <= samples <= 60000:
+        return "samples 必须在 1000..60000"
+    if isinstance(batch, bool) or batch not in (32, 64, 128):
+        return "batchSize 必须是 32/64/128"
+    rate = params["learningRate"]
+    if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not 0 < rate <= 0.1:
+        return "learningRate 必须在 (0, 0.1]"
+    seed = params["seed"]
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 4294967295:
+        return "seed 必须是 0..4294967295 的整数"
+    ratio = params["photoRatio"]
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not 0 <= ratio <= 1:
+        return "photoRatio 必须在 0..1"
+    if not isinstance(params["useEmnist"], bool):
+        return "useEmnist 必须是布尔值"
+    return None
+
+
+@bp.post("/training")
+def enqueue_training():
+    """Java 网关入队训练任务；这里只校验参数并返回 Celery 任务 ID。"""
+    if request.args or request.files:
+        return error_response(400, "训练入队不接受查询参数或文件", "INVALID_REQUEST")
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {"taskId", "params"}:
+        return error_response(400, "训练入队需要 taskId 与 params", "INVALID_REQUEST")
+    task_id = body["taskId"]
+    if not isinstance(task_id, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", task_id):
+        return error_response(400, "taskId 无效", "INVALID_REQUEST")
+    invalid = _validate_training_params(body["params"])
+    if invalid:
+        return error_response(400, invalid, "VALIDATION")
+    try:
+        from training_tasks import enqueue
+        result = enqueue(task_id, body["params"])
+    except Exception:  # noqa: BLE001 - Redis 不可用时不能假装入队成功
+        current_app.logger.error("Training enqueue failed")
+        return error_response(503, "训练队列暂不可用", "QUEUE_UNAVAILABLE")
+    return jsonify({"code": 0, "message": "ok", "data": {"celeryTaskId": result.id}})
+
+
 @bp.post("/predict")
 def predict():
     started = time.perf_counter()

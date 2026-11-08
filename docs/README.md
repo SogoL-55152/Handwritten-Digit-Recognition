@@ -24,6 +24,7 @@
 | [可信基线切换记录](可信基线切换-w2-canvas-aug.md) | 新基线改动清单、复现命令、指标与仍不能宣称的边界 | M1 / M3 |
 | [照片导入修复与基线切换](照片导入修复与基线切换-20261107.md) | 相册照片失败的根因、背景归一化修复、EMNIST+照片增广训练与实测 | M1 / M3 |
 | [W3 模型管理设计与交付](W3-模型管理-设计与交付.md) | 多模型注册表、单一活跃约束、一键切换契约与验收证据 | M1 / M2 / M3 |
+| [W4 训练管理设计与交付](W4-训练管理-设计与交付.md) | 训练任务状态机、Celery/Redis 队列四项断言、租约重投与生产层限制 | M1 / M2 / M3 |
 
 各模块的操作方法见 [后端 README](../backend/README.md)、[模型服务 README](../model-service/README.md)、[管理端 README](../frontend/README.md)、[小程序 README](../miniprogram/README.md)。Wiki 同时提供对应的“开发指南”页面。
 
