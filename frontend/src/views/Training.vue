@@ -1,26 +1,128 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
-import { validateTraining } from '@/training/validation.js'
-const form = reactive({ modelName: '', architecture: 'DigitCNN', epoch: 3, batchSize: 64, learningRate: 0.001, seed: 42 })
+import { onUnmounted, reactive, ref } from 'vue'
+import * as api from '@/api/training.js'
+import { useUserStore } from '@/stores/user.js'
+import { validateTraining, validateDataset, toCreatePayload } from '@/training/validation.js'
+import { createTrainingBoard, summarizeTask } from '@/training/board.js'
+
+const user = useUserStore()
+const form = reactive({
+  datasetId: 1, epochs: 3, samples: 10000, batchSize: 64,
+  learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false
+})
+const datasets = ref([])
+const tasks = ref([])
 const errors = ref({})
-const checked = ref(false)
-watch(form, () => { checked.value = false; errors.value = {} })
-function validate() { errors.value = validateTraining(form); checked.value = true }
+const loading = ref(false)
+const submitting = ref(false)
+const notice = ref('')
+const errorMessage = ref('')
+
+const board = createTrainingBoard({
+  api,
+  getSession: () => user.getSnapshot(),
+  onTasks: (next) => { tasks.value = next },
+  onError: (message) => { errorMessage.value = message }
+})
+
+async function loadAll() {
+  loading.value = true
+  errorMessage.value = ''
+  try {
+    datasets.value = await board.load()
+    if (datasets.value.length && !datasets.value.some((item) => Number(item.id) === form.datasetId)) {
+      form.datasetId = Number(datasets.value[0].id)
+    }
+    await board.refresh()
+    if (board.polling()) return
+    board.start()
+  } catch (failure) {
+    errorMessage.value = failure?.message || '加载训练任务失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submit() {
+  notice.value = ''
+  errorMessage.value = ''
+  errors.value = { ...validateDataset(form.datasetId), ...validateTraining(form) }
+  if (Object.keys(errors.value).length) return
+  submitting.value = true
+  try {
+    const created = await board.create(form.datasetId, toCreatePayload(form))
+    notice.value = `已提交训练任务 #${created.id}，worker 取到后会转为“训练中”。`
+  } catch (failure) {
+    errorMessage.value = failure?.message || '提交训练任务失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+const refresh = () => loadAll()
+loadAll()
+onUnmounted(() => board.dispose())
 </script>
 
 <template>
-  <section class="panel training-panel">
-    <p class="eyebrow">参数原型 · 不执行训练</p><h2>准备你的实验参数</h2>
-    <p class="notice">W2 只在浏览器校验参数，不调用训练接口、不创建任务、不生成曲线。训练数据选项集成与在线训练分别在 W3 / W4 推进。</p>
-    <form class="training-form" novalidate @submit.prevent="validate">
-      <label>模型名称<input v-model="form.modelName" name="modelName" maxlength="64" placeholder="例如：我的 CNN 实验" /><small v-if="errors.modelName" class="field-error">{{ errors.modelName }}</small></label>
-      <label>网络结构<input v-model="form.architecture" readonly /><small class="muted">固定 DigitCNN</small></label>
-      <label>epoch<input v-model.number="form.epoch" name="epoch" type="number" min="1" max="5" step="1" /><small v-if="errors.epoch" class="field-error">{{ errors.epoch }}</small></label>
-      <label>batchSize<select v-model.number="form.batchSize" name="batchSize"><option :value="32">32</option><option :value="64">64</option><option :value="128">128</option></select><small v-if="errors.batchSize" class="field-error">{{ errors.batchSize }}</small></label>
-      <label>learningRate<input v-model.number="form.learningRate" name="learningRate" type="number" step="any" min="0" max="0.1" /><small v-if="errors.learningRate" class="field-error">{{ errors.learningRate }}</small></label>
-      <label>seed<input v-model.number="form.seed" name="seed" type="number" step="1" min="0" max="4294967295" /><small v-if="errors.seed" class="field-error">{{ errors.seed }}</small></label>
-      <div class="full-row"><button class="primary" type="submit">校验参数</button></div>
-    </form>
-    <p v-if="checked" role="status" class="notice" :class="{ error: Object.keys(errors).length }">{{ Object.keys(errors).length ? '参数尚未通过校验，请修改标记项。' : '参数校验通过。仅本地原型，没有提交训练任务。' }}</p>
-  </section>
+  <div class="stack wide-gap">
+    <section class="panel">
+      <p class="eyebrow">W4 · 训练任务</p>
+      <h2>发起一次训练</h2>
+      <p class="notice">训练是异步任务：提交后由 Celery worker 执行，产物自动登记为未生效模型，需要时再到「模型管理」激活。</p>
+      <form class="training-form" novalidate @submit.prevent="submit">
+        <label>数据集
+          <select v-model.number="form.datasetId" name="datasetId">
+            <option v-for="item in datasets" :key="item.id" :value="Number(item.id)">
+              {{ item.name }}（{{ item.trainSamples }} 训练样本）
+            </option>
+            <option v-if="!datasets.length" :value="0">暂无可用数据集</option>
+          </select>
+          <small v-if="errors.datasetId" class="field-error">{{ errors.datasetId }}</small>
+          <small v-else class="muted">仅元数据，本页不上传数据</small>
+        </label>
+        <label>epoch<input v-model.number="form.epochs" name="epochs" type="number" min="1" max="5" step="1" /><small v-if="errors.epochs" class="field-error">{{ errors.epochs }}</small></label>
+        <label>样本数<input v-model.number="form.samples" name="samples" type="number" min="1000" max="60000" step="1000" /><small v-if="errors.samples" class="field-error">{{ errors.samples }}</small><small v-else class="muted">1 万样本 3 轮约 2 分钟；1000 条约 15 秒（样本太少效果很差）</small></label>
+        <label>batchSize<select v-model.number="form.batchSize" name="batchSize"><option :value="32">32</option><option :value="64">64</option><option :value="128">128</option></select><small v-if="errors.batchSize" class="field-error">{{ errors.batchSize }}</small></label>
+        <label>learningRate<input v-model.number="form.learningRate" name="learningRate" type="number" step="any" min="0" max="0.1" /><small v-if="errors.learningRate" class="field-error">{{ errors.learningRate }}</small></label>
+        <label>seed<input v-model.number="form.seed" name="seed" type="number" step="1" min="0" max="4294967295" /><small v-if="errors.seed" class="field-error">{{ errors.seed }}</small></label>
+        <label>照片增广比例<input v-model.number="form.photoRatio" name="photoRatio" type="number" step="0.1" min="0" max="1" /><small v-if="errors.photoRatio" class="field-error">{{ errors.photoRatio }}</small><small v-else class="muted">0–1，越大越偏向相册照片风格</small></label>
+        <label class="checkbox-row"><input v-model="form.useEmnist" name="useEmnist" type="checkbox" /> 混入 EMNIST 书写者数据</label>
+        <div class="full-row">
+          <button class="primary" type="submit" :disabled="submitting || !datasets.length">
+            {{ submitting ? '提交中…' : '发起训练' }}
+          </button>
+          <button type="button" :disabled="loading" @click="refresh">刷新列表</button>
+        </div>
+      </form>
+      <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+      <p v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</p>
+    </section>
+
+    <section class="panel">
+      <h2>训练任务</h2>
+      <p class="muted">有排队中/训练中的任务时每 4 秒自动刷新；全部结束会停止轮询。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>任务</th><th>状态</th><th>参数</th><th>产物</th><th>指标</th></tr></thead>
+          <tbody>
+            <tr v-for="task in tasks" :key="task.id">
+              <td>#{{ task.id }}<small class="cell-detail">{{ summarizeTask(task).attemptLabel }} · {{ summarizeTask(task).durationLabel }}</small></td>
+              <td>
+                {{ summarizeTask(task).statusLabel }}
+                <small v-if="summarizeTask(task).errorLabel" class="cell-detail">{{ summarizeTask(task).errorLabel }}</small>
+              </td>
+              <td>{{ summarizeTask(task).paramsLabel }}</td>
+              <td>
+                {{ summarizeTask(task).versionLabel }}
+                <small class="cell-detail">{{ summarizeTask(task).digestLabel }}</small>
+              </td>
+              <td>{{ summarizeTask(task).metricsLabel }}</td>
+            </tr>
+            <tr v-if="!tasks.length"><td colspan="5">还没有训练任务</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </template>

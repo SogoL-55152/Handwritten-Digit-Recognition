@@ -458,11 +458,15 @@ test('right-click creates no ink; lost capture finishes current pen stroke', () 
   board.dispose()
 })
 
-test('training prototype enforces frozen limits and never accepts non-finite numbers', () => {
-  const valid = { modelName: 'Experiment', architecture: 'DigitCNN', epoch: 3, batchSize: 64, learningRate: 0.001, seed: 42 }
+test('training form enforces server-side limits and never accepts non-finite numbers', () => {
+  const valid = { epochs: 3, samples: 6000, batchSize: 64, learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false }
   assert.deepEqual(validateTraining(valid), {})
-  for (const [key, values] of Object.entries({ modelName: ['', ' ', 'x'.repeat(65)], architecture: ['ResNet'], epoch: [0, 6, 1.5, '3'], batchSize: [0, 16, '64'], learningRate: [0, -1, 0.11, NaN, Infinity, ''], seed: [-1, 4294967296, 1.5, NaN] })) {
+  for (const [key, values] of Object.entries({
+    epochs: [0, 6, 1.5, '3'], samples: [999, 60001, 1.5, '1000'], batchSize: [0, 16, '64'],
+    learningRate: [0, -1, 0.11, NaN, Infinity, ''], seed: [-1, 4294967296, 1.5, NaN],
+    photoRatio: [-0.1, 1.1, NaN], useEmnist: ['yes', 0]
+  })) {
     for (const value of values) assert.ok(validateTraining({ ...valid, [key]: value })[key], `${key}=${value}`)
   }
-  assert.deepEqual(validateTraining({ ...valid, epoch: 1, batchSize: 32, learningRate: 0.1, seed: 4294967295 }), {})
+  assert.deepEqual(validateTraining({ ...valid, epochs: 1, samples: 1000, batchSize: 32, learningRate: 0.1, seed: 4294967295, photoRatio: 1 }), {})
 })
