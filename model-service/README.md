@@ -1,24 +1,114 @@
-# model-service — Flask 骨架与 W1 独立训练
+# model-service — W2 可信基线推理与 W1 独立训练
 
-推荐 Python 3.11。Web 服务只在内网被 Spring Boot 调用，目前仍只提供健康检查与统一响应；W1 新增的 MNIST/CNN 训练是**独立命令行程序**，不经过 Flask。
+推荐 Python 3.11。服务仅由 Java 内部调用；W2 新增带独立认证的 `/internal/v2/ready`、`/internal/v2/predict`，保留 W1 健康检查和离线训练原样。**没有在线训练 API，不重训、不随机权重兜底、不自动联网下载。**
 
-## Flask 本地启动
+## 通用拒识（本地实验策略）
 
-以下命令从 `model-service/` 执行。
+新增 `selective-digit-v1` 接受策略：明显宽幅实心块/显著分散区域，或最高分低于0.90/前两类分差低于0.85时，内部返回422 `UNRECOGNIZED_INPUT`，不返回猜测数字。权重、预处理和成功响应不变；这不是经过真实手写校准的非数字检测器，已测留出乱画仍有漏拒。环境变量 `RECOGNITION_MIN_CONFIDENCE`/`RECOGNITION_MIN_MARGIN` 必须为有限合法值。
+
+本地离线评估工具 `evaluate_acceptance.py` 只读已有可信权重及MNIST测试IDX，拒绝覆盖输出、不下载/训练。不要仅凭接受子集准确率报告质量提高；同时报告覆盖率、合法数字拒绝率和非数字漏拒。用户 9→7 的原样例仍未提供（只有开发者工具截图），但已用截图裁切复现：换成 `w2-canvas-photo-3epoch` 基线后同一输入 top-1 从 7 变为 9，只是分数 0.802/分差 0.607 低于当前阈值、按诚实拒识处理。完整数据、失败案例和真实422链路见 [拒识验证与局限](../docs/通用拒识-验证与局限.md) 与 [画板识别失败诊断](../docs/画板识别失败诊断-20261107.md)。
+
+## W2：本地推理与部署
+
+以下命令从 `model-service/` 执行。为 W2 新建环境，不向已有 W1 训练环境安装包。下面是环境准备说明，不表示当前机器已经安装这些依赖。
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-python -m pip install -r requirements.txt
+python -I -m venv .venv-inference
+source .venv-inference/bin/activate  # Windows: .venv-inference\Scripts\activate
+# CPU torch 单独来自官方源；其他依赖来自 PyPI，不混合索引选择依赖。
+python -I -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.6.0+cpu
+python -I -m pip install -r requirements-inference.txt
 cp .env.example .env
-python app.py                    # http://localhost:5001
+# 在 .env 注入 MODEL_INTERNAL_TOKEN（Java 同值）和管理员控制的权重绝对路径。
+python -I serve.py                  # Waitress，默认 127.0.0.1:5001
+# 仅本地调试也可 python -I app.py；不使用 Flask 开发服务器部署。
 ```
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/v1/health` | 健康检查 |
+- `MODEL_INTERNAL_TOKEN` 必填，使用足够长的随机共享密钥；不写进 Git、前端、小程序或镜像。未配置时两个内部入口都返回 503；错误凭据返回 401。比较使用常量时间函数，解析上传前先鉴权。
+- `WEIGHTS_DIR` 与 `MODEL_REGISTRY_PATH` 只能由服务端环境配置，默认是源码目录下 `weights/` 与 `weights/registry.json`。注册表里每个 artifact 只能是 WEIGHTS_DIR 内的相对路径；多模型由注册表声明。不能从 multipart、查询参数、URL 或文件名选择路径。缺文件、摘要/大小不符、加载失败均 503，不降级随机网络或 smoke 权重。
+- 本地 `HOST=127.0.0.1`；容器 Dockerfile 显式 `HOST=0.0.0.0`，不要将模型端口发布到公网，浏览器 CORS 不对内部路由开放。内部认证不是最终用户授权，workspaceId 权限仍由 Java 检查。
+- `serve.py` 使用单进程 Waitress，4 个请求线程、最多 32 个连接，推理/解码并发严格限制为 2；额外推理返回 429 `MODEL_BUSY`、`Retry-After: 1`。设置 `OMP_NUM_THREADS=2`、`MKL_NUM_THREADS=2` 限制 CPU 线程；多进程会各自加载模型并拥有独立的并发预算，不应在 W2 随意增加 worker。
+- 首次鉴权 readiness/预测按需加载一次，重用 `services/mnist_training.py::load_checkpoint` 的 `weights_only=True`、架构校验、strict state_dict 和 eval 行为；torch/torchvision 均不在 Flask 导入时加载，推理不导入 torchvision。仅经固定 SHA 验证的同一份有界 bytes 传给加载器，避免摘要校验与重开路径之间的替换。运行 torch.inference_mode；加载失败缓存，修复配置/文件后需重启。
+- 原 W1 的 torch 2.5.1+cpu 可读取同一可信 checkpoint；新环境/Docker 推荐 2.6 CPU。即使使用 weights_only，也绝不接受未固定摘要的外来 checkpoint。
 
-统一响应：`{ "code": 0, "message": "ok", "data": ... }`，见 `api/common.py` 的 `ok()` / `fail()`。
+### 冻结的内部 API
+
+所有请求使用 `X-HDR-Internal-Token`。成功 envelope 为 `{code:0,message:"ok",data:...}`；内部错误使用真实 HTTP 4xx/5xx，`{code:<status>,message,data:{category}}`。429 额外有 `data.retryAfterSeconds`。反向代理/Waitress 在 Flask 前拒绝的请求可能不是 JSON。W1 `/api/v1` 的 404/413 历史 HTTP 200 行为保持隔离。
+
+| 方法 | 路径 | 请求/响应 |
+|---|---|---|
+| GET | `/api/v1/health` | 无认证，仅进程存活，不代表模型可用 |
+| GET | `/internal/v2/ready` | 200 data 为 `{status:"UP",modelId,modelVersion,preprocessVersion,sha256}`；未就绪 503 |
+| POST | `/internal/v2/predict` | multipart 唯一 `image` 文件，以及唯一字符串 `workspaceId/requestId/modelId/modelVersion/preprocessVersion`；禁止多余字段、重复字段和查询参数 |
+
+预测 data 固定为 `{requestId,digit,confidence,modelId,modelVersion,preprocessVersion,processingMs}`。workspaceId 是正十进制 signed-64 ID 字符串，requestId 是标准带连字符 UUID，按原值返回；digit 为 0..9 整数，confidence 有限且在 0..1，processingMs 非负整数，包含预处理和首次加载耗时。Python 不存储原图或记录，不负责请求幂等；Java 应遵守 2s 连接/10s 读取预算、不得自动重发 POST。
+
+| manifest 字段 | 固定值 |
+|---|---|
+| modelId / modelVersion | `mnist-cnn-w1` / `w2-canvas-photo-3epoch` |
+| preprocessVersion | `adaptive-mnist-v2` |
+| checkpoint SHA-256 | `72e27abd7440c47dce6196f0624d82704935297adbbd4da86edb4418fafed2aa` |
+| checkpoint 大小 | 1,690,340 bytes |
+| 架构 / 输入 / 输出 | DigitCNN v1 / 1×28×28 / 10 logits |
+| MNIST mean / std | 0.1307 / 0.3081 |
+
+允许清单在不可变 `services/inference_manifest.py` 中，不存在任意路径/URL 注册模型接口。模型未就绪 503 `MODEL_UNAVAILABLE`，非法模型引用 400 `MODEL_NOT_ALLOWED`，输入空白 400 `BLANK_IMAGE`，格式不符 400/415，文件/尺寸/请求超限 413。
+
+### 画板预处理与限额
+
+- PNG/JPEG 真实格式与上传 MIME 必须一致；不依赖文件名。只允许这两类解码插件。文件最大 5 MiB、完整请求 6 MiB、最大边长 2048、总像素 4,194,304；读取有界，在解压前检查头尺寸。multipart 最多 6 个部分，普通字段内存另有限额。
+- 拒绝动画/多帧、截断/损坏、空白/近似纯色；不启用 Pillow 容忍截断开关。尺寸上限内也会做 verify 与完整 load。
+- EXIF 方向处理后把透明层合成到白底、转灰度；以边框中位数判断明暗底色，转换成黑底白字。灰度跨度小于 16 视为空白，墨迹低于 32 去除背景噪声，再裁剪前景。
+- 保持宽高比，将前景缩至 20×20 内，几何居中到黑色 28×28，不随意旋转、拉伸；最后按 MNIST mean/std 归一化 float32。透明图等价于在白底上绘制，不是把透明黑色误判成墨迹。
+- 仅面向单字画板，不承诺自然场景照片识别；MNIST 99.10% 是 W1 历史测试集指标，单次 confidence 不是线上准确率。
+
+### 画板与照片域基线（w2-canvas-photo-3epoch / adaptive-mnist-v2）
+
+W1 基线只在 MNIST 原图上训练，真实画板笔迹上 top-1 明显下降，且"裁剪墨迹外接框→缩放到 20px"的几何归一化与训练分布不一致（对照实验：同一批 MNIST 数字直喂 99.0%，走完整链路仅 93.8%）。相册照片还有第二个问题：固定 32/255 阈值会把灰纸背景整片当成墨迹。现方案：
+
+1. 预处理改为**背景归一化**（相对背景的归一化偏离 + 逐像素模糊背景兜底），灰纸浅笔、白底黑字、黑底白字走同一条对称路径；
+2. 训练输入**直接复用线上 `canvas_input`**，训练与线上逐像素同源；
+3. 增广同时覆盖画板风格（大画布、粗笔画、倾斜、缩放）与**照片风格**（纸面底色、光照渐变、低对比笔迹、模糊、噪声、JPEG 伪影）；
+4. 数据加入官方 EMNIST digits（24 万张、不同书写者），与 MNIST 各半。
+
+复现命令（在 `model-service/` 下，需 torch 训练环境与本地 EMNIST 压缩包；输出目录必须是新目录）：
+
+```text
+python -I train_canvas_aug.py --data-dir data/MNIST/raw --emnist-zip <本地>/gzip.zip \
+  --output-dir weights/w2-canvas-photo --init weights/w2-canvas-aug/checkpoint.pt \
+  --epochs 3 --samples 60000 --photo-ratio 0.5 --seed 20261107 --threads 2
+```
+
+| 指标 | W1 基线 | 上一版基线 | 现基线 |
+|---|---|---|---|
+| MNIST test 直喂（1000 张） | 98.9% | 98.6% | 97.7% |
+| 画板风格模拟集（1000 张） | 92.1% | 98.3% | **99.1%** |
+| 照片风格模拟集（1000 张） | — | 38.7% | **84.0%** |
+| EMNIST digits 未见书写者（1000 张，画板风格） | — | — | **98.5%** |
+| 真实生产链路 MNIST 拒绝率（1000 张，阈值 0.90/0.85） | 14.2% | 5.3% | 3.8%（画板域） |
+| 照片风格模拟集：接受覆盖率 / 接受后正确率（0.90/0.85） | — | — | 63.1% / 99.37% |
+
+边界：画板/照片模拟集与训练增广同源，数字偏乐观；MNIST 与 EMNIST 都是域内指标；**没有一项是真实画板或真实相册照片准确率**。真实结论仍需 W3 自采画板与相册数据。诊断与逐例证据见 [画板识别失败诊断](../docs/画板识别失败诊断-20261107.md) 与 [照片导入修复与基线切换记录](../docs/照片导入修复与基线切换-20261107.md)。
+
+拒识阈值保持 0.90/0.85：照片域实测放宽到 0.70/0.50 可把覆盖率从 63.1% 提到 73.8%、接受后正确率降到 98.2%，属于产品取舍，尚未采用。
+
+### 镜像与只读权重
+
+`.dockerignore` 排除 weights/data、checkpoint、环境密钥、虚拟环境及测试；Docker 构建不下载 MNIST、不烘焙本地权重。容器用非 root UID 65532。运行时将已校验 checkpoint **只读挂载**，例如（不发布模型端口）
+
+```bash
+docker build -t hdr-model-w2 .
+docker run --rm --network hdr-internal \
+  -e MODEL_INTERNAL_TOKEN -e WEIGHTS_DIR=/weights -e MODEL_REGISTRY_PATH=/weights/registry.json \
+  --mount type=bind,source=/absolute/trusted/weights,target=/weights,readonly \
+  hdr-model-w2
+```
+
+此网络名称是部署示例；与 Java 使用同一内部网络并注入同值 token。不要把 `.env` 或权重复制到镜像，不从容器内创建或写入权重目录。
+
+### W2 指标 schema（仅约定，未实现训练接口）
+
+未来指标事件字段为 `taskId/attempt/seq/epoch/totalEpochs/trainLoss/valLoss/valAccuracy/elapsedMs/recordedAt`：taskId 字符串，attempt 正整数、seq 为同一次 attempt 内递增非负整数；epoch/totalEpochs 正整数且 epoch≤totalEpochs，loss 为有限非负数，valAccuracy 有限 0..1，elapsedMs 非负整数，recordedAt 为 UTC ISO-8601。尚未测量的指标为 null/缺失，不能造假 0。W1 的 test_loss/test_accuracy 继续叫 test，不改名为 validation。W2 不创建 task/worker、训练提交接口或曲线。
 
 ## W1：独立 MNIST/CNN 训练
 
@@ -103,14 +193,26 @@ CPU wheels 不支持 CUDA。设置随机种子及确定性算法可帮助同环�
 
 ## 测试
 
-### 原有轻量 Flask 测试（不安装 torch）
+### W2 轻量 Flask / 预处理测试（不安装 torch）
 
 ```bash
-python -m pip install -r requirements-ci.txt
-python -m pytest -q
+python -I -m pip install -r requirements-ci.txt
+python -I -m pytest -c pytest.ini tests -q
 ```
 
-默认 `pytest.ini` 仍只收集 `tests/`，不把训练依赖带进现有 CI。
+`tests/` 使用 Flask/Pillow/NumPy，预测器在契约测试中显式注入测试替身；真实图片解码/限额测试不以替身代替。覆盖认证先于解析、allowlist、错误 HTTP 状态、重复/额外字段、UUID/空间 ID、并发、PNG/JPEG/透明/EXIF/比例/空白/损坏/尺寸/字节限制、无 torch 导入及 v1 回归。默认 `pytest.ini` 不收集训练/真实权重测试。
+
+### W2 真实 checkpoint 测试（显式 opt-in）
+
+```bash
+# 在已有推理依赖环境中；为测试额外准备 pytest，不修改 W1 训练环境。
+HDR_TEST_CHECKPOINT=/absolute/trusted/checkpoint.pt \
+  python -I -m pytest -c pytest-inference.ini tests_inference -q
+```
+
+未设置 `HDR_TEST_CHECKPOINT` 会跳过，不能记为真实推理通过；显式指定后缺文件/缺 torch/错误摘要会失败，不自动跳过。测试验证 full checkpoint 摘要、weights_only 重载一次、eval/inference_mode、有限结果、重复及双线程一致性，不把合成画板例子的输出当作画板准确率。若从仓库根调用，请同时为 `-c` 和测试目录加 `model-service/` 前缀，避免 pytest 从调用目录误收集其他套件。
+
+2026-11-03已获准准备独立W2完整环境（不修改W1）：Python3.11.16、torch2.6.0+cpu、Flask3.1.3、Pillow13.0.0、NumPy2.4.6、Waitress3.0.2。`tests/` **94项全部通过**，显式full checkpoint **4项通过**；Waitress实际启动，内部认证ready、Java真实HTTP调用及PC鼠标画板识别/落库已验证。11月2日的分环境子集记录仅为历史；Docker及微信工具/真机仍未验收，见 [W2交付记录](../docs/W2-交付与验证记录.md)。
 
 ### 独立训练测试集
 
@@ -141,6 +243,7 @@ tests_training/             训练参数及可选 torch 单测
 weights/ / data/            本地训练产物与数据（不提交）
 ```
 
-- 新 Web 接口放 `api/`，在 `app.py` 注册，前缀统一 `/api/v1`；W1 不新增业务接口。
-- 该 Flask 服务没有鉴权，只应作为内网服务被 Spring Boot 调用；生产环境不要将 5001 端口暴露到公网。
-- `requirements.txt` 仍仅含 Flask 依赖；现有镜像/CI 不安装训练依赖，也不在构建时下载 MNIST。
+- 新内部接口前缀 `/internal/v2`；`api/common.py` 的 v1 `fail()` 不用于内部 v2。
+- 只有 W1 健康检查无认证；内部路由必须认证，仍不可将 5001 端口公开到公网。
+- `requirements.txt` / `requirements-ci.txt` 保持无 torch；`requirements-inference.txt` 单独引入 CPU 推理依赖，不带 torchvision/在线训练。
+- `services/inference_manifest.py` / `inference_preprocess.py` / `inference.py` 为 W2 清单、预处理与只读加载服务；`api/internal_v2.py` 实现内部合同，`serve.py` 是单进程运行入口。

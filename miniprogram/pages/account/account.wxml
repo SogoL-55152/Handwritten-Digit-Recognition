@@ -1,0 +1,22 @@
+<view class="page">
+  <view class="account-header">
+    <view class="account-title">账号</view>
+    <button wx:if="{{authorized}}" class="logout" bindtap="logout">退出</button>
+  </view>
+  <view class="card">
+    <view class="error" wx:if="{{configurationError}}">{{configurationError}}</view>
+    <view wx:if="{{verifying}}">正在加载账号…</view>
+    <view wx:if="{{authorized}}">
+      <view class="field">{{user.nickname || user.username}}</view>
+      <view class="field"><text class="label">原密码</text><input class="input" password maxlength="-1" value="{{currentPassword}}" disabled="{{loading}}" data-field="currentPassword" bindinput="onInput" placeholder="请输入原密码" /></view>
+      <view class="field"><text class="label">新密码</text><input class="input" password maxlength="-1" value="{{newPassword}}" disabled="{{loading}}" data-field="newPassword" bindinput="onInput" placeholder="6–32 个字符，不含空白" /></view>
+      <view class="field"><text class="label">确认新密码</text><input class="input" password maxlength="-1" value="{{confirmation}}" disabled="{{loading}}" data-field="confirmation" bindinput="onInput" placeholder="请再次输入新密码" /></view>
+      <view class="hint">修改成功后，需要在所有设备上用新密码重新登录。</view>
+      <button class="btn" bindtap="submit" loading="{{loading}}" disabled="{{loading || configurationError}}">更改密码</button>
+    </view>
+    <view class="error" wx:if="{{error}}">{{error}}</view>
+    <button wx:if="{{error && !authorized && !configurationError}}" bindtap="onShow">重新加载</button>
+    <view class="hint">忘记密码或希望删除账号？请在帮助页联系维护者。退出登录不会删除账号。</view>
+  </view>
+  <view class="links"><button bindtap="openDrawing">画板</button><button bindtap="openHelp">帮助</button><button bindtap="openPrivacy">隐私</button></view>
+</view>

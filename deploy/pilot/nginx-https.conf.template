@@ -1,0 +1,36 @@
+# Host Nginx template only; not loaded automatically and not a certificate issuer.
+# Replace PILOT_HOST with an owned domain; provision a real certificate separately.
+# Include this template in Nginx's http context.
+log_format hdr_pilot_privacy '$remote_addr [$time_local] "$request_method $uri $server_protocol" '
+                             '$status $body_bytes_sent $request_time';
+
+server {
+    listen 80;
+    server_name PILOT_HOST;
+    access_log /var/log/nginx/hdr-pilot-access.log hdr_pilot_privacy;
+    return 301 https://PILOT_HOST$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name PILOT_HOST;
+    ssl_certificate /etc/hdr-tls/fullchain.pem;
+    ssl_certificate_key /etc/hdr-tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 6m;
+    client_body_timeout 15s;
+    # No query strings, tokens or uploaded body in the access log.
+    access_log /var/log/nginx/hdr-pilot-access.log hdr_pilot_privacy;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    add_header X-Frame-Options DENY always;
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host PILOT_HOST;
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 20s;
+    }
+}

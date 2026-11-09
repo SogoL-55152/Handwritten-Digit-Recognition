@@ -1,0 +1,31 @@
+{
+  "checks": [
+    "browser registration and personal workspace",
+    "blank canvas cannot submit",
+    "real mouse canvas PNG to Java Python MySQL and rendered prediction",
+    "browser result matches persisted record",
+    "prediction survives layout stabilization and screenshot",
+    "clear removes old result and disables submission",
+    "late real response cannot restore result after clear",
+    "switching real workspace clears drawing state",
+    "browser logout revokes server session",
+    "no browser runtime or console errors"
+  ],
+  "count": 10,
+  "result": {
+    "recognitionId": "7",
+    "requestId": "0a081025-89ec-4811-af47-4ca8bbc8b76b",
+    "digit": 7,
+    "confidence": 0.9950060248374939,
+    "modelId": "1",
+    "modelVersion": "w1-full-3epoch",
+    "preprocessVersion": "canvas-mnist-v1",
+    "source": "WEB",
+    "processingMs": 11,
+    "createdAt": "2026-11-03T15:30:14.552Z"
+  },
+  "errors": [],
+  "browser": "156.0.4314.58",
+  "input": "real browser mouse Pointer Events and exported PNG",
+  "wechatAcceptance": false
+}

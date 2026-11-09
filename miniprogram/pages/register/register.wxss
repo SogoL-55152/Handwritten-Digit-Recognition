@@ -1,0 +1,2 @@
+@import "../login/login.wxss";
+.page { padding-top: 40rpx; background: #f5f7fb; }

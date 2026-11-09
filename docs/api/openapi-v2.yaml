@@ -1,0 +1,1998 @@
+openapi: 3.1.0
+info:
+  title: HDR W2 SaaS API（本地实现）
+  version: 2.0.0-w2-local
+  description: |
+    根据 docs/W2-接口实现约定.md、Java com.hdr.v2 控制器/DTO/服务及 Python
+    api/internal_v2.py 的本地源码编写；不是部署完成、联调通过或线上可用的声明。
+    此文件独立于 W1 openapi.yaml，不替换 W1 合同。
+
+    Java 使用 /api/v2；只有注册、登录无需 bearer token。成功响应 code=0、message=ok；
+    失败使用真实 HTTP 4xx/5xx，响应 code 与 HTTP 状态一致，不能沿用 W1 的 HTTP-200 错误处理。
+    数据库 ID 一律为十进制字符串，时间为 UTC ISO-8601；浮点数必须有限，禁止 NaN/Infinity。
+    错误 data 可为 {}；当前实现仅按需输出 category/retryAfterSeconds，不输出 requestId。
+    反向代理或容器层错误可能不是 JSON，客户端需按 HTTP 状态及 Content-Type 处理。
+
+    平台角色 USER/SUPER_ADMIN 与空间角色 OWNER/ADMIN/MEMBER 相互独立。
+    每次请求读取当前有效账号、会话和空间成员关系；所有空间路由（包括公共资产目录）
+    均要求当前有效成员，SUPER_ADMIN 不隐式获得任何空间访问权。空间不存在、非成员、
+    已停用空间/成员或跨空间资源统一 404；当前 W2 空间接口不额外区分成员角色。
+    403 用于平台运营接口的非 SUPER_ADMIN 调用，不能因 403/404 无条件清除登录。
+    客户端仅对请求所属会话的 401 清除该会话，空间切换以 URL 为准，不设置服务端全局 active 空间。
+
+    默认配置为 maxWorkspaces=3、recognitionPerMinute=60、maxMembers=5、dailyRecognitionLimit=1000，
+    对应 W2_MAX_WORKSPACES/W2_RECOGNITION_PER_MINUTE/W2_MAX_MEMBERS/W2_DAILY_RECOGNITION_LIMIT，
+    修改配置后重启 Java 生效，不提供在线编辑接口。daily 配额为预留预算，未启用扣减，
+    dailyQuotaEnforced=false、remainingDaily=null；maxMembers 也不代表存在成员管理接口。
+    imageMaxBytes=5242880 为固定图片限制；trainingAvailable/storageMeteringAvailable 均为 false。
+
+    仅公开已实现的读目录、识别、身份、空间和运营能力；没有成员管理、私有模型/数据集 CRUD、
+    默认模型切换、训练任务/worker/指标流或在线训练接口。训练页面参数校验是客户端原型，
+    不构成服务端训练 API。只读目录可返回本空间 WORKSPACE 夹具，不能跨空间读取。
+
+    Python /internal/v2 路由独立使用 http://127.0.0.1:5001 和内部头认证，不继承 Java bearer 认证，
+    不应暴露给浏览器/小程序。Java 模型客户端连接超时 2 秒、读取超时 10 秒，不自动重试 POST。
+    以下示例仅为合同示例，不是实时请求结果。
+servers:
+  - url: http://127.0.0.1:8080
+    description: 本地 Java 服务；端口可由 SERVER_PORT 配置
+security:
+  - BearerAuth: []
+tags:
+  - name: Auth
+    description: W2 独立会话，不接受 W1 token
+  - name: Workspaces
+    description: 当前有效成员可见的空间
+  - name: Catalogue
+    description: 经空间成员鉴权的只读模型与数据集元数据
+  - name: Recognitions
+    description: 单数字画板/用户主动导入图片识别及本人成功结果
+  - name: Usage
+    description: 当前用户在当前空间的记录统计，不是日配额账本
+  - name: Platform
+    description: 仅 SUPER_ADMIN；不赋予空间访问权
+  - name: InternalModel
+    description: 仅 Java 到 Python 的内部服务调用
+paths:
+  /api/v2/auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerV2
+      summary: 注册并创建会话及个人空间
+      description: |
+        新账号平台角色固定为 USER，个人空间角色 OWNER，默认模型为公共基线。
+        nickname 缺失、null 或全空白时使用 username；username/password 不作 trim，
+        新注册禁止Pilot合同列出的Unicode空白，旧账号登录规则保持兼容。成功为201。
+        pilot模式须提供有效pilotCode，未配置或错误时403 PILOT_ADMISSION，开发模式不要求。
+        注册与登录共享全局 300 次/60 秒、真实对端 IP 30 次/60 秒窗口；
+        注册另限同 IP 5 次/900 秒。限流窗口使用 MySQL，非 Redis。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: 注册成功且已创建会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '403':
+          description: pilot注册关闭或注册码无效，category=PILOT_ADMISSION
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '409':
+          description: 用户名冲突，category=USERNAME_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '415':
+          $ref: '#/components/responses/JavaUnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/JavaRateLimited'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          description: 数据服务不可用（DATABASE_UNAVAILABLE），或默认公共基线元数据不可用（无 category）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/auth/password:
+    post:
+      tags: [Auth]
+      operationId: changePasswordV2
+      summary: 验证原密码后修改密码并撤销所有会话
+      description: |
+        当前有效会话必需。事务锁定用户后重新核验会话；原密码保持历史字符规则，
+        新密码6–32字符且不含Pilot合同列出的Unicode空白。成功撤销该用户所有v2会话，
+        客户端清除当前缓存并要求重新登录。每账号5次/15分钟（失败也计数），无自动重试。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: {type: string, minLength: 6, maxLength: 32, writeOnly: true}
+                newPassword:
+                  type: string
+                  minLength: 6
+                  maxLength: 32
+                  writeOnly: true
+                  pattern: '^[^\s\x85]+$'
+      responses:
+        '200':
+          description: 密码已修改，所有会话已撤销
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {type: integer, const: 0}
+                  message: {type: string}
+                  data: {type: 'null'}
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '429':
+          $ref: '#/components/responses/JavaRateLimited'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/recognitions/request-id:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Recognitions]
+      operationId: createRecognitionRequestId
+      summary: 为缺少原生安全随机数的客户端生成请求标识
+      description: |
+        必须登录并具备当前空间有效成员关系。返回新的UUIDv4，不调用模型、
+        不创建识别记录或预占配额。全局240次/分钟、每用户60次/分钟。
+        返回Cache-Control no-store；客户端只在当前操作仍有效时使用，不自动重试预测POST。
+      responses:
+        '200':
+          description: 安全请求标识已生成
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {type: integer, const: 0}
+                  message: {type: string}
+                  data:
+                    type: object
+                    required: [requestId]
+                    properties:
+                      requestId: {type: string, format: uuid}
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '429':
+          $ref: '#/components/responses/JavaRateLimited'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginV2
+      summary: 登录并创建新的 W2 会话
+      description: |
+        校验账号当前有效性。错误用户名、密码或失效账号均返回 401，不区分原因。
+        默认空间优先为个人空间，其次按空间 ID 排序；没有有效成员空间时为 null。
+        与注册共享全局 300 次/60 秒、真实对端 IP 30 次/60 秒窗口。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '415':
+          $ref: '#/components/responses/JavaUnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/JavaRateLimited'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/auth/me:
+    get:
+      tags: [Auth]
+      operationId: getMeV2
+      summary: 获取当前用户及默认可访问空间
+      responses:
+        '200':
+          description: 当前账号信息；不包含 token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutV2
+      summary: 撤销当前会话
+      description: |
+        无请求体；仅撤销当前 token 所属会话，不撤销其他会话。
+        已撤销 token 再次调用返回 401，不能依赖重复登出仍为 200。
+      responses:
+        '200':
+          description: 已撤销；data 为 JSON null（不是 204，也不是空对象）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces:
+    get:
+      tags: [Workspaces]
+      operationId: listWorkspacesV2
+      summary: 列出当前有效成员空间
+      description: 直接返回数组，无分页包装；个人空间优先，其余按 ID 升序。SUPER_ADMIN 同样只见本人有效成员空间。
+      responses:
+        '200':
+          description: 有效成员空间列表，可以为空
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceListResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+    post:
+      tags: [Workspaces]
+      operationId: createWorkspaceV2
+      summary: 创建空间并成为 OWNER
+      description: |
+        名称校验通过后 strip 首尾空白。每个账号默认最多拥有 3 个创建的空间，
+        包含个人空间，按 owner_id 统计所有状态的空间，不是仅统计当前成员列表。
+        上限 W2_MAX_WORKSPACES 在重启时加载；成功为 201。
+        pilot模式一律拒绝额外空间创建（403 PILOT_SCOPE），个人空间仅由注册事务创建。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkspaceRequest'
+      responses:
+        '201':
+          description: 创建成功，role=OWNER，status=ACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          description: pilot模式不开放创建额外空间，category=PILOT_SCOPE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '409':
+          description: 已达到创建空间上限，category=WORKSPACE_LIMIT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '415':
+          $ref: '#/components/responses/JavaUnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          description: 数据服务不可用（DATABASE_UNAVAILABLE），或默认公共基线元数据不可用（无 category）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Workspaces]
+      operationId: getWorkspaceV2
+      summary: 获取当前有效成员空间
+      responses:
+        '200':
+          description: 当前用户在该空间的角色及空间信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/models:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Catalogue]
+      operationId: listModelsV2
+      summary: 列出当前空间可见模型元数据
+      description: |
+        仅 ACTIVE 的 PUBLIC 模型及本空间 WORKSPACE 模型，按 ID 升序，直接返回数组。
+        目录存在不代表权重或推理依赖已就绪；不返回文件路径，不提供上传、删除或修改。
+      responses:
+        '200':
+          description: 可见模型元数据列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/models/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Catalogue]
+      operationId: getModelV2
+      summary: 获取当前空间可见模型元数据
+      description: id 是数据库字符串 ID，不是 externalId；跨空间 WORKSPACE 模型和停用模型返回 404。
+      responses:
+        '200':
+          description: 可见模型元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/default-model:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Catalogue]
+      operationId: getDefaultModelV2
+      summary: 获取当前空间默认模型元数据
+      description: 只读；默认模型不存在、停用或不在本空间可见范围时 404，不自动回退模型。
+      responses:
+        '200':
+          description: 默认模型元数据；不是 readiness 检查
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/datasets:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Catalogue]
+      operationId: listDatasetsV2
+      summary: 列出当前空间可见数据集元数据
+      description: 仅 ACTIVE 的 PUBLIC 数据集及本空间 WORKSPACE 数据集，按 ID 升序；不返回数据内容或存储路径。
+      responses:
+        '200':
+          description: 可见数据集元数据数组，无分页包装
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetListResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/datasets/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Catalogue]
+      operationId: getDatasetV2
+      summary: 获取当前空间可见数据集元数据
+      description: 跨空间 WORKSPACE 数据集、不存在或停用数据集返回 404。
+      responses:
+        '200':
+          description: 可见数据集元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/recognitions:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    post:
+      tags: [Recognitions]
+      operationId: createRecognitionV2
+      summary: 使用空间默认模型识别手写画板或导入的单数字图片
+      description: |
+        标准请求为 multipart/form-data，唯一 image 文件及唯一 source 字段，
+        并提供一次 Idempotency-Key UUID 头。禁止选择模型、传入文件路径或附带额外字段。
+        不接受查询参数；source 必须放入 multipart。
+        图片字节数最多 5242880（5 MiB），完整请求最多 6291456（6 MiB）；
+        PNG/JPEG，宽高各 1..2048，总像素不超过 4194304，不接受动画、损坏或空白图。
+        Java 根据实际字节识别格式并规范化 MIME，Python 内部接口另外校验 MIME 与实际格式一致。
+        可提交手写画板或用户主动导入的单个0–9数字PNG/JPEG；只选图/预览不发起识别。
+        不提供拍照、多数字分割或任意照片OCR保证，不能将MNIST test accuracy当作该输入的在线准确率。
+
+        成功与成功重放都为 200（不是 201/202）。幂等作用域为当前空间+当前用户+UUID，
+        按原始文件字节 SHA-256 和 source 比较；不同编码的相同视觉图片也可能冲突。
+        UUID 大小写均接受，入库及响应 requestId 规范化为小写。
+        同键同字节/source 的已成功请求返回原结果；不同内容 409 IDEMPOTENCY_CONFLICT；
+        处理中 409 IN_PROGRESS；失败或未知状态 409 REQUEST_FAILED。
+        重放遇到超过 30 秒的 PROCESSING 记录会将其转为 FAILED 并返回 REQUEST_FAILED；
+        这不是后台任务，也不是允许客户端自动重新 POST 的信号。
+        409/429/网络超时后禁止自动重发；用户明确发起新操作时使用新 UUID。
+        结果、错误、loading状态须有会话/空间/当前输入revision三重过期保护，
+        替换或移除导入图片、切换输入方式后不使用旧结果。
+
+        上传前限流（包括重放）为全局 240 次/60 秒、真实对端 IP 120 次/60 秒。
+        新识别另有全局 240 次/60 秒，以及每用户、每空间各 recognitionPerMinute 次/60 秒
+        （默认 60，重启配置）；Java 每进程并发最多 2 个。未启用每日配额扣减。
+        Python 429 MODEL_BUSY 对外仍为429，category=MODEL_BUSY、Retry-After=1；没有自动POST重试。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RecognitionUpload'
+            encoding:
+              image:
+                contentType: image/png, image/jpeg
+              source:
+                contentType: text/plain
+      responses:
+        '200':
+          description: 新识别成功或返回同键已有成功结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecognitionResponse'
+        '400':
+          description: |
+            缺失/重复/额外字段、非法 UUID/source 或路径类型错误（VALIDATION）；
+            空文件、损坏/不支持图片（INVALID_IMAGE）；尺寸越界（IMAGE_DIMENSIONS）；
+            Java 检测空白图（BLANK_IMAGE）。Python 返回 400 时 Java 统一为 INVALID_IMAGE，
+            因而内部 BLANK_IMAGE 等细分类别不保证透传。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          description: 当前空间不可访问、默认模型不可见，或结果读取时成员关系已失效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '409':
+          description: 幂等或状态冲突；category 为 IDEMPOTENCY_CONFLICT、IN_PROGRESS 或 REQUEST_FAILED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+              examples:
+                processing:
+                  value: {code: 409, message: 请求正在处理中，请稍后查询, data: {category: IN_PROGRESS}}
+                conflicting:
+                  value: {code: 409, message: 相同请求标识不能用于不同图片或来源, data: {category: IDEMPOTENCY_CONFLICT}}
+                failed:
+                  value: {code: 409, message: 原请求未成功或结果未知；不会自动重复推理，请发起新的操作, data: {category: REQUEST_FAILED}}
+        '413':
+          $ref: '#/components/responses/JavaImageTooLarge'
+        '415':
+          $ref: '#/components/responses/JavaUnsupportedMediaType'
+        '422':
+          description: |
+            实验性接受策略未通过，category=UNRECOGNIZED_INPUT；不返回猜测数字。
+            上游响应须符合422错误合同，否则按502处理。当前记录置为FAILED，不算成功。
+            客户端提示清空后重新书写，保留登录，不自动重发。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '429':
+          $ref: '#/components/responses/JavaRateLimited'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '502':
+          description: |
+            模型连接/读取超时、通信失败、内部非 200/400/413/422/429/503 状态（包括内部 401/415）
+            映射为 MODEL_UNAVAILABLE；无效模型成功回包映射为 MODEL_RESPONSE_INVALID。
+            没有自动 POST 重试，原请求可能已记录 FAILED；也不保证返回 requestId。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        '503':
+          description: 数据服务不可用（DATABASE_UNAVAILABLE），或内部凭据/模型版本/权重未就绪及内部 503（MODEL_UNAVAILABLE）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JavaError'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/recognitions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Recognitions]
+      operationId: getRecognitionV2
+      summary: 获取本人在当前空间的成功识别结果
+      description: |
+        id 为 recognitionId 数据库字符串 ID，不是 requestId UUID。
+        仅返回当前用户创建且 SUCCEEDED 的记录；他人、跨空间、PROCESSING、FAILED、
+        不存在或权限失效均为 404。OWNER/ADMIN/SUPER_ADMIN 不能代查他人记录。
+        不存在按 requestId 查询、列表或独立请求状态接口。
+      responses:
+        '200':
+          description: 本人在当前空间的成功识别结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecognitionResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/workspaces/{workspaceId}/usage:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Usage]
+      operationId: getSelfUsageV2
+      summary: 获取当前用户在当前空间的识别用量
+      description: |
+        scope 固定 SELF，所有成员角色相同，不是团队合计，也不是日配额账本。
+        totalRequests 为该用户该空间全部已写入识别记录数（含 PROCESSING），
+        successfulRequests/failedRequests 分别统计 SUCCEEDED/FAILED，因此二者之和可小于总数。
+        进入识别服务后的拒识422也会写入FAILED，计入totalRequests/failedRequests，不是成功识别或准确率分母。
+        在写入识别记录之前被校验或限流拒绝的请求不计入；成功幂等重放不新增记录。
+        limits 为当前配置/预留能力描述，不包含训练、存储用量或剩余日次数。
+      responses:
+        '200':
+          description: 本人记录统计和 limits 对象
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/platform/quotas:
+    get:
+      tags: [Platform]
+      operationId: getPlatformQuotasV2
+      summary: 读取平台配置预算（SUPER_ADMIN）
+      description: |
+        data 为平铺的 limits 字段，加 source=configuration、restartRequired=true；
+        不是 data.limits 包装，也不是可编辑配额或已实施的每日扣减策略。
+        数值默认 3/60/5/1000 可通过环境配置并重启调整，不能把默认值解释成永久固定常量。
+      responses:
+        '200':
+          description: 平铺配置预算
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformQuotasResponse'
+              example:
+                code: 0
+                message: ok
+                data:
+                  maxWorkspaces: 3
+                  maxMembers: 5
+                  imageMaxBytes: 5242880
+                  recognitionPerMinute: 60
+                  dailyRecognitionLimit: 1000
+                  dailyQuotaEnforced: false
+                  remainingDaily: null
+                  trainingAvailable: false
+                  storageMeteringAvailable: false
+                  source: configuration
+                  restartRequired: true
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/platform/health-summary:
+    get:
+      tags: [Platform]
+      operationId: getPlatformHealthSummaryV2
+      summary: 获取平台依赖健康摘要（SUPER_ADMIN）
+      description: |
+        探测 MySQL 可查询性及模型内部 readiness；依赖探测失败用 services[].status=DOWN 表达，
+        本接口仍为 200。但 bearer 鉴权本身依赖数据库，鉴权数据库失败可先返回 503。
+        服务顺序为 mysql、model-service、training-worker、redis；后两者固定 NOT_CONFIGURED。
+        不输出密钥、权重/存储路径或底层异常；模型元数据存在不等于模型 UP。
+      responses:
+        '200':
+          description: 健康摘要（可包含 DOWN/NOT_CONFIGURED）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthSummaryResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '503':
+          $ref: '#/components/responses/JavaDatabaseUnavailable'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models:
+    get:
+      tags: [AdminModels]
+      operationId: listAdminModels
+      summary: 模型管理列表（SUPER_ADMIN）
+      description: |
+        返回全部 PUBLIC 模型行（含 INACTIVE / DISABLED）。verified 表示模型服务的本地
+        registry.json 中该文件是否通过大小与 SHA-256 校验；verified=false 的模型不能激活。
+      responses:
+        '200':
+          description: 模型行与注册表校验状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelListResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '500':
+          $ref: '#/components/responses/JavaInternalError'
+        '502':
+          $ref: '#/components/responses/JavaOtherError'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/register:
+    post:
+      tags: [AdminModels]
+      operationId: registerAdminModel
+      summary: 从模型服务注册表登记模型（SUPER_ADMIN）
+      description: |
+        请求只给 externalId 与 version；sha256、大小、artifact 与预处理版本一律取自模型服务
+        的本地注册表，不能由客户端自报。先让模型服务重载注册表，未通过校验则拒绝登记。
+        新登记的行状态为 INACTIVE，不会立即改变线上生效模型。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminModelRegisterRequest'
+      responses:
+        '200':
+          description: 已登记（INACTIVE）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelResponse'
+        '400':
+          $ref: '#/components/responses/JavaBadRequest'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/{id}/activate:
+    post:
+      tags: [AdminModels]
+      operationId: activateAdminModel
+      summary: 切换生效模型（SUPER_ADMIN）
+      description: |
+        同一时刻只有一个 PUBLIC 模型为 ACTIVE（数据库唯一索引保证）。激活前要求模型服务
+        注册表中存在同版本、已通过摘要校验且摘要与数据库行一致的文件；否则 409。
+        切换只影响新的识别请求，历史识别记录保留当时的 model_version。
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 已生效的模型
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/{id}/disable:
+    post:
+      tags: [AdminModels]
+      operationId: disableAdminModel
+      summary: 停用模型（SUPER_ADMIN）
+      description: |
+        当前活跃模型不能直接停用（409），必须先激活其他模型，保证任何时刻都有生效模型。
+        已停用模型重新启用需要再次调用 activate。
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 已停用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminModelResponse'
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/{id}:
+    delete:
+      tags: [AdminModels]
+      operationId: deleteAdminModel
+      summary: 删除模型行（SUPER_ADMIN）
+      description: |
+        活跃模型不能删除；已有识别记录引用的模型只能停用不能删除（409 MODEL_IN_USE），
+        避免历史记录指向不存在的模型。文件本身留在服务器权重目录，由管理员处置。
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 已删除
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        '404':
+          $ref: '#/components/responses/JavaNotFound'
+        '409':
+          $ref: '#/components/responses/JavaConflict'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /api/v2/admin/models/registry/reload:
+    post:
+      tags: [AdminModels]
+      operationId: reloadModelRegistry
+      summary: 让模型服务重载本地注册表（SUPER_ADMIN）
+      description: 管理员新增权重文件并写入 registry.json 后调用；返回重载后的注册表视图。不接受任何参数。
+      responses:
+        '200':
+          description: 注册表条目（含校验结果）
+        '401':
+          $ref: '#/components/responses/JavaUnauthorized'
+        '403':
+          $ref: '#/components/responses/JavaForbidden'
+        default:
+          $ref: '#/components/responses/JavaOtherError'
+  /internal/v2/models:
+    get:
+      tags: [Internal]
+      operationId: listInternalModels
+      summary: 模型服务本地注册表（内部）
+      description: |
+        只有 verified=true 的条目允许推理。响应包含 artifact 相对路径、sha256 与大小；
+        未通过校验的条目带 reason，且不会出现在可推理集合中。
+      responses:
+        '200':
+          description: 注册表视图
+        '401':
+          $ref: '#/components/responses/InternalUnauthorized'
+        '503':
+          $ref: '#/components/responses/InternalUnavailable'
+        default:
+          $ref: '#/components/responses/InternalOtherError'
+  /internal/v2/models/reload:
+    post:
+      tags: [Internal]
+      operationId: reloadInternalModels
+      summary: 重新读取 registry.json（内部）
+      description: 不接受任何参数；返回重载后的注册表视图。
+      responses:
+        '200':
+          description: 注册表视图
+        '400':
+          $ref: '#/components/responses/InternalUnauthorized'
+        '401':
+          $ref: '#/components/responses/InternalUnauthorized'
+        default:
+          $ref: '#/components/responses/InternalOtherError'
+  /internal/v2/ready:
+    servers:
+      - url: http://127.0.0.1:5001
+        description: 本地 Python 内部服务；不是 Java /api/v2 路由，不对外暴露
+    get:
+      tags: [InternalModel]
+      operationId: internalModelReadyV2
+      summary: 检查已冻结可信基线是否可推理
+      description: |
+        先内部认证。缺 MODEL_INTERNAL_TOKEN 时 fail closed 返回 503 NOT_CONFIGURED；
+        错误/缺失调用凭据返回 401。检查权重大小、SHA256、架构及 epoch/checkpoint_selection。
+        固定权重大小 1690340 bytes，摘要见 sha256 字段；无随机权重兜底。
+        第一次加载失败会缓存失败状态，修正配置/权重后须重启 Python。
+        模型文件由管理员的 weights/registry.json 与 WEIGHTS_DIR 声明，不能由请求指定；多模型注册表为唯一可信来源。
+      security:
+        - InternalToken: []
+      responses:
+        '200':
+          description: 可信基线已就绪
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalReadyResponse'
+        '401':
+          $ref: '#/components/responses/InternalUnauthorized'
+        '500':
+          $ref: '#/components/responses/InternalUnexpected'
+        '503':
+          $ref: '#/components/responses/InternalUnavailable'
+        default:
+          $ref: '#/components/responses/InternalOtherError'
+  /internal/v2/predict:
+    servers:
+      - url: http://127.0.0.1:5001
+        description: 本地 Python 内部服务；仅 Java 服务调用
+    post:
+      tags: [InternalModel]
+      operationId: internalPredictV2
+      summary: 使用已冻结基线进行内部 CPU 推理
+      description: |
+        本接口不是用户入口，不使用 bearer token、不接收 source 或 Idempotency-Key 头。
+        请求必须恰有 image 文件以及 workspaceId/requestId/modelId/modelVersion/preprocessVersion
+        五个字符串表单字段，各一次，无额外文件/字段、无查询参数；requestId 放在表单。
+        workspaceId 为 1..9223372036854775807 十进制字符串，requestId 必须为标准 UUID 文本。
+        modelId 是外部标识 mnist-cnn-w1，而非 Java 的数据库模型 ID。
+        内部服务只验证请求格式与可信基线，不查询用户/空间权限，也不保存幂等结果，
+        必须由 Java 承担身份、空间鉴权及幂等，不可向终端客户端发放内部密钥。
+
+        先鉴权再解析 multipart，每请求最多 6 个 part，表单内存限 128 KiB，
+        请求限 6 MiB、单图限 5 MiB、最长边 2048、总像素 4194304。
+        image 的 part Content-Type 必须为与实际字节一致的 image/png 或 image/jpeg；
+        拒绝动画/多帧、损坏或空白图。预处理支持黑白两种底色、透明层合成白底。
+        每 Python 进程同时最多 2 个推理请求，满载先返回 429 MODEL_BUSY（即使表单也有错误）。
+        不自动重试；requestId 原样回显，内部本身不规范化 UUID 大小写。
+      security:
+        - InternalToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InternalPredictionUpload'
+            encoding:
+              image:
+                contentType: image/png, image/jpeg
+              workspaceId:
+                contentType: text/plain
+              requestId:
+                contentType: text/plain
+              modelId:
+                contentType: text/plain
+              modelVersion:
+                contentType: text/plain
+              preprocessVersion:
+                contentType: text/plain
+      responses:
+        '200':
+          description: 基线推理成功；requestId 与表单值完全一致
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalPredictionResponse'
+        '400':
+          description: |
+            字段缺失/重复/额外字段/查询参数或 ID 格式错误（INVALID_REQUEST）；
+            不可信基线版本（MODEL_NOT_ALLOWED）；空/损坏/动画图片（INVALID_IMAGE）；
+            空白图（BLANK_IMAGE）；底层表单解析错误（HTTP_ERROR）。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+        '401':
+          $ref: '#/components/responses/InternalUnauthorized'
+        '413':
+          description: 图片字节/像素尺寸越界（IMAGE_TOO_LARGE），或请求/part 数量/表单内存超限（HTTP_ERROR）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+        '415':
+          description: 非 multipart（UNSUPPORTED_MEDIA_TYPE），或图片 MIME 不允许/与实际格式不符（UNSUPPORTED_IMAGE）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+        '422':
+          description: 实验性接受策略未通过；category=UNRECOGNIZED_INPUT，不返回猜测数字，客户端应提示重新书写，不能自动重发
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+        '429':
+          description: 当前 Python 进程推理并发已满，category=MODEL_BUSY，重试等待提示为 1 秒；禁止自动重发 POST
+          headers:
+            Retry-After:
+              description: 固定等待提示 1 秒，不构成自动重试授权
+              schema: {type: integer, const: 1}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalError'
+              example:
+                code: 429
+                message: 推理并发已满，请稍后以新请求重试
+                data: {category: MODEL_BUSY, retryAfterSeconds: 1}
+        '500':
+          $ref: '#/components/responses/InternalUnexpected'
+        '503':
+          $ref: '#/components/responses/InternalUnavailable'
+        default:
+          $ref: '#/components/responses/InternalOtherError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Authorization: Bearer <W2 token>。必须使用 v2 注册/登录签发的 token；
+        aud=hdr-v2、ver=2，并有数据库会话验证。W1 token 不可复用。
+        当前实现 Bearer 前缀大小写敏感，整个 Authorization 头最多 4096 字符。
+        token 默认 24 小时，V2_JWT_EXPIRE_HOURS 配置范围 1..168；
+        账号失效、会话撤销或过期均 401。不得把 token 或内部密钥写入文档示例。
+    InternalToken:
+      type: apiKey
+      in: header
+      name: X-HDR-Internal-Token
+      description: |
+        仅 Python /internal/v2 使用，值来自服务端 MODEL_INTERNAL_TOKEN。
+        未配置/全空白服务端 token 返回 503 NOT_CONFIGURED；缺失、错误或超过 4096 字符
+        的调用凭据返回 401 UNAUTHORIZED。与用户 bearer token 完全不同，不能发送给浏览器/小程序。
+  parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      description: |
+        工作空间的十进制数据库字符串 ID。非 Java long 可解析文本或溢出返回 400；
+        解析成功但空间不存在/不可访问返回 404，SUPER_ADMIN 不豁免。
+      schema:
+        $ref: '#/components/schemas/DatabaseId'
+    ModelId:
+      name: id
+      in: path
+      required: true
+      description: 模型行的十进制字符串 ID（不是 externalId，也不是模型版本）
+      schema:
+        $ref: '#/components/schemas/DatabaseId'
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      description: 模型、数据集或识别记录的十进制数据库字符串 ID；不是模型 externalId 或识别 requestId
+      schema:
+        $ref: '#/components/schemas/DatabaseId'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        必须且只能提供一次标准 UUID；接受十六进制大小写，Java 将其规范化为小写后保存/返回。
+        幂等范围是 workspaceId+当前 userId+UUID；新用户操作用新 UUID，不能自动重发 POST。
+      schema:
+        $ref: '#/components/schemas/RequestUuid'
+  schemas:
+    DatabaseId:
+      type: string
+      pattern: '^[1-9][0-9]{0,18}$'
+      maxLength: 19
+      description: 正整数十进制数据库 ID，数值不得超过 9223372036854775807；JSON 中不使用 number
+      examples: ['1']
+    NullableDatabaseId:
+      oneOf:
+        - $ref: '#/components/schemas/DatabaseId'
+        - type: 'null'
+    RequestUuid:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      minLength: 36
+      maxLength: 36
+      examples: ['7e57d004-2b97-4e7a-b45f-5387367791cd']
+    UtcTimestamp:
+      type: string
+      format: date-time
+      description: UTC ISO-8601 时间；Java Instant.toString() 使用 Z 后缀
+      examples: ['2026-11-02T08:00:00Z']
+    Source:
+      type: string
+      enum: [WEB, MINIPROGRAM]
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      description: 未定义的 JSON 属性当前由默认 Jackson 绑定忽略，不能用于指定平台/空间角色
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: '^[^\s\x85]+$'
+          description: 不含约定Unicode空白，不作trim；新注册用户名长度3..32
+        password:
+          type: string
+          minLength: 6
+          maxLength: 32
+          pattern: '^[^\s\x85]+$'
+          writeOnly: true
+          description: 不含约定Unicode空白，不作trim，不回显
+        pilotCode:
+          type: [string, 'null']
+          maxLength: 256
+          writeOnly: true
+          description: pilot下必需，服务端配置；客户端不得硬编码或缓存
+        nickname:
+          type: [string, 'null']
+          maxLength: 64
+          description: 缺失、null 或全空白时使用 username
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: '\S'
+        password:
+          type: string
+          minLength: 6
+          maxLength: 32
+          pattern: '\S'
+          writeOnly: true
+    CreateWorkspaceRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '\S'
+          description: 先按原始长度验证，再去除首尾空白保存
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, username, nickname, platformRole]
+      properties:
+        id:
+          $ref: '#/components/schemas/DatabaseId'
+        username:
+          type: string
+          maxLength: 64
+          description: 账号名；W2 注册限制 3..32，历史数据库字段允许至 64
+        nickname:
+          type: [string, 'null']
+          maxLength: 64
+          description: W2 新注册有回退值，但迁移的既有账号可能为 null
+        platformRole:
+          type: string
+          enum: [USER, SUPER_ADMIN]
+    Session:
+      type: object
+      additionalProperties: false
+      required: [token, user, defaultWorkspaceId]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: W2 JWT；客户端使用独立 v2 会话缓存键
+        user:
+          $ref: '#/components/schemas/User'
+        defaultWorkspaceId:
+          $ref: '#/components/schemas/NullableDatabaseId'
+          description: 优先个人空间，没有有效成员空间时为 null；注册成功时非 null
+    Me:
+      type: object
+      additionalProperties: false
+      required: [user, defaultWorkspaceId]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        defaultWorkspaceId:
+          $ref: '#/components/schemas/NullableDatabaseId'
+    Workspace:
+      type: object
+      additionalProperties: false
+      required: [id, name, role, status, defaultModelId]
+      properties:
+        id:
+          $ref: '#/components/schemas/DatabaseId'
+        name:
+          type: string
+          maxLength: 64
+        role:
+          type: string
+          enum: [OWNER, ADMIN, MEMBER]
+          description: 当前调用者的空间角色，不是账号平台角色
+        status:
+          type: string
+          const: ACTIVE
+          description: 当前读接口仅返回 ACTIVE 空间
+        defaultModelId:
+          $ref: '#/components/schemas/DatabaseId'
+    Model:
+      type: object
+      additionalProperties: false
+      required: [id, name, version, scope, workspaceId, externalId, accuracy, accuracyDataset, preprocessVersion, description]
+      properties:
+        id:
+          $ref: '#/components/schemas/DatabaseId'
+        name:
+          type: string
+          maxLength: 64
+        version:
+          type: string
+          maxLength: 64
+          examples: [w2-canvas-photo-3epoch]
+        scope:
+          type: string
+          enum: [PUBLIC, WORKSPACE]
+        workspaceId:
+          $ref: '#/components/schemas/NullableDatabaseId'
+          description: PUBLIC 时 null；WORKSPACE 时必须为本次 URL 空间 ID
+        externalId:
+          type: string
+          maxLength: 64
+          description: Python 模型身份标识，不是数据库 ID
+          examples: [mnist-cnn-w1]
+        accuracy:
+          type: [number, 'null']
+          format: double
+          minimum: 0
+          maximum: 1
+          description: 有限值或 null；公共基线 0.991 为 MNIST test，不是 validation 或在线准确率
+        accuracyDataset:
+          type: [string, 'null']
+          maxLength: 64
+          examples: [MNIST test]
+        preprocessVersion:
+          type: string
+          maxLength: 64
+          examples: [adaptive-mnist-v2]
+        description:
+          type: [string, 'null']
+          maxLength: 255
+      example:
+        id: '1'
+        name: MNIST CNN W1
+        version: w2-canvas-photo-3epoch
+        scope: PUBLIC
+        workspaceId: null
+        externalId: mnist-cnn-w1
+        accuracy: 0.991
+        accuracyDataset: MNIST test
+        preprocessVersion: adaptive-mnist-v2
+        description: W1 full baseline; MNIST test accuracy, not online accuracy
+    Dataset:
+      type: object
+      additionalProperties: false
+      required: [id, name, version, scope, workspaceId, trainSamples, testSamples, description]
+      properties:
+        id:
+          $ref: '#/components/schemas/DatabaseId'
+        name:
+          type: string
+          maxLength: 64
+        version:
+          type: string
+          maxLength: 64
+          examples: [mnist-original]
+        scope:
+          type: string
+          enum: [PUBLIC, WORKSPACE]
+        workspaceId:
+          $ref: '#/components/schemas/NullableDatabaseId'
+          description: PUBLIC 时 null；WORKSPACE 时必须为本次 URL 空间 ID
+        trainSamples:
+          type: integer
+          format: int32
+          minimum: 0
+        testSamples:
+          type: integer
+          format: int32
+          minimum: 0
+        description:
+          type: [string, 'null']
+          maxLength: 255
+      example:
+        id: '1'
+        name: MNIST
+        version: mnist-original
+        scope: PUBLIC
+        workspaceId: null
+        trainSamples: 60000
+        testSamples: 10000
+        description: Public MNIST metadata; no data upload or training API in W2
+    ImageUpload:
+      type: string
+      format: binary
+      description: |
+        单个 PNG/JPEG 文件，非空，最多 5242880 bytes；图像边长 1..2048，总像素不超过
+        4194304。拒绝损坏、动画/多帧、空白图；完整 multipart 请求最多 6291456 bytes。
+        文件名不用于选模型或读取服务端路径。
+      x-maxBytes: 5242880
+      x-maxWidth: 2048
+      x-maxHeight: 2048
+      x-maxPixels: 4194304
+    RecognitionUpload:
+      type: object
+      additionalProperties: false
+      required: [image, source]
+      properties:
+        image:
+          $ref: '#/components/schemas/ImageUpload'
+        source:
+          $ref: '#/components/schemas/Source'
+    Recognition:
+      type: object
+      additionalProperties: false
+      required: [recognitionId, requestId, digit, confidence, modelId, modelVersion, preprocessVersion, source, processingMs, createdAt]
+      properties:
+        recognitionId:
+          $ref: '#/components/schemas/DatabaseId'
+        requestId:
+          $ref: '#/components/schemas/RequestUuid'
+          description: Idempotency-Key 的小写规范形式
+        digit:
+          type: integer
+          minimum: 0
+          maximum: 9
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: 有限概率值，非百分数，禁止 NaN/Infinity
+        modelId:
+          $ref: '#/components/schemas/DatabaseId'
+          description: Java 数据库模型 ID，不是 Python 的 modelId=mnist-cnn-w1
+        modelVersion:
+          type: string
+          examples: [w2-canvas-photo-3epoch]
+        preprocessVersion:
+          type: string
+          examples: [adaptive-mnist-v2]
+        source:
+          $ref: '#/components/schemas/Source'
+        processingMs:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Java 记录的识别调用阶段耗时，不是转发 Python processingMs；不包含此前上传/图片校验时间
+        createdAt:
+          $ref: '#/components/schemas/UtcTimestamp'
+          description: 数据库记录创建时刻，成功重放保持原值
+    Limits:
+      type: object
+      required: [maxWorkspaces, maxMembers, imageMaxBytes, recognitionPerMinute, dailyRecognitionLimit, dailyQuotaEnforced, remainingDaily, trainingAvailable, storageMeteringAvailable]
+      description: |
+        当前配置预算。默认数值不是永久固定限额，配置修改需重启。
+        maxMembers、dailyRecognitionLimit 为预留配置；W2 没有成员变更入口或每日配额扣减。
+      properties:
+        maxWorkspaces:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 3
+          description: W2_MAX_WORKSPACES；包括个人空间，按账号创建/拥有空间数执行
+        maxMembers:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 5
+          description: W2_MAX_MEMBERS；预留成员预算，当前无成员管理接口
+        imageMaxBytes:
+          type: integer
+          format: int64
+          const: 5242880
+        recognitionPerMinute:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 60
+          description: W2_RECOGNITION_PER_MINUTE；新识别每用户、每空间各一固定 60 秒窗口
+        dailyRecognitionLimit:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1000
+          description: W2_DAILY_RECOGNITION_LIMIT 预留配置，默认 1000，配置修改后重启生效；不进行每日扣减
+        dailyQuotaEnforced:
+          type: boolean
+          const: false
+        remainingDaily:
+          type: 'null'
+          description: 未启用日账本，不伪造剩余次数
+        trainingAvailable:
+          type: boolean
+          const: false
+        storageMeteringAvailable:
+          type: boolean
+          const: false
+    Usage:
+      type: object
+      additionalProperties: false
+      required: [workspaceId, scope, totalRequests, successfulRequests, failedRequests, limits]
+      properties:
+        workspaceId:
+          $ref: '#/components/schemas/DatabaseId'
+        scope:
+          type: string
+          const: SELF
+        totalRequests:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 当前用户当前空间的全部识别记录数，包含 PROCESSING
+        successfulRequests:
+          type: integer
+          format: int64
+          minimum: 0
+        failedRequests:
+          type: integer
+          format: int64
+          minimum: 0
+        limits:
+          allOf:
+            - $ref: '#/components/schemas/Limits'
+          unevaluatedProperties: false
+    PlatformQuotas:
+      allOf:
+        - $ref: '#/components/schemas/Limits'
+        - type: object
+          required: [source, restartRequired]
+          properties:
+            source:
+              type: string
+              const: configuration
+            restartRequired:
+              type: boolean
+              const: true
+      unevaluatedProperties: false
+      description: 平铺 limits 字段和 source/restartRequired，绝不含 limits 子对象
+    ServiceHealth:
+      type: object
+      additionalProperties: false
+      required: [name, status, detail]
+      properties:
+        name:
+          type: string
+          enum: [mysql, model-service, training-worker, redis]
+        status:
+          type: string
+          enum: [UP, DOWN, NOT_CONFIGURED]
+        detail:
+          type: string
+          description: 经脱敏的摘要，不包含内部路径、密钥或底层异常
+    HealthSummary:
+      type: object
+      additionalProperties: false
+      required: [checkedAt, services]
+      properties:
+        checkedAt:
+          $ref: '#/components/schemas/UtcTimestamp'
+        services:
+          type: array
+          minItems: 4
+          maxItems: 4
+          description: 依次为 mysql、model-service、training-worker、redis；后两者为 NOT_CONFIGURED
+          items:
+            $ref: '#/components/schemas/ServiceHealth'
+    InternalPredictionUpload:
+      type: object
+      additionalProperties: false
+      required: [image, workspaceId, requestId, modelId, modelVersion, preprocessVersion]
+      properties:
+        image:
+          $ref: '#/components/schemas/ImageUpload'
+        workspaceId:
+          $ref: '#/components/schemas/DatabaseId'
+        requestId:
+          $ref: '#/components/schemas/RequestUuid'
+        modelId:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+          description: 必须是模型服务本地注册表中已注册且通过摘要校验的模型
+        modelVersion:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        preprocessVersion:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+    InternalPrediction:
+      type: object
+      additionalProperties: false
+      required: [requestId, digit, confidence, modelId, modelVersion, preprocessVersion, processingMs]
+      properties:
+        requestId:
+          $ref: '#/components/schemas/RequestUuid'
+          description: 原样回显内部请求表单中的 requestId
+        digit:
+          type: integer
+          minimum: 0
+          maximum: 9
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: 有限概率值，禁止 NaN/Infinity
+        modelId:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        modelVersion:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        preprocessVersion:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        processingMs:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Python predict handler 耗时，含表单校验、预处理和推理，四舍五入到毫秒
+    InternalReady:
+      type: object
+      additionalProperties: false
+      required: [status, verifiedModels, models, registry]
+      properties:
+        status:
+          type: string
+          const: UP
+        verifiedModels:
+          type: integer
+          minimum: 1
+          description: 通过大小与 SHA-256 校验、允许推理的模型数量
+        registry:
+          type: string
+          description: 注册表文件名（不含路径）
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegisteredModel'
+    RegisteredModel:
+      type: object
+      additionalProperties: false
+      required: [modelId, modelVersion, preprocessVersion, verified]
+      properties:
+        modelId:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        modelVersion:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        preprocessVersion:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        sizeBytes:
+          type: integer
+          format: int64
+        artifact:
+          type: string
+          description: 相对 WEIGHTS_DIR 的路径；未通过校验时为空串
+        verified:
+          type: boolean
+        loaded:
+          type: boolean
+        reason:
+          type: string
+          description: verified=false 时的失败类别；不暴露服务器路径
+    AdminModel:
+      type: object
+      additionalProperties: false
+      required: [id, externalId, version, preprocessVersion, status, verified]
+      properties:
+        id:
+          type: string
+        externalId:
+          type: string
+        version:
+          type: string
+        preprocessVersion:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, DISABLED]
+        accuracy:
+          type: number
+          nullable: true
+        accuracyDataset:
+          type: string
+          nullable: true
+        sha256:
+          type: string
+          nullable: true
+        sizeBytes:
+          type: integer
+          format: int64
+          nullable: true
+        artifact:
+          type: string
+          nullable: true
+        inRegistry:
+          type: boolean
+        verified:
+          type: boolean
+        registryReason:
+          type: string
+    AdminModelResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminModel'
+    AdminModelListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminModel'
+    AdminModelRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [externalId, version]
+      properties:
+        externalId:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        version:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+    SuccessEnvelope:
+      type: object
+      additionalProperties: false
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          const: 0
+        message:
+          type: string
+          const: ok
+        data: {}
+    SessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Session'
+    MeResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Me'
+    LogoutResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: 'null'
+      example: {code: 0, message: ok, data: null}
+    WorkspaceResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Workspace'
+    WorkspaceListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Workspace'
+    ModelResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Model'
+    ModelListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Model'
+    DatasetResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Dataset'
+    DatasetListResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Dataset'
+    RecognitionResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Recognition'
+    UsageResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Usage'
+    PlatformQuotasResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PlatformQuotas'
+    HealthSummaryResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/HealthSummary'
+    InternalPredictionResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InternalPrediction'
+    InternalReadyResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InternalReady'
+    JavaError:
+      type: object
+      additionalProperties: false
+      required: [code, message, data]
+      description: HTTP 状态码是真实错误状态；code 等于该 HTTP 状态，错误 data 可为空对象
+      properties:
+        code:
+          type: integer
+          minimum: 400
+          maximum: 599
+        message:
+          type: string
+          description: 面向用户的说明，不应按文案作程序分支
+        data:
+          type: object
+          additionalProperties: false
+          properties:
+            category:
+              type: string
+              description: |
+                按错误可选；当前包括 VALIDATION、USERNAME_EXISTS、WORKSPACE_LIMIT、INVALID_IMAGE、
+                BLANK_IMAGE、IMAGE_DIMENSIONS、IMAGE_TOO_LARGE、IDEMPOTENCY_CONFLICT、IN_PROGRESS、
+                REQUEST_FAILED、RATE_LIMIT、CONCURRENCY_LIMIT、MODEL_BUSY、UNRECOGNIZED_INPUT、MODEL_UNAVAILABLE、MODEL_RESPONSE_INVALID、
+                DATABASE_UNAVAILABLE、INTERNAL_ERROR。多数 401/403/404 的 data 是 {}。
+            retryAfterSeconds:
+              type: integer
+              minimum: 1
+              description: Java 限流/并发拒绝时与 Retry-After 头一致；不是自动重试许可
+    InternalError:
+      type: object
+      additionalProperties: false
+      required: [code, message, data]
+      properties:
+        code:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: 等于真实 HTTP 状态码
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties: false
+          required: [category]
+          properties:
+            category:
+              type: string
+              enum: [NOT_CONFIGURED, UNAUTHORIZED, MODEL_UNAVAILABLE, UNSUPPORTED_MEDIA_TYPE, INVALID_REQUEST, MODEL_NOT_ALLOWED, MODEL_BUSY, UNRECOGNIZED_INPUT, INVALID_IMAGE, UNSUPPORTED_IMAGE, IMAGE_TOO_LARGE, BLANK_IMAGE, HTTP_ERROR, INTERNAL_ERROR]
+            retryAfterSeconds:
+              type: integer
+              const: 1
+              description: 仅 MODEL_BUSY 返回，与 Retry-After 头一致
+  responses:
+    JavaBadRequest:
+      description: 请求体/必要字段/路径类型/UUID/source 校验失败，通常 category=VALIDATION；HTTP 400
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+    JavaUnauthorized:
+      description: 未登录、无效/过期/W1 token、已撤销会话、失效账号，或登录凭据错误；HTTP 401，data 通常为 {}
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+          example: {code: 401, message: 未登录或登录已过期, data: {}}
+    JavaForbidden:
+      description: 当前账号不是 SUPER_ADMIN；HTTP 403，data={}，不应清除有效会话
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+          example: {code: 403, message: 无平台运营权限, data: {}}
+    JavaNotFound:
+      description: 不存在/停用/非成员空间、跨空间或不可见资源；HTTP 404，业务 data={}，不应清除有效会话
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+          example: {code: 404, message: 空间不存在或不可访问, data: {}}
+    JavaConflict:
+      description: |
+        模型管理状态冲突，HTTP 409。category 取 MODEL_EXISTS / MODEL_NOT_REGISTERED /
+        MODEL_UNVERIFIED / MODEL_DIGEST_MISMATCH / MODEL_ACTIVE / MODEL_IN_USE；不会自动重试。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+          example: {code: 409, message: 数据库与模型文件的摘要不一致, data: {category: MODEL_DIGEST_MISMATCH}}
+    JavaUnsupportedMediaType:
+      description: 外层请求媒体类型不支持（如识别请求不是 multipart/form-data），HTTP 415，category=VALIDATION
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+    JavaImageTooLarge:
+      description: 图片超过 5 MiB、完整请求超过 6 MiB，或模型服务返回 413；HTTP 413，category=IMAGE_TOO_LARGE
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+    JavaRateLimited:
+      description: |
+        HTTP 429；MySQL 固定窗口拒绝为 RATE_LIMIT，retryAfterSeconds 为距窗口结束的秒数；
+        Java 推理并发拒绝为 CONCURRENCY_LIMIT，retryAfterSeconds=2；
+        Python 推理并发拒绝映射为 MODEL_BUSY，retryAfterSeconds=1。
+        均有 Retry-After 头；提示等待时间但不授权客户端自动重发识别 POST。
+      headers:
+        Retry-After:
+          description: 十进制秒数，与 data.retryAfterSeconds 一致
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+          example: {code: 429, message: 推理服务正忙，请稍后重试, data: {category: CONCURRENCY_LIMIT, retryAfterSeconds: 2}}
+    JavaDatabaseUnavailable:
+      description: HTTP 503，category=DATABASE_UNAVAILABLE；可发生于鉴权、限流或业务数据库访问
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+    JavaInternalError:
+      description: 未预期服务异常，HTTP 500，category=INTERNAL_ERROR；不泄露底层异常
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+    JavaOtherError:
+      description: |
+        其他框架错误使用真实 HTTP 状态，例如未映射路由 404、不允许的方法 405（可含 Allow 头）、
+        不可接受的响应媒体类型 406；框架错误通常 category=VALIDATION。
+        容器/代理拒绝、连接中断等可能没有 JSON envelope，不能假定所有失败都可 JSON 解析。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JavaError'
+        text/plain:
+          schema: {type: string}
+        text/html:
+          schema: {type: string}
+    InternalUnauthorized:
+      description: HTTP 401，category=UNAUTHORIZED；内部头缺失、错误或超过 4096 字符
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalError'
+    InternalUnavailable:
+      description: |
+        HTTP 503；内部认证未配置时 NOT_CONFIGURED；可信权重缺失、大小/摘要/架构不符、
+        依赖不可用、加载失败或模型输出无效时 MODEL_UNAVAILABLE。不能使用随机权重兜底。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalError'
+    InternalUnexpected:
+      description: HTTP 500，category=INTERNAL_ERROR；不返回内部路径、凭据或异常详情
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalError'
+    InternalOtherError:
+      description: |
+        Python 框架 HTTP 错误保持原 HTTP 状态，category=HTTP_ERROR（如 404、405）；
+        405 附带 Allow 头。内部认证先于路由处理，未配置/无效凭据可优先返回 503/401。
+        网络/代理层异常也可能返回非 JSON。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalError'
+        text/plain:
+          schema: {type: string}
+        text/html:
+          schema: {type: string}

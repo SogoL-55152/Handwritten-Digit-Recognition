@@ -1,6 +1,7 @@
 const PEN_WIDTH = 16
 
 Component({
+  properties: { simple: { type: Boolean, value: false } },
   data: {
     ready: false,
     hasInk: false,
@@ -22,6 +23,7 @@ Component({
     },
     detached() {
       this._detached = true
+      if (this._cancelExport) this._cancelExport()
       this._initId += 1
       this._exportId += 1
       this._endStroke()
@@ -98,12 +100,21 @@ Component({
     },
 
     _markChanged(hasInk) {
+      if (this._cancelExport) this._cancelExport()
       this._revision += 1
       this._exportId += 1
       // 画布发生变化后，之前的异步导出不再属于当前画面。
       const next = { hasInk, previewPath: '', exporting: false, error: '' }
       if (Object.keys(next).some((key) => this.data[key] !== next[key])) {
         this.setData(next)
+      }
+      this.triggerEvent('change', { revision: this._revision, hasInk })
+    },
+
+    getSnapshot() {
+      return {
+        revision: this._revision, hasInk: this.data.hasInk,
+        ready: !this._detached && this.data.ready, drawing: this._drawing
       }
     },
 
@@ -181,44 +192,65 @@ Component({
     },
 
     exportImage() {
-      if (!this._isReady()) return
-      if (!this.data.hasInk) {
-        wx.showToast({ title: '请先在画板上书写', icon: 'none' })
-        return
+      // The original local-preview button consumes errors; business callers await the narrow API.
+      this.exportSnapshot(true).catch(() => {})
+    },
+
+    exportSnapshot(showToast = false) {
+      const invalid = (message, toast = showToast) => {
+        if (toast && !this._detached) wx.showToast({ title: message, icon: 'none' })
+        return Promise.reject(new Error(message))
       }
-      if (this._drawing) {
-        wx.showToast({ title: '请先结束当前笔画', icon: 'none' })
-        return
+      if (!this._detached && (!this.data.ready || !this._ctx || !this._canvas)) {
+        return invalid('画板尚未就绪，请稍后或重试')
       }
-      if (this.data.exporting) return
+      if (this._detached) return invalid('画板已离开', false)
+      if (!this.data.hasInk) return invalid('请先在画板上书写')
+      if (this._drawing) return invalid('请先结束当前笔画')
+      if (this.data.exporting) return invalid('画板正在导出', false)
       const revision = this._revision
       const exportId = ++this._exportId
       const isCurrent = () => !this._detached && revision === this._revision && exportId === this._exportId
       this.setData({ exporting: true, error: '' })
-      const fail = () => {
-        if (!isCurrent()) return
-        this.setData({ exporting: false, error: 'PNG 导出失败，请重试。' })
-        wx.showToast({ title: 'PNG 导出失败，请重试', icon: 'none' })
-      }
-      try {
-        wx.canvasToTempFilePath({
-          canvas: this._canvas,
-          fileType: 'png',
-          destWidth: this._canvas.width,
-          destHeight: this._canvas.height,
-          success: (result) => {
-            if (!isCurrent()) return
-            if (!result || !result.tempFilePath) {
-              fail()
-              return
-            }
-            this.setData({ previewPath: result.tempFilePath, exporting: false, error: '' })
-          },
-          fail
-        }, this)
-      } catch (error) {
-        fail()
-      }
+      return new Promise((resolve, reject) => {
+        let settled = false
+        let timer
+        const finish = (error, image) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          if (this._cancelExport === cancel) this._cancelExport = null
+          if (error) reject(error)
+          else resolve(image)
+        }
+        const cancel = () => finish(Object.assign(new Error('画板已变化'), { stale: true }))
+        this._cancelExport = cancel
+        const fail = () => {
+          if (settled) return
+          if (!isCurrent()) { cancel(); return }
+          this.setData({ exporting: false, error: 'PNG 导出失败，请重试。' })
+          if (showToast) wx.showToast({ title: 'PNG 导出失败，请重试', icon: 'none' })
+          finish(new Error('PNG 导出失败，请重试'))
+        }
+        timer = setTimeout(fail, 10000)
+        if (timer && timer.unref) timer.unref()
+        try {
+          wx.canvasToTempFilePath({
+            canvas: this._canvas,
+            fileType: 'png',
+            destWidth: this._canvas.width,
+            destHeight: this._canvas.height,
+            success: (result) => {
+              if (settled) return
+              if (!isCurrent()) { cancel(); return }
+              if (!result || !result.tempFilePath) { fail(); return }
+              this.setData({ previewPath: result.tempFilePath, exporting: false, error: '' })
+              finish(null, { filePath: result.tempFilePath, revision })
+            },
+            fail
+          }, this)
+        } catch (_) { fail() }
+      })
     }
   }
 })

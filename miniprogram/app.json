@@ -2,7 +2,10 @@
   "pages": [
     "pages/login/login",
     "pages/index/index",
-    "pages/drawing-prototype/drawing-prototype"
+    "pages/register/register",
+    "pages/account/account",
+    "pages/help/help",
+    "pages/privacy/privacy"
   ],
   "window": {
     "navigationBarTitleText": "手写数字识别",

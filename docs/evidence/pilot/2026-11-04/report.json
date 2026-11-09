@@ -1,0 +1,56 @@
+{
+  "checks": [
+    "server refuses missing and invalid pilot codes",
+    "pilot browser registration selects verified personal workspace",
+    "pilot hides development routes and server rejects extra workspace",
+    "three real canvas shapes produce stable stored model results",
+    "browser password change revokes both devices sessions",
+    "new password works and returns to recognition",
+    "privacy page shows explicitly local test metadata",
+    "no runtime or console errors"
+  ],
+  "predictions": [
+    {
+      "intended": "7",
+      "recognitionId": "3",
+      "requestId": "3e6db806-c6fa-4eb3-aa90-d431df0e3acb",
+      "digit": 7,
+      "confidence": 0.9949969053268433,
+      "modelId": "1",
+      "modelVersion": "w1-full-3epoch",
+      "preprocessVersion": "canvas-mnist-v1",
+      "source": "WEB",
+      "processingMs": 3239,
+      "createdAt": "2026-11-04T02:39:16.807Z"
+    },
+    {
+      "intended": "1",
+      "recognitionId": "4",
+      "requestId": "ff189723-0555-47c6-9dfb-c407d266b58a",
+      "digit": 1,
+      "confidence": 0.9722056984901428,
+      "modelId": "1",
+      "modelVersion": "w1-full-3epoch",
+      "preprocessVersion": "canvas-mnist-v1",
+      "source": "WEB",
+      "processingMs": 18,
+      "createdAt": "2026-11-04T02:39:20.484Z"
+    },
+    {
+      "intended": "0",
+      "recognitionId": "5",
+      "requestId": "6b9be8b3-431d-4118-88b1-542478b428d5",
+      "digit": 0,
+      "confidence": 0.999091386795044,
+      "modelId": "1",
+      "modelVersion": "w1-full-3epoch",
+      "preprocessVersion": "canvas-mnist-v1",
+      "source": "WEB",
+      "processingMs": 15,
+      "createdAt": "2026-11-04T02:39:21.889Z"
+    }
+  ],
+  "browser": "156.0.4314.58",
+  "errors": [],
+  "scope": "local pilot fixture, not public deployment or WeChat acceptance"
+}

@@ -2,14 +2,21 @@ const { readSession } = require('./utils/session')
 
 App({
   globalData: {
-    // 本地调试：微信开发者工具需勾选“不校验合法域名”
-    // 真机调试请改为电脑局域网 IP，例如 http://192.168.1.10:8080
-    baseUrl: 'http://localhost:8080',
+    // Resolved from config/public.js and wx envVersion; invalid environments stay offline.
+    baseUrl: '',
     token: '',
-    user: null
+    user: null,
+    verified: false,
+    workspaceId: ''
   },
 
   onLaunch() {
+    // Restore a candidate only; pages verify identity before business requests.
+    readSession(this)
+  },
+
+  onShow() {
+    // Re-check environment/origin without contacting the service.
     readSession(this)
   }
 })

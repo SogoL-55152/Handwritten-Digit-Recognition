@@ -1,0 +1,68 @@
+{
+  "checks": [
+    "protected endpoint requires session",
+    "internal model rejects missing credential",
+    "real model readiness manifest",
+    "registration creates distinct personal workspaces",
+    "me returns ordinary USER",
+    "personal workspace has OWNER and default model",
+    "second workspace persisted",
+    "outsider space and ordinary platform access denied",
+    "real public asset metadata",
+    "actual platform status and admin cannot bypass space",
+    "daily budget is not falsely enforced",
+    "WEB request passes real Java Python MySQL chain",
+    "model snapshot returned",
+    "same request returns exact saved recognition",
+    "persisted result detail matches",
+    "same owner cannot read record under wrong space",
+    "idempotency source conflict",
+    "MEMBER can infer but cannot read owners private record",
+    "blank input rejected",
+    "corrupt input rejected",
+    "SELF usage excludes other members and deduplicates replay",
+    "database row stores actual result",
+    "logout revokes server session",
+    "existing account logs in again"
+  ],
+  "count": 24,
+  "model": {
+    "modelId": "mnist-cnn-w1",
+    "modelVersion": "w1-full-3epoch",
+    "preprocessVersion": "canvas-mnist-v1",
+    "sha256": "656afea28cd929a15da8dad24fe69d278554c061380e34bf679be03a45b781b4",
+    "status": "UP"
+  },
+  "sampleResult": {
+    "recognitionId": "1",
+    "requestId": "59b4404e-d589-4971-bbd0-7e764d1ff46f",
+    "digit": 7,
+    "confidence": 0.99250727891922,
+    "modelId": "1",
+    "modelVersion": "w1-full-3epoch",
+    "preprocessVersion": "canvas-mnist-v1",
+    "source": "WEB",
+    "processingMs": 49,
+    "createdAt": "2026-11-03T14:55:12.827Z"
+  },
+  "memberResult": {
+    "recognitionId": "2",
+    "requestId": "3231b83d-05ae-4c44-8079-0f3a6f26ad82",
+    "digit": 7,
+    "confidence": 0.99250727891922,
+    "modelId": "1",
+    "modelVersion": "w1-full-3epoch",
+    "preprocessVersion": "canvas-mnist-v1",
+    "source": "MINIPROGRAM",
+    "processingMs": 11,
+    "createdAt": "2026-11-03T14:55:13.100Z"
+  },
+  "health": {
+    "mysql": "UP",
+    "model-service": "UP",
+    "training-worker": "NOT_CONFIGURED",
+    "redis": "NOT_CONFIGURED"
+  },
+  "input": "synthetic Pillow PNG shaped as 7; not browser or WeChat canvas",
+  "uiAcceptance": false
+}

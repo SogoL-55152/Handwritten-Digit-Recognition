@@ -66,9 +66,16 @@
 }
 
 .btn {
-  margin-top: 12rpx;
+  width: 100%;
+  margin: 12rpx 0 0;
   height: 92rpx;
-  line-height: 92rpx;
+  min-height: 92rpx;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.2;
   border-radius: 16rpx;
   background: #2f54eb;
   color: #ffffff;
@@ -80,30 +87,17 @@
   border: none;
 }
 
-.prototype-entry {
-  margin-top: 32rpx;
-  padding: 32rpx 24rpx;
-  background: #ffffff;
-  border-radius: 20rpx;
-  text-align: center;
-}
-
-.prototype-btn {
-  color: #2f54eb;
-  background: #eef2ff;
-  font-size: 28rpx;
-}
-
-.prototype-note {
-  margin-top: 16rpx;
-  color: #606b7d;
-  font-size: 24rpx;
-  line-height: 1.6;
-}
+.btn[disabled] { background: #c4cde5; color: #ffffff; }
 
 .hint {
   margin-top: 28rpx;
   text-align: center;
   font-size: 24rpx;
-  color: #a0a8b8;
+  color: #606b7d;
+  line-height: 1.7;
 }
+
+.error { margin-top: 24rpx; color: #a12622; font-size: 26rpx; line-height: 1.7; }
+.links { display: flex; gap: 16rpx; margin-top: 28rpx; }
+.links button { flex: 1; font-size: 26rpx; }
+.card button { margin-top: 20rpx; }

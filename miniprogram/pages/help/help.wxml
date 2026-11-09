@@ -1,0 +1,22 @@
+<view class="page">
+  <view class="card">
+    <view class="title">使用帮助</view>
+    <view class="error" wx:if="{{configurationError}}">{{configurationError}}</view>
+    <view class="section">开始使用</view>
+    <view>向维护者获取试用注册码，在本小程序注册账号即可，无需先在电脑注册。注册码用于受邀试用，请勿转发。</view>
+    <view>登录后自动核验账号和默认个人空间。选择“手写数字”，在画板中央书写一个 0–9 的数字；或选择“导入图片”，从相册选择一张 PNG / JPEG 图片。选择后先预览，只有点击识别才上传。</view>
+    <view>单张图片最多 5 MiB，最长边 2048 像素，只包含一个数字。仅访问您明确选择的那张图片，不扫描或批量读取相册，不使用相机。不支持多数字文字识别，也不保证复杂背景照片的识别效果。</view>
+    <view class="section">识别与错误</view>
+    <view>保持白底黑字、单个数字、适当留白。提示无法可靠识别时，请更换图片或重新书写。拒识仍可能漏掉乱画，置信度不是准确率，也不是可靠性保证；结果仅供数字识别试用参考。</view>
+    <view>网络或服务失败时，请检查网络后再试。请求频繁时按提示等待，登录失效后请重新登录。</view>
+    <view>若提示服务未配置，本版本禁止联网，不是您的密码错误。请联系维护者取得已配置的版本；此帮助页无需联网。</view>
+    <view class="section">账号、找回与删除</view>
+    <view>在账号页更改密码，成功后所有设备须重新登录。忘记密码或申请删除账号及关联数据，请联系维护者，经身份核验办理；没有短信找回功能。退出登录不等于删除账号。</view>
+    <view class="section">联系维护者</view>
+    <view>维护者：{{operator}}</view>
+    <view selectable>联系方式：{{contact}}</view>
+    <view>请勿在反馈中发送密码、注册码或含个人信息的图片。</view>
+  </view>
+  <button bindtap="openPrivacy">阅读隐私说明</button>
+  <button bindtap="openLogin">返回登录</button>
+</view>

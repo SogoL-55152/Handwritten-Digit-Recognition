@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "手写识别"
+  "navigationBarTitleText": "手写识别",
+  "usingComponents": {
+    "drawing-board": "/components/drawing-board/drawing-board"
+  }
 }

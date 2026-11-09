@@ -10,6 +10,7 @@ import com.hdr.dto.UserVO;
 import com.hdr.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@ConditionalOnProperty(name = "hdr.legacy.auth-enabled", havingValue = "true")
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {

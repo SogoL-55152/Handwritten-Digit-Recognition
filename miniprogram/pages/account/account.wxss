@@ -1,0 +1,6 @@
+@import "../login/login.wxss";
+.page { padding-top: 40rpx; background: #f5f7fb; }
+.account-header { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 28rpx; }
+.account-title { flex: 1; min-width: 0; font-size: 40rpx; font-weight: 600; }
+.logout { flex-shrink: 0; width: 104rpx; height: 64rpx; min-height: 64rpx; margin: 0; padding: 0 16rpx; display: flex; align-items: center; justify-content: center; line-height: 1.2; font-size: 26rpx; background: #ffffff; border-radius: 14rpx; }
+.logout::after { border: none; }

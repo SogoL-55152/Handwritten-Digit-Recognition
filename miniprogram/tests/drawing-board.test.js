@@ -15,19 +15,21 @@ function harness({ dpr = 2, initialize = true, legacy = false } = {}) {
   const toasts = []
   const updates = []
   const queries = []
+  const events = []
   const wx = {
     getWindowInfo: () => ({ pixelRatio: dpr }),
     getSystemInfoSync: () => ({ pixelRatio: dpr }),
     showToast: (options) => toasts.push(options),
     canvasToTempFilePath: (options, scope) => exports.push({ options, scope }),
-    request: () => assert.fail('Drawing prototype must not make network requests'),
-    uploadFile: () => assert.fail('Drawing prototype must not upload files')
+    request: () => assert.fail('Drawing component must not make network requests'),
+    uploadFile: () => assert.fail('Drawing component must not upload files')
   }
   if (legacy) delete wx.getWindowInfo
   global.wx = wx
   const board = {
     ...definition.methods,
     data: structuredClone(definition.data),
+    triggerEvent(name, detail) { events.push({ name, detail }) },
     setData(patch) {
       assert.notEqual(this._detached, true, 'No setData after detach')
       updates.push(patch)
@@ -55,7 +57,7 @@ function harness({ dpr = 2, initialize = true, legacy = false } = {}) {
   definition.lifetimes.ready.call(board)
   if (initialize) resolveInit()
   return {
-    board, raster, wx, exports, toasts, updates, resolveInit,
+    board, raster, wx, exports, toasts, updates, resolveInit, events,
     detach: () => definition.lifetimes.detached.call(board)
   }
 }
@@ -321,4 +323,60 @@ test('detached component ignores late initialization and never exports', () => {
   h.board.exportImage()
   assert.equal(h.board.data.ready, false)
   assert.equal(h.exports.length, 0)
+})
+
+test('narrow async export returns the same revision and keeps local preview', async () => {
+  const h = harness()
+  dot(h.board)
+  const saved = h.board.getSnapshot()
+  assert.equal(saved.hasInk, true)
+  assert.equal(saved.drawing, false)
+  assert.deepEqual(h.events.at(-1), { name: 'change', detail: { revision: saved.revision, hasInk: true } })
+  const pending = h.board.exportSnapshot()
+  h.exports[0].options.success({ tempFilePath: 'wxfile://async.png' })
+  assert.deepEqual(await pending, { filePath: 'wxfile://async.png', revision: saved.revision })
+  assert.equal(h.board.data.previewPath, 'wxfile://async.png')
+  assert.equal(h.toasts.length, 0)
+})
+
+for (const mutation of ['clear', 'draw', 'detach']) {
+  test(`async export settles as stale immediately on ${mutation}`, async () => {
+    const h = harness()
+    dot(h.board)
+    const pending = h.board.exportSnapshot()
+    const rejected = assert.rejects(pending, (error) => error.stale)
+    if (mutation === 'clear') h.board.clear()
+    if (mutation === 'draw') dot(h.board, 50, 50)
+    if (mutation === 'detach') h.detach()
+    await rejected
+    h.exports[0].options.fail({ errMsg: 'late' })
+    assert.equal(h.toasts.length, 0)
+  })
+}
+
+test('async export rejects blank/active/busy states without a global toast', async () => {
+  const h = harness()
+  await assert.rejects(h.board.exportSnapshot(), /书写/)
+  start(h.board)
+  await assert.rejects(h.board.exportSnapshot(), /结束当前笔画/)
+  end(h.board)
+  const pending = h.board.exportSnapshot()
+  await assert.rejects(h.board.exportSnapshot(), /正在导出/)
+  h.exports[0].options.success({ tempFilePath: 'wxfile://done.png' })
+  await pending
+  assert.equal(h.toasts.length, 0)
+})
+
+test('async export timeout is bounded and late success does not revive it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const h = harness()
+  dot(h.board)
+  const pending = h.board.exportSnapshot()
+  const rejected = assert.rejects(pending, /导出失败/)
+  t.mock.timers.tick(10000)
+  await rejected
+  h.exports[0].options.success({ tempFilePath: 'wxfile://late.png' })
+  assert.equal(h.board.data.previewPath, '')
+  assert.equal(h.board.data.exporting, false)
+  assert.equal(h.toasts.length, 0)
 })

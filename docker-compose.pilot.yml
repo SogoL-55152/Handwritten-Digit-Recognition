@@ -1,0 +1,51 @@
+# Additional pilot settings; base Compose remains loopback only.
+# Run with: docker compose -p hdr-pilot -f docker-compose.yml -f docker-compose.pilot.yml ...
+services:
+  mysql:
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    logging: &bounded-logs
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+  backend:
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    environment:
+      SPRING_PROFILES_ACTIVE: pilot
+      HDR_PILOT_ENABLED: "true"
+      PILOT_REGISTRATION_CODE: ${PILOT_REGISTRATION_CODE:-}
+      PILOT_RECOGNITION_PER_MINUTE: ${PILOT_RECOGNITION_PER_MINUTE:-10}
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=65.0"
+    logging: *bounded-logs
+  model-service:
+    restart: unless-stopped
+    mem_limit: 1536m
+    cpus: 2.0
+    logging: *bounded-logs
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -I
+        - -c
+        - "import os,json,urllib.request; r=urllib.request.Request('http://127.0.0.1:5001/internal/v2/ready',headers={'X-HDR-Internal-Token':os.environ['MODEL_INTERNAL_TOKEN']}); d=json.load(urllib.request.urlopen(r,timeout=10)); assert d['code']==0 and d['data']['status']=='UP'"
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
+  frontend:
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    build:
+      context: ./frontend
+      args:
+        VITE_APP_MODE: pilot
+        VITE_PILOT_OPERATOR: ${PILOT_OPERATOR:?Supply the actual pilot operator}
+        VITE_PILOT_CONTACT: ${PILOT_CONTACT:?Supply an actual support contact}
+        VITE_PILOT_PRIVACY_VERSION: ${PILOT_PRIVACY_VERSION:?Supply the privacy notice version}
+    logging: *bounded-logs

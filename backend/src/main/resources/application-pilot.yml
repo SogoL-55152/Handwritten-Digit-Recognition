@@ -1,0 +1,32 @@
+# Activate explicitly with SPRING_PROFILES_ACTIVE=pilot.
+server:
+  forward-headers-strategy: none
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+hdr:
+  pilot:
+    enabled: true
+  legacy:
+    auth-enabled: false
+    bootstrap-enabled: false
+  cors:
+    allowed-origins: ${PILOT_CORS_ALLOWED_ORIGINS:}
+  v2:
+    limits:
+      max-workspaces: 1
+      recognition-per-minute: ${PILOT_RECOGNITION_PER_MINUTE:10}
+      max-members: 1
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 8
+      connection-timeout: 5000
+  servlet:
+    multipart:
+      file-size-threshold: 0
+logging:
+  level:
+    com.hdr: info
