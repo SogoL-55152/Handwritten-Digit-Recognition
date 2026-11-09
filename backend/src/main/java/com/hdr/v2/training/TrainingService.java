@@ -28,10 +28,10 @@ import java.util.Map;
 @Service
 public class TrainingService {
     public record CreateRequest(Integer epochs, Integer samples, Integer batchSize, Double learningRate,
-                                Long seed, Double photoRatio, Boolean useEmnist) {}
+                                Long seed, Double photoRatio, Boolean useEmnist, String initFrom) {}
     public record TaskView(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
-                           String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
+                           String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String queuedAt, String startedAt,
                            String finishedAt, JsonNode metrics) {}
     private static final List<String> STATES = List.of("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED");
@@ -50,6 +50,8 @@ public class TrainingService {
     @Transactional
     public TaskView create(long creatorId, long datasetId, CreateRequest request) {
         Map<String, Object> params = validated(request);
+        String initFrom = resolvedInitFrom(request.initFrom());
+        params.put("initFrom", initFrom);
         Long datasets = jdbc.queryForObject("SELECT COUNT(*) FROM t_v2_dataset WHERE id=? AND status='ACTIVE'",
                 Long.class, datasetId);
         if (datasets == null || datasets == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
@@ -58,8 +60,8 @@ public class TrainingService {
         jdbc.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
                     INSERT INTO t_v2_training_task(creator_id,dataset_id,target_model_id,status,epochs,samples,
-                        batch_size,learning_rate,seed,photo_ratio,use_emnist)
-                    VALUES(?,?,?,'QUEUED',?,?,?,?,?,?,?)
+                        batch_size,learning_rate,seed,photo_ratio,use_emnist,init_from)
+                    VALUES(?,?,?,'QUEUED',?,?,?,?,?,?,?,?)
                     """, Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, creatorId);
             statement.setLong(2, datasetId);
@@ -71,6 +73,7 @@ public class TrainingService {
             statement.setLong(8, (Long) params.get("seed"));
             statement.setDouble(9, ((Number) params.get("photoRatio")).doubleValue());
             statement.setBoolean(10, (Boolean) params.get("useEmnist"));
+            if (initFrom == null) statement.setNull(11, java.sql.Types.VARCHAR); else statement.setString(11, initFrom);
             return statement;
         }, key);
         Number generated = key.getKey();
@@ -191,7 +194,7 @@ public class TrainingService {
         }
         return new TaskView(row.id(), row.status(), row.attempt(), row.celeryTaskId(), row.epochs(), row.samples(),
                 row.batchSize(), row.learningRate(), row.seed(), row.photoRatio(), row.useEmnist(),
-                row.targetModelId(), row.modelVersion(), row.artifact(), row.sha256(), row.sizeBytes(),
+                row.initFrom(), row.targetModelId(), row.modelVersion(), row.artifact(), row.sha256(), row.sizeBytes(),
                 row.errorCategory(), row.errorMessage(), row.queuedAt(), row.startedAt(), row.finishedAt(), metrics);
     }
 
@@ -223,6 +226,18 @@ public class TrainingService {
         return params;
     }
 
+    /** "从哪个模型微调"：null 表示从零训练；非 null 必须是数据库里已登记的公共模型版本。 */
+    private String resolvedInitFrom(String version) {
+        if (version == null || version.isBlank()) return null;
+        if (!version.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,63}"))
+            throw new V2Exception(400, "initFrom 格式无效", "VALIDATION");
+        Long found = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_model WHERE scope='PUBLIC' AND version=?", Long.class, version);
+        if (found == null || found == 0)
+            throw new V2Exception(400, "initFrom 必须是已登记的模型版本", "MODEL_NOT_FOUND");
+        return version;
+    }
+
     private static int require(Integer value, String field) {
         if (value == null) throw new V2Exception(400, "缺少 " + field, "VALIDATION");
         return value;
@@ -239,7 +254,7 @@ public class TrainingService {
 
     private record TaskRow(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
-                           String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
+                           String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String metrics, String queuedAt,
                            String startedAt, String finishedAt) {
         String externalId() { return "mnist-cnn-w1"; }
@@ -252,7 +267,8 @@ public class TrainingService {
         return new TaskRow(rs.getString("id"), rs.getString("status"), rs.getInt("attempt"),
                 rs.getString("celery_task_id"), rs.getInt("epochs"), rs.getInt("samples"), rs.getInt("batch_size"),
                 rs.getDouble("learning_rate"), rs.getLong("seed"), rs.getDouble("photo_ratio"),
-                rs.getBoolean("use_emnist"), rs.getString("target_model_id"), rs.getString("model_version"),
+                rs.getBoolean("use_emnist"), rs.getString("init_from"),
+                rs.getString("target_model_id"), rs.getString("model_version"),
                 rs.getString("artifact"), rs.getString("sha256"), size == null ? null : ((Number) size).longValue(),
                 rs.getString("error_category"), rs.getString("error_message"), rs.getString("metrics"),
                 Instant.ofEpochMilli(rs.getTimestamp("queued_at").getTime()).toString(),

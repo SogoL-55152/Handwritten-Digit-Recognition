@@ -40,7 +40,7 @@ class TrainingControllerTest {
 
     private TrainingService.TaskView view(String status) {
         return new TrainingService.TaskView("1", status, 1, "celery-1", 1, 1000, 64, 0.001, 42, .5, false,
-                "1", null, null, null, 1000L, null, null, "2026-11-08T00:00:00Z", null, null, null);
+                null, "1", null, null, null, 1000L, null, null, "2026-11-08T00:00:00Z", null, null, null);
     }
 
     @Test

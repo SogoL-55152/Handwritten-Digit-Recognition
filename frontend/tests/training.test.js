@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { validateTraining, validateDataset, toCreatePayload } from '../src/training/validation.js'
 import { createTrainingBoard, isActiveTask, sortTasks, summarizeTask } from '../src/training/board.js'
 
-const VALID = { epochs: 1, samples: 1000, batchSize: 64, learningRate: 0.001, seed: 7, photoRatio: 0.5, useEmnist: false }
+const VALID = { epochs: 1, samples: 1000, batchSize: 64, learningRate: 0.001, seed: 7, photoRatio: 0.5, useEmnist: false, initFrom: null }
 
 function task(overrides = {}) {
   return {
@@ -35,7 +35,7 @@ function fakeApi(overrides = {}) {
 test('payload only contains the fields the server contract accepts', () => {
   assert.deepEqual(toCreatePayload({ ...VALID, datasetId: 1, extra: 'ignored' }), VALID)
   assert.deepEqual(Object.keys(toCreatePayload(VALID)).sort(),
-    ['batchSize', 'epochs', 'learningRate', 'photoRatio', 'samples', 'seed', 'useEmnist'])
+    ['batchSize', 'epochs', 'initFrom', 'learningRate', 'photoRatio', 'samples', 'seed', 'useEmnist'])
 })
 
 test('dataset id must be a positive integer', () => {
@@ -43,10 +43,17 @@ test('dataset id must be a positive integer', () => {
   for (const value of [0, -1, 1.5, '1', null, undefined]) assert.ok(validateDataset(value).datasetId, String(value))
 })
 
+test('initFrom accepts a registered version token or null only', () => {
+  assert.deepEqual(validateTraining({ ...VALID, initFrom: 'w2-canvas-photo-3epoch' }), {})
+  for (const value of ['', 'has space', '-leading', 'x'.repeat(65), 1]) {
+    assert.ok(validateTraining({ ...VALID, initFrom: value }).initFrom, String(value))
+  }
+})
+
 test('validation reports every invalid field at once', () => {
-  const errors = validateTraining({ epochs: 0, samples: 10, batchSize: 7, learningRate: 0, seed: -1, photoRatio: 2, useEmnist: 'x' })
+  const errors = validateTraining({ epochs: 0, samples: 10, batchSize: 7, learningRate: 0, seed: -1, photoRatio: 2, useEmnist: 'x', initFrom: '' })
   assert.deepEqual(Object.keys(errors).sort(),
-    ['batchSize', 'epochs', 'learningRate', 'photoRatio', 'samples', 'seed', 'useEmnist'])
+    ['batchSize', 'epochs', 'initFrom', 'learningRate', 'photoRatio', 'samples', 'seed', 'useEmnist'])
   assert.deepEqual(validateTraining(VALID), {})
 })
 

@@ -98,6 +98,27 @@ def _publish_registry(version, artifact_relative, sha256, size_bytes):
     temporary.replace(path)
 
 
+def _resolve_init(version):
+    """把"从哪个模型版本微调"解析成本地权重路径：只信 registry.json 里通过摘要校验的条目。"""
+    if not version:
+        return None
+    path = Path(os.getenv("MODEL_REGISTRY_PATH", weights_dir() / "registry.json"))
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for entry in document.get("models", []):
+        if entry.get("version") != version:
+            continue
+        if entry.get("preprocessVersion") != BASELINE.preprocess_version:
+            raise ValueError("初始化模型的预处理版本与当前流水线不一致")
+        artifact = weights_dir() / entry["artifact"]
+        if not artifact.is_file():
+            raise ValueError("初始化模型的权重文件不存在")
+        digest, size = _digest(artifact)
+        if digest != entry["sha256"] or size != entry["sizeBytes"]:
+            raise ValueError("初始化模型的权重摘要与注册表不一致")
+        return artifact
+    raise ValueError("初始化模型未在服务端注册表中登记")
+
+
 def train_one(task_id, attempt, params):
     epochs = int(params["epochs"])
     samples = int(params["samples"])
@@ -108,7 +129,8 @@ def train_one(task_id, attempt, params):
     attempt_dir = root / f"a{attempt}"
     if attempt_dir.exists():
         shutil.rmtree(attempt_dir)
-    metrics = run(config, data_root(), attempt_dir, init=None, threads=int(os.getenv("TRAINING_THREADS", "2")),
+    metrics = run(config, data_root(), attempt_dir, init=_resolve_init(params.get("initFrom")),
+                  threads=int(os.getenv("TRAINING_THREADS", "2")),
                   emnist_zip=emnist_zip() if params.get("useEmnist") else None)
     stable = root / "checkpoint.pt"
     shutil.copyfile(attempt_dir / "checkpoint.pt", stable)

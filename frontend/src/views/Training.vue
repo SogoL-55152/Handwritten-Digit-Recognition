@@ -1,6 +1,7 @@
 <script setup>
 import { onUnmounted, reactive, ref } from 'vue'
 import * as api from '@/api/training.js'
+import { listModels } from '@/api/models.js'
 import { useUserStore } from '@/stores/user.js'
 import { validateTraining, validateDataset, toCreatePayload } from '@/training/validation.js'
 import { createTrainingBoard, summarizeTask } from '@/training/board.js'
@@ -8,9 +9,10 @@ import { createTrainingBoard, summarizeTask } from '@/training/board.js'
 const user = useUserStore()
 const form = reactive({
   datasetId: 1, epochs: 3, samples: 10000, batchSize: 64,
-  learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false
+  learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false, initFrom: null
 })
 const datasets = ref([])
+const models = ref([])
 const tasks = ref([])
 const errors = ref({})
 const loading = ref(false)
@@ -30,6 +32,13 @@ async function loadAll() {
   errorMessage.value = ''
   try {
     datasets.value = await board.load()
+    try {
+      models.value = await listModels(user.getSnapshot())
+      const active = models.value.find((item) => item.status === 'ACTIVE')
+      if (form.initFrom === null && active) form.initFrom = active.version
+    } catch (failure) {
+      models.value = []
+    }
     if (datasets.value.length && !datasets.value.some((item) => Number(item.id) === form.datasetId)) {
       form.datasetId = Number(datasets.value[0].id)
     }
@@ -87,6 +96,16 @@ onUnmounted(() => board.dispose())
         <label>learningRate<input v-model.number="form.learningRate" name="learningRate" type="number" step="any" min="0" max="0.1" /><small v-if="errors.learningRate" class="field-error">{{ errors.learningRate }}</small></label>
         <label>seed<input v-model.number="form.seed" name="seed" type="number" step="1" min="0" max="4294967295" /><small v-if="errors.seed" class="field-error">{{ errors.seed }}</small></label>
         <label>照片增广比例<input v-model.number="form.photoRatio" name="photoRatio" type="number" step="0.1" min="0" max="1" /><small v-if="errors.photoRatio" class="field-error">{{ errors.photoRatio }}</small><small v-else class="muted">0–1，越大越偏向相册照片风格</small></label>
+        <label>从哪个模型微调
+          <select v-model="form.initFrom" name="initFrom">
+            <option :value="null">从零训练</option>
+            <option v-for="model in models" :key="model.version" :value="model.version">
+              {{ model.version }}{{ model.status === 'ACTIVE' ? '（当前生效）' : '' }}
+            </option>
+          </select>
+          <small v-if="errors.initFrom" class="field-error">{{ errors.initFrom }}</small>
+          <small v-else class="muted">从已有权重继续训练，通常比从零训练更稳；版本须已在服务端注册</small>
+        </label>
         <label class="checkbox-row"><input v-model="form.useEmnist" name="useEmnist" type="checkbox" /> 混入 EMNIST 书写者数据</label>
         <div class="full-row">
           <button class="primary" type="submit" :disabled="submitting || !datasets.length">
@@ -112,7 +131,7 @@ onUnmounted(() => board.dispose())
                 {{ summarizeTask(task).statusLabel }}
                 <small v-if="summarizeTask(task).errorLabel" class="cell-detail">{{ summarizeTask(task).errorLabel }}</small>
               </td>
-              <td>{{ summarizeTask(task).paramsLabel }}</td>
+              <td>{{ summarizeTask(task).paramsLabel }}<small class="cell-detail">微调自 {{ task.initFrom || '从零训练' }}</small></td>
               <td>
                 {{ summarizeTask(task).versionLabel }}
                 <small class="cell-detail">{{ summarizeTask(task).digestLabel }}</small>

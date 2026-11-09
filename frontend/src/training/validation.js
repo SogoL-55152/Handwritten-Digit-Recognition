@@ -11,6 +11,7 @@ export const TRAINING_LIMITS = {
   photoRatio: [0, 1]
 }
 
+const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const isInt = (value) => Number.isInteger(value) && !Number.isNaN(value)
 const finite = (value) => typeof value === 'number' && Number.isFinite(value)
 
@@ -26,6 +27,9 @@ export function validateTraining(form) {
   if (!finite(form.photoRatio) || form.photoRatio < 0 || form.photoRatio > 1)
     errors.photoRatio = '照片比例必须在 0–1 之间'
   if (typeof form.useEmnist !== 'boolean') errors.useEmnist = 'EMNIST 选项必须为布尔值'
+  if (form.initFrom !== null && form.initFrom !== undefined &&
+      (typeof form.initFrom !== 'string' || !MODEL_TOKEN.test(form.initFrom)))
+    errors.initFrom = 'initFrom 必须是已登记的模型版本或留空'
   return errors
 }
 
@@ -42,6 +46,7 @@ export function toCreatePayload(form) {
     learningRate: form.learningRate,
     seed: form.seed,
     photoRatio: form.photoRatio,
-    useEmnist: form.useEmnist
+    useEmnist: form.useEmnist,
+    initFrom: form.initFrom ?? null
   }
 }

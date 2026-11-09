@@ -108,7 +108,8 @@ def _validate_form():
     return None
 
 
-TRAINING_FIELDS = {"epochs", "samples", "batchSize", "learningRate", "seed", "photoRatio", "useEmnist"}
+TRAINING_FIELDS = {"epochs", "samples", "batchSize", "learningRate", "seed", "photoRatio",
+                   "useEmnist", "initFrom"}
 MAX_TASK_ID = 19
 
 
@@ -134,6 +135,9 @@ def _validate_training_params(params):
         return "photoRatio 必须在 0..1"
     if not isinstance(params["useEmnist"], bool):
         return "useEmnist 必须是布尔值"
+    init_from = params["initFrom"]
+    if init_from is not None and (not isinstance(init_from, str) or not TOKEN_PATTERN.fullmatch(init_from)):
+        return "initFrom 必须是已注册的模型版本或 null"
     return None
 
 
