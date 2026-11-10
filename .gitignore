@@ -258,3 +258,8 @@ miniprogram/project.private.config.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 用户下载的公开数据集（体积大、许可受限，不进仓库）
+/*.zip
+/*.tar.gz
+/database.sqlite

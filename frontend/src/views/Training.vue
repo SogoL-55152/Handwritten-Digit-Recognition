@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
@@ -29,7 +29,7 @@ const notice = ref('')
 const errorMessage = ref('')
 const liveStatus = ref('connecting')
 const selectedId = ref(null)
-const curveEl = ref(null)
+const curveHost = ref(null)
 const curveChart = shallowRef(null)
 
 const board = createTrainingBoard({
@@ -55,20 +55,30 @@ function mergeTask(incoming) {
   tasks.value = [...tasks.value].sort((a, b) => Number(b.id) - Number(a.id))
 }
 
-const selectedTask = computed(() => {
-  const chosen = tasks.value.find((task) => task.id === selectedId.value)
-  return chosen || tasks.value[0] || null
-})
+const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedId.value) || null)
 const selectedHistory = computed(() => selectedTask.value?.metrics?.history || [])
 
-function renderCurve() {
-  if (!curveEl.value) return
-  curveChart.value ??= echarts.init(curveEl.value)
+/** 展开行的图表宿主：选中行出现/消失时由模板重新绑定，所以实例要重建。 */
+function syncCurve() {
+  const host = curveHost.value
+  if (!host) {
+    curveChart.value?.dispose()
+    curveChart.value = null
+    return
+  }
+  if (!curveChart.value || curveChart.value.getDom() !== host) {
+    curveChart.value?.dispose()
+    curveChart.value = echarts.init(host)
+  }
   curveChart.value.setOption(
     trainingCurveOption(selectedHistory.value, `任务 #${selectedTask.value?.id ?? '—'} 逐轮指标`), true)
+  curveChart.value.resize()
 }
 
-watch([selectedHistory, selectedId], () => nextTick(renderCurve))
+watch([curveHost, selectedHistory, selectedId], () => nextTick(syncCurve))
+watch(tasks, () => {
+  if (selectedId.value !== null && !tasks.value.some((task) => task.id === selectedId.value)) selectedId.value = null
+})
 
 async function loadAll() {
   loading.value = true
@@ -88,7 +98,7 @@ async function loadAll() {
     await board.refresh()
     if (!board.polling()) board.start()
     await nextTick()
-    renderCurve()
+    syncCurve()
   } catch (failure) {
     errorMessage.value = failure?.message || '加载训练任务失败'
   } finally {
@@ -118,13 +128,18 @@ const liveLabel = computed(() => ({
   unavailable: '实时推送不可用，使用 4 秒轮询', closed: '推送已关闭'
 }[liveStatus.value] || liveStatus.value))
 
+const summarizeHistoryCount = (task) => (task?.metrics?.history || []).length
+const resizeCurve = () => curveChart.value?.resize()
 const refresh = () => loadAll()
-const selectTask = (id) => { selectedId.value = id }
+const selectTask = (id) => { selectedId.value = selectedId.value === id ? null : id }
 loadAll()
+onMounted(() => window.addEventListener('resize', resizeCurve))
 onUnmounted(() => {
   board.dispose()
   events.close()
   curveChart.value?.dispose()
+  curveChart.value = null
+  window.removeEventListener('resize', resizeCurve)
 })
 </script>
 
@@ -180,22 +195,35 @@ onUnmounted(() => {
         <table>
           <thead><tr><th>任务</th><th>状态</th><th>参数</th><th>产物</th><th>指标</th><th></th></tr></thead>
           <tbody>
-            <tr v-for="task in tasks" :key="task.id" :class="{ selected: task.id === selectedTask?.id }">
-              <td>#{{ task.id }}<small class="cell-detail">{{ summarizeTask(task).attemptLabel }} · {{ summarizeTask(task).durationLabel }}</small></td>
-              <td>
-                {{ summarizeTask(task).statusLabel }}
-                <small v-if="summarizeTask(task).errorLabel" class="cell-detail">{{ summarizeTask(task).errorLabel }}</small>
-              </td>
-              <td>{{ summarizeTask(task).paramsLabel }}<small class="cell-detail">微调自 {{ task.initFrom || '从零训练' }}</small></td>
-              <td>{{ summarizeTask(task).versionLabel }}<small class="cell-detail">{{ summarizeTask(task).digestLabel }}</small></td>
-              <td>{{ summarizeTask(task).metricsLabel }}</td>
-              <td><button type="button" class="link" @click="selectTask(task.id)">曲线</button></td>
-            </tr>
+            <template v-for="task in tasks" :key="task.id">
+              <tr :class="{ selected: task.id === selectedId }">
+                <td>#{{ task.id }}<small class="cell-detail">{{ summarizeTask(task).attemptLabel }} · {{ summarizeTask(task).durationLabel }}</small></td>
+                <td>
+                  {{ summarizeTask(task).statusLabel }}
+                  <small v-if="summarizeTask(task).errorLabel" class="cell-detail">{{ summarizeTask(task).errorLabel }}</small>
+                </td>
+                <td>{{ summarizeTask(task).paramsLabel }}<small class="cell-detail">微调自 {{ task.initFrom || '从零训练' }}</small></td>
+                <td>{{ summarizeTask(task).versionLabel }}<small class="cell-detail">{{ summarizeTask(task).digestLabel }}</small></td>
+                <td>{{ summarizeTask(task).metricsLabel }}</td>
+                <td>
+                  <button type="button" class="link" @click="selectTask(task.id)">
+                    {{ task.id === selectedId ? '收起' : '曲线' }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="task.id === selectedId" class="curve-row">
+                <td colspan="6">
+                  <div ref="curveHost" class="chart" style="height: 320px"></div>
+                  <p v-if="!summarizeHistoryCount(task)" class="muted" style="text-align: center; margin: 0">
+                    该任务还没有逐轮指标{{ task.status === 'QUEUED' ? '（排队中）' : '' }}。
+                  </p>
+                </td>
+              </tr>
+            </template>
             <tr v-if="!tasks.length"><td colspan="6">还没有训练任务</td></tr>
           </tbody>
         </table>
       </div>
-      <div ref="curveEl" class="chart" style="height: 320px; margin-top: 12px"></div>
     </section>
   </div>
 </template>
