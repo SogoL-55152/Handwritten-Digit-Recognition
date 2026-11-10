@@ -40,11 +40,12 @@ public class TrainingService {
     private final ModelAdminService models;
     private final CatalogueService catalogue;
     private final ObjectMapper mapper;
+    private final TrainingEventBus events;
 
     public TrainingService(JdbcTemplate jdbc, ModelClient client, ModelAdminService models,
-                           CatalogueService catalogue, ObjectMapper mapper) {
+                           CatalogueService catalogue, ObjectMapper mapper, TrainingEventBus events) {
         this.jdbc = jdbc; this.client = client; this.models = models; this.catalogue = catalogue;
-        this.mapper = mapper;
+        this.mapper = mapper; this.events = events;
     }
 
     @Transactional
@@ -90,7 +91,9 @@ public class TrainingService {
                     """, taskId);
             throw error;
         }
-        return view(taskId);
+        TaskView created = view(taskId);
+        events.publish(created);
+        return created;
     }
 
     /** Python 回调：推进状态并（成功时）登记模型。回调只能前进，不能把已成功改回运行。 */
@@ -104,10 +107,13 @@ public class TrainingService {
         if ("RUNNING".equals(row.status()) && attempt < row.attempt())
             throw new V2Exception(409, "回调 attempt 回退", "TASK_STALE_ATTEMPT");
         switch (state) {
-            case "RUNNING" -> jdbc.update("""
-                    UPDATE t_v2_training_task SET status='RUNNING', attempt=GREATEST(attempt,?),
-                        started_at=COALESCE(started_at, UTC_TIMESTAMP()) WHERE id=?
-                    """, attempt, taskId);
+            case "RUNNING" -> {
+                jdbc.update("""
+                        UPDATE t_v2_training_task SET status='RUNNING', attempt=GREATEST(attempt,?),
+                            started_at=COALESCE(started_at, UTC_TIMESTAMP()) WHERE id=?
+                        """, attempt, taskId);
+                recordEpoch(taskId, attempt, rest.get("metrics"));
+            }
             case "FAILED" -> jdbc.update("""
                     UPDATE t_v2_training_task SET status='FAILED', attempt=?, error_category=?, error_message=?,
                         finished_at=UTC_TIMESTAMP() WHERE id=?
@@ -129,7 +135,23 @@ public class TrainingService {
             }
             default -> throw new V2Exception(400, "回调状态无效", "VALIDATION");
         }
-        return view(taskId);
+        TaskView updated = view(taskId);
+        events.publish(updated);
+        return updated;
+    }
+
+    /** 单轮实时指标：Python 每跑完一轮就回调一次，写库并推给前端画曲线。 */
+    private void recordEpoch(long taskId, int attempt, Object metrics) {
+        if (!(metrics instanceof Map<?, ?> map)) return;
+        if (!(map.get("epoch") instanceof Number epochNumber)) return;
+        int epoch = epochNumber.intValue();
+        if (epoch < 1 || epoch > 99) return;
+        jdbc.update("""
+                INSERT INTO t_v2_training_metric(task_id,attempt,epoch,loss,raw_mnist,canvas_simulated,photo_simulated)
+                VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE loss=VALUES(loss), raw_mnist=VALUES(raw_mnist),
+                    canvas_simulated=VALUES(canvas_simulated), photo_simulated=VALUES(photo_simulated)
+                """, taskId, attempt, epoch, number(map.get("loss")), number(map.get("raw_mnist")),
+                number(map.get("canvas_simulated")), number(map.get("photo_simulated")));
     }
 
     /** 用 W3 的登记接口把关：摘要必须与注册表一致，落库为 INACTIVE，激活仍是管理员动作。 */
@@ -192,6 +214,8 @@ public class TrainingService {
         if (row.metrics() != null && !row.metrics().isBlank()) {
             try { metrics = mapper.readTree(row.metrics()); } catch (Exception ignored) { /* 历史脏数据不影响列表 */ }
         }
+        if (metrics == null && ("RUNNING".equals(row.status()) || "FAILED".equals(row.status())))
+            metrics = runningMetrics(row.id(), row.attempt());
         return new TaskView(row.id(), row.status(), row.attempt(), row.celeryTaskId(), row.epochs(), row.samples(),
                 row.batchSize(), row.learningRate(), row.seed(), row.photoRatio(), row.useEmnist(),
                 row.initFrom(), row.targetModelId(), row.modelVersion(), row.artifact(), row.sha256(), row.sizeBytes(),
@@ -250,6 +274,28 @@ public class TrainingService {
 
     private static Double number(Object value) {
         return value instanceof Number n ? n.doubleValue() : null;
+    }
+
+    /** 运行中的任务还没有最终指标，用逐轮表拼出曲线，前端才能实时画。 */
+    private JsonNode runningMetrics(String taskId, int attempt) {
+        var history = mapper.createArrayNode();
+        jdbc.query("""
+                SELECT epoch,loss,raw_mnist,canvas_simulated,photo_simulated FROM t_v2_training_metric
+                WHERE task_id=? AND attempt=? ORDER BY epoch
+                """, (rs, index) -> {
+            var item = mapper.createObjectNode();
+            item.put("epoch", rs.getInt("epoch"));
+            item.put("loss", rs.getDouble("loss"));
+            item.put("raw_mnist", rs.getDouble("raw_mnist"));
+            item.put("canvas_simulated", rs.getDouble("canvas_simulated"));
+            item.put("photo_simulated", rs.getDouble("photo_simulated"));
+            history.add(item);
+            return index;
+        }, Long.parseLong(taskId), attempt);
+        if (history.isEmpty()) return null;
+        var root = mapper.createObjectNode();
+        root.set("history", history);
+        return root;
     }
 
     private record TaskRow(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,

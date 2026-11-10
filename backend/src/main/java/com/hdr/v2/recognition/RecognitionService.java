@@ -65,7 +65,10 @@ public class RecognitionService {
             return get(wid,uid,id);
         } catch(RuntimeException error) {
             if(id!=0) {
-                try { jdbc.update("UPDATE t_recognition_v2 SET status='FAILED' WHERE id=? AND status='PROCESSING'",id); }
+                // 记下失败原因（拒识 vs 服务失败），否则统计只能混成一个 FAILED。
+                String code = error instanceof V2Exception v2 ? v2.getCategory() : null;
+                String failureCode = code == null ? null : code.substring(0, Math.min(32, code.length()));
+                try { jdbc.update("UPDATE t_recognition_v2 SET status='FAILED', failure_code=? WHERE id=? AND status='PROCESSING'",failureCode,id); }
                 catch(RuntimeException ignored) { /* Remains unknown; never automatically replay the model request. */ }
             }
             throw error;

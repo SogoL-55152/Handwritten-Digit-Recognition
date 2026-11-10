@@ -23,6 +23,12 @@ public class V2AuthInterceptor implements HandlerInterceptor {
                 ("/api/v2/auth/login".equals(path) || "/api/v2/auth/register".equals(path)))) {
             return true;
         }
+        // EventSource 无法带 Authorization 头：允许携带单次票据的 SSE 订阅，
+        // 票据由训练事件接口自己消费校验（一次性、120 秒过期）。
+        if ("GET".equals(request.getMethod()) && "/api/v2/admin/training/tasks/events".equals(path)) {
+            String ticket = request.getParameter("ticket");
+            if (ticket != null && !ticket.isBlank()) return true;
+        }
         String header = request.getHeader("Authorization");
         if (header == null || !header.startsWith("Bearer ") || header.length() > 4096) {
             throw new V2Exception(401, "未登录或登录已过期");

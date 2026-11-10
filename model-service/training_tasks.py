@@ -129,9 +129,14 @@ def train_one(task_id, attempt, params):
     attempt_dir = root / f"a{attempt}"
     if attempt_dir.exists():
         shutil.rmtree(attempt_dir)
+    def report_epoch(epoch_metrics):
+        # 每轮实时回写：Java 落库并通过 SSE 推给前端画曲线。
+        notify(task_id, {"state": "RUNNING", "attempt": attempt, "metrics": epoch_metrics})
+
     metrics = run(config, data_root(), attempt_dir, init=_resolve_init(params.get("initFrom")),
                   threads=int(os.getenv("TRAINING_THREADS", "2")),
-                  emnist_zip=emnist_zip() if params.get("useEmnist") else None)
+                  emnist_zip=emnist_zip() if params.get("useEmnist") else None,
+                  on_epoch=report_epoch)
     stable = root / "checkpoint.pt"
     shutil.copyfile(attempt_dir / "checkpoint.pt", stable)
     sha256, size_bytes = _digest(stable)

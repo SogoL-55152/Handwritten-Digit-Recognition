@@ -25,11 +25,12 @@ class TrainingControllerTest {
     private static final String PATH = "/api/v2/admin/training/tasks";
     private final V2AuthService auth = mock(V2AuthService.class);
     private final TrainingService service = mock(TrainingService.class);
+    private final TrainingEventBus events = mock(TrainingEventBus.class);
     private MockMvc mvc;
 
     @BeforeEach
     void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new TrainingController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new TrainingController(service, events))
                 .setControllerAdvice(new V2ExceptionHandler())
                 .addInterceptors(new V2AuthInterceptor(auth)).build();
     }

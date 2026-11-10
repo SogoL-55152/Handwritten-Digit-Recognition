@@ -7,3 +7,6 @@ export const listTasks = (authSession, limit = 20) => request.get(base, { authSe
 export const getTask = (id, authSession) => request.get(`${base}/${encodeURIComponent(id)}`, { authSession, silent: true })
 export const createTask = (datasetId, payload, authSession) =>
   request.post(`${base}?datasetId=${encodeURIComponent(datasetId)}`, payload, { authSession, silent: true })
+
+export const eventsTicket = (authSession) =>
+  request.post('/admin/training/tasks/events/ticket', {}, { authSession, silent: true })

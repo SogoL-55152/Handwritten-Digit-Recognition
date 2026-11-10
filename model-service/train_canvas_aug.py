@@ -200,7 +200,9 @@ def accuracy(model, torch, inputs: np.ndarray, labels: np.ndarray) -> float:
 
 
 def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | None,
-        threads: int | None = None, emnist_zip: Path | None = None) -> dict:
+        threads: int | None = None, emnist_zip: Path | None = None,
+        on_epoch: "callable | None" = None) -> dict:
+    """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
     from services.mnist_training import load_checkpoint
@@ -272,6 +274,11 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
             metrics["emnist_canvas_simulated_1000"] = accuracy(model, torch, emnist_inputs, emnist_test[1])
         history.append(metrics)
         print(json.dumps(metrics), flush=True)
+        if on_epoch is not None:
+            try:
+                on_epoch(dict(metrics))
+            except Exception:  # noqa: BLE001 - 上报失败不能中断训练
+                pass
 
     output_dir.mkdir(parents=True)
     torch.save({

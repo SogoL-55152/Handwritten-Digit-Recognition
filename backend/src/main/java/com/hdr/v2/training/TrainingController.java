@@ -1,6 +1,8 @@
 package com.hdr.v2.training;
 
 import com.hdr.common.Result;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.hdr.v2.V2Exception;
 import com.hdr.v2.auth.V2Principal;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,8 +17,12 @@ import java.util.Map;
 public class TrainingController {
     private static final int MAX_LIMIT = 50;
     private final TrainingService service;
+    private final TrainingEventBus events;
 
-    public TrainingController(TrainingService service) { this.service = service; }
+    public TrainingController(TrainingService service, TrainingEventBus events) {
+        this.service = service;
+        this.events = events;
+    }
 
     @GetMapping
     public Result<List<TrainingService.TaskView>> list(@RequestParam(defaultValue = "20") int limit,
@@ -44,6 +50,19 @@ public class TrainingController {
     public Result<List<Map<String, Object>>> datasets(HttpServletRequest request) {
         requireOperator(request);
         return Result.ok(service.datasets());
+    }
+
+    /** 事件流不能带 Authorization 头，先换一张单次票据。 */
+    @PostMapping("/events/ticket")
+    public Result<Map<String, Object>> ticket(HttpServletRequest request) {
+        requireOperator(request);
+        String ticket = events.issueTicket(V2Principal.require(request).userId());
+        return Result.ok(Map.of("ticket", ticket, "expiresInSeconds", 120));
+    }
+
+    @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter events(@RequestParam(required = false) String ticket) {
+        return events.subscribe(events.consumeTicket(ticket));
     }
 
     private void requireOperator(HttpServletRequest request) {
