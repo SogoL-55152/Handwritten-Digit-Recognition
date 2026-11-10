@@ -1,18 +1,12 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
-import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import * as api from '@/api/training.js'
 import { listModels } from '@/api/models.js'
 import { useUserStore } from '@/stores/user.js'
 import { validateTraining, validateDataset, toCreatePayload } from '@/training/validation.js'
 import { createTrainingBoard, isActiveTask, summarizeTask } from '@/training/board.js'
 import { createTrainingEvents } from '@/training/events.js'
-import { trainingCurveOption } from '@/statistics/chart.js'
-
-echarts.use([LineChart, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer])
+import TrainingCurve from '@/training/TrainingCurve.vue'
 
 const user = useUserStore()
 const form = reactive({
@@ -29,8 +23,6 @@ const notice = ref('')
 const errorMessage = ref('')
 const liveStatus = ref('connecting')
 const selectedId = ref(null)
-const curveHost = ref(null)
-const curveChart = shallowRef(null)
 
 const board = createTrainingBoard({
   api,
@@ -58,24 +50,6 @@ function mergeTask(incoming) {
 const selectedTask = computed(() => tasks.value.find((task) => task.id === selectedId.value) || null)
 const selectedHistory = computed(() => selectedTask.value?.metrics?.history || [])
 
-/** 展开行的图表宿主：选中行出现/消失时由模板重新绑定，所以实例要重建。 */
-function syncCurve() {
-  const host = curveHost.value
-  if (!host) {
-    curveChart.value?.dispose()
-    curveChart.value = null
-    return
-  }
-  if (!curveChart.value || curveChart.value.getDom() !== host) {
-    curveChart.value?.dispose()
-    curveChart.value = echarts.init(host)
-  }
-  curveChart.value.setOption(
-    trainingCurveOption(selectedHistory.value, `任务 #${selectedTask.value?.id ?? '—'} 逐轮指标`), true)
-  curveChart.value.resize()
-}
-
-watch([curveHost, selectedHistory, selectedId], () => nextTick(syncCurve))
 watch(tasks, () => {
   if (selectedId.value !== null && !tasks.value.some((task) => task.id === selectedId.value)) selectedId.value = null
 })
@@ -97,8 +71,6 @@ async function loadAll() {
     }
     await board.refresh()
     if (!board.polling()) board.start()
-    await nextTick()
-    syncCurve()
   } catch (failure) {
     errorMessage.value = failure?.message || '加载训练任务失败'
   } finally {
@@ -128,18 +100,13 @@ const liveLabel = computed(() => ({
   unavailable: '实时推送不可用，使用 4 秒轮询', closed: '推送已关闭'
 }[liveStatus.value] || liveStatus.value))
 
-const summarizeHistoryCount = (task) => (task?.metrics?.history || []).length
-const resizeCurve = () => curveChart.value?.resize()
+const historyOf = (task) => task?.metrics?.history
 const refresh = () => loadAll()
 const selectTask = (id) => { selectedId.value = selectedId.value === id ? null : id }
 loadAll()
-onMounted(() => window.addEventListener('resize', resizeCurve))
 onUnmounted(() => {
   board.dispose()
   events.close()
-  curveChart.value?.dispose()
-  curveChart.value = null
-  window.removeEventListener('resize', resizeCurve)
 })
 </script>
 
@@ -213,10 +180,7 @@ onUnmounted(() => {
               </tr>
               <tr v-if="task.id === selectedId" class="curve-row">
                 <td colspan="6">
-                  <div ref="curveHost" class="chart" style="height: 320px"></div>
-                  <p v-if="!summarizeHistoryCount(task)" class="muted" style="text-align: center; margin: 0">
-                    该任务还没有逐轮指标{{ task.status === 'QUEUED' ? '（排队中）' : '' }}。
-                  </p>
+                  <TrainingCurve :task-id="task.id" :history="historyOf(task)" />
                 </td>
               </tr>
             </template>
