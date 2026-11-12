@@ -13,7 +13,8 @@ from services.inference import ModelUnavailable
 from services.inference_policy import UncertainPrediction
 from services.inference_registry import MAX_REGISTRY_BYTES, RegistryInvalid
 from services.inference_manifest import IMAGE_MAX_BYTES, REQUEST_MAX_BYTES
-from services.inference_preprocess import InvalidImage, preprocess_image
+from services.inference_preprocess import InvalidImage, gray_from_payload, preprocess_image
+from services.multidigit import normalize_segment, segments_of, top_guesses
 
 bp = Blueprint("internal_v2", __name__)
 FIELDS = frozenset(("workspaceId", "requestId", "modelId", "modelVersion", "preprocessVersion"))
@@ -48,7 +49,8 @@ def authenticate_internal():
         return error_response(401, "内部认证失败", "UNAUTHORIZED")
     request.max_content_length = max(REQUEST_MAX_BYTES, MAX_REGISTRY_BYTES)
     request.max_form_memory_size = 128 * 1024
-    request.max_form_parts = 6
+    # 表单字段本身也占 part 数：单字请求是 5 字段 + 1 文件 = 6，留出余量给后续字段。
+    request.max_form_parts = 8
     return None
 
 
@@ -89,12 +91,13 @@ def reload_models():
         return error_response(503, f"模型注册表不可用：{exc}", "REGISTRY_INVALID")
 
 
-def _validate_form():
+def _validate_form(allow_args=()):
     if request.mimetype != "multipart/form-data":
         return error_response(415, "请使用 multipart/form-data", "UNSUPPORTED_MEDIA_TYPE")
     if (set(request.form) != FIELDS or set(request.files) != {"image"}
             or any(len(request.form.getlist(key)) != 1 for key in FIELDS)
-            or len(request.files.getlist("image")) != 1 or request.args):
+            or len(request.files.getlist("image")) != 1
+            or set(request.args) - set(allow_args)):
         return error_response(400, "表单字段必须唯一且与内部接口约定一致", "INVALID_REQUEST")
     workspace_id = request.form["workspaceId"]
     request_id = request.form["requestId"]
@@ -196,6 +199,68 @@ def predict():
             service.slots.release()
     except UncertainPrediction as exc:
         return error_response(422, str(exc), "UNRECOGNIZED_INPUT")
+    except InvalidImage as exc:
+        return error_response(exc.status, str(exc), exc.category)
+    except ImportError:
+        return error_response(503, "推理依赖不可用", "MODEL_UNAVAILABLE")
+    except ModelUnavailable as exc:
+        return error_response(503, str(exc), "MODEL_UNAVAILABLE")
+
+@bp.post("/predict/multi")
+def predict_multi():
+    """多位数字预览：切分后逐字识别。是否落库、是否计入统计由调用方决定。"""
+    started = time.perf_counter()
+    try:
+        invalid = _validate_form(allow_args=("maxDigits",))
+        if invalid is not None:
+            return invalid
+        try:
+            max_digits = int(request.args.get("maxDigits", "3"))
+        except (TypeError, ValueError):
+            return error_response(400, "maxDigits 必须是 1–4", "VALIDATION")
+        if max_digits not in (1, 2, 3, 4):
+            return error_response(400, "maxDigits 必须是 1–4", "VALIDATION")
+        try:
+            service = registry().service(request.form["modelId"], request.form["modelVersion"],
+                                         request.form["preprocessVersion"])
+        except LookupError:
+            return error_response(400, "只允许使用已注册且预处理版本匹配的模型", "MODEL_NOT_ALLOWED")
+        if service is None or not service.slots.acquire(blocking=False):
+            return error_response(429, "推理并发已满，请稍后以新请求重试", "MODEL_BUSY", retry_after=1)
+        try:
+            image = request.files["image"]
+            payload = image.stream.read(IMAGE_MAX_BYTES + 1)
+            gray = gray_from_payload(payload, image.mimetype)
+            try:
+                segments, ink, mask = segments_of(gray)
+            except ValueError:
+                return error_response(400, "请先书写数字，不能识别空白图片", "BLANK_IMAGE")
+            if len(segments) > max_digits:
+                return error_response(422, "检测到超过 %d 位数字，请减少一位后重试" % max_digits, "DIGIT_LIMIT")
+            digits = []
+            for segment in segments:
+                normalized = normalize_segment(mask, ink, segment)
+                if normalized is None:
+                    continue
+                digit, confidence, margin = top_guesses(service.probabilities(normalized))
+                digits.append({"digit": digit, "confidence": round(confidence, 6), "margin": round(margin, 6),
+                               "left": segment.left, "right": segment.right})
+            if not digits:
+                return error_response(400, "请先书写数字，不能识别空白图片", "BLANK_IMAGE")
+            accepted = all(item["confidence"] >= 0.90 and item["margin"] >= 0.85 for item in digits)
+            return jsonify({
+                "code": 0, "message": "ok", "data": {
+                    "requestId": request.form["requestId"],
+                    "text": "".join(str(item["digit"]) for item in digits),
+                    "digits": digits,
+                    "accepted": accepted,
+                    "maxDigits": max_digits,
+                    **service.artifact.identity(),
+                    "processingMs": max(0, round((time.perf_counter() - started) * 1000)),
+                },
+            })
+        finally:
+            service.slots.release()
     except InvalidImage as exc:
         return error_response(exc.status, str(exc), exc.category)
     except ImportError:

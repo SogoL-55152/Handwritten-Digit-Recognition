@@ -268,7 +268,7 @@ async function renderTemplate(file, state) {
 test('production result template collapses technical details only in pilot and keeps digit, confidence and time visible', async () => {
   const state = { loading: false, error: '', hasInk: true, result: { digit: 7, confidence: 0.97, processingMs: 18,
     modelId: '1', modelVersion: 'real-version', preprocessVersion: 'real-preprocessing', source: 'WEB', recognitionId: 'r1', requestId: 'request1', createdAt: '2026-11-04' } }
-  const renderState = { state, boardError: '', canSubmit: true, canvas: null, board: null, controller: {} }
+  const renderState = { state, boardError: '', canSubmit: true, canvas: null, board: null, controller: {}, multi: { enabled: false, maxDigits: 3, loading: false, result: null, error: '' }, MAX_DIGITS_OPTIONS: [1, 2, 3, 4], multiReady: false, submitPrimary: () => {}, consentGiven: false, setConsent: () => {}, feedback: { submitting: false, message: '', error: '', sentFor: null, wrongOpen: false }, feedbackErrors: {}, feedbackDone: true, FEEDBACK_LABELS: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], confirmCorrect: () => {}, pickCorrect: () => {}, sendFeedback: () => {}, skipFeedback: () => {} }
   const pilot = await renderTemplate('views/Recognize.vue', { ...renderState, pilot: true })
   const development = await renderTemplate('views/Recognize.vue', { ...renderState, pilot: false })
   const visible = pilot.replace(/<details\b[\s\S]*?<\/details>/g, '')

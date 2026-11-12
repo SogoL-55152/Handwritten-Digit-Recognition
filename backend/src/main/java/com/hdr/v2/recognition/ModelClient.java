@@ -136,6 +136,51 @@ public class ModelClient {
         }
     }
 
+    public record MultiDigit(int digit, double confidence, double margin, int left, int right) {}
+    public record MultiPrediction(String text, java.util.List<MultiDigit> digits, boolean accepted, int maxDigits) {}
+
+    /** 多位数字预览：切分与逐字推理都在模型服务内完成；不写数据库由调用方决定。 */
+    public MultiPrediction predictMulti(long workspaceId, String requestId, CatalogueService.Model model,
+                                        ImageValidator.Image image, int maxDigits) {
+        requireConfigured();
+        if(model.sha256()==null || model.sha256().isBlank() || model.artifact()==null || model.artifact().isBlank())
+            throw new V2Exception(503,"当前模型缺少可信文件信息","MODEL_UNAVAILABLE");
+        var body=new LinkedMultiValueMap<String,Object>();
+        var headers=new HttpHeaders(); headers.setContentType(MediaType.parseMediaType(image.contentType()));
+        body.add("image",new HttpEntity<>(new ByteArrayResource(image.bytes()) {
+            @Override public String getFilename() { return "drawing"; }
+        },headers));
+        body.add("workspaceId",Long.toString(workspaceId)); body.add("requestId",requestId);
+        body.add("modelId",model.externalId()); body.add("modelVersion",model.version());
+        body.add("preprocessVersion",model.preprocessVersion());
+        // 位数走查询参数：multipart 的 part 数有上限（字段也占 part），不再往表单里加字段。
+        try {
+            JsonNode data=client.post().uri("/internal/v2/predict/multi?maxDigits="+maxDigits).header("X-HDR-Internal-Token",internalToken)
+                    .contentType(MediaType.MULTIPART_FORM_DATA).body(body).exchange((request,response)->read(response));
+            String text=data.path("text").asText("");
+            if(!requestId.equals(data.path("requestId").asText()) || !model.version().equals(data.path("modelVersion").asText())
+                    || !data.path("digits").isArray() || text.isBlank() || text.length()>maxDigits
+                    || !text.matches("[0-9]+") || data.path("digits").size()!=text.length()
+                    || !data.path("accepted").isBoolean()) throw invalidResponse();
+            var digits=new java.util.ArrayList<MultiDigit>();
+            for(JsonNode item:data.path("digits")) {
+                if(!item.path("digit").isIntegralNumber() || !item.path("confidence").isNumber()
+                        || !item.path("margin").isNumber()) throw invalidResponse();
+                int digit=item.path("digit").asInt(-1);
+                double confidence=item.path("confidence").asDouble(Double.NaN);
+                double margin=item.path("margin").asDouble(Double.NaN);
+                if(digit<0 || digit>9 || !Double.isFinite(confidence) || confidence<0 || confidence>1) throw invalidResponse();
+                digits.add(new MultiDigit(digit,confidence,Double.isFinite(margin)?margin:0,
+                        item.path("left").asInt(0),item.path("right").asInt(0)));
+            }
+            return new MultiPrediction(text,java.util.List.copyOf(digits),data.path("accepted").asBoolean(),maxDigits);
+        } catch(V2Exception error) { throw error; }
+        catch(Exception error) {
+            LOG.warn("Multi-digit prediction transport failed ({})",error.getClass().getSimpleName());
+            throw new V2Exception(502,"模型调用失败或超时，请使用新的请求重试","MODEL_UNAVAILABLE");
+        }
+    }
+
     private V2Exception unavailable() { return new V2Exception(502,"模型注册表暂时不可用，请稍后重试","MODEL_UNAVAILABLE"); }
 
     private JsonNode read(org.springframework.http.client.ClientHttpResponse response) throws IOException {
@@ -151,8 +196,12 @@ public class ModelClient {
             try { rejected=mapper.readTree(bytes); }
             catch(IOException invalid) { throw invalidResponse(); }
             if(rejected==null || !rejected.path("code").isIntegralNumber() || !rejected.path("code").canConvertToInt()
-                    || rejected.path("code").intValue()!=422 || !rejected.path("data").isObject()
-                    || !"UNRECOGNIZED_INPUT".equals(rejected.path("data").path("category").asText())) throw invalidResponse();
+                    || rejected.path("code").intValue()!=422 || !rejected.path("data").isObject()) throw invalidResponse();
+            String category=rejected.path("data").path("category").asText();
+            // UNRECOGNIZED_INPUT：单字拒识；DIGIT_LIMIT：多位数超过上限（只有多位数预览会返回）。
+            if("DIGIT_LIMIT".equals(category))
+                throw new V2Exception(422,rejected.path("message").asText("检测到超过位数上限，请减少一位后重试"),"DIGIT_LIMIT");
+            if(!"UNRECOGNIZED_INPUT".equals(category)) throw invalidResponse();
             throw new V2Exception(422,"无法可靠识别该输入，请清空后重新书写单个数字。","UNRECOGNIZED_INPUT");
         }
         if(status==429) throw new V2Exception(429,"模型服务正忙，请稍后发起新的识别","MODEL_BUSY",1);

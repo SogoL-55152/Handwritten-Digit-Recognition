@@ -122,6 +122,36 @@ def canvas_input(gray):
     return np.ascontiguousarray(((values - BASELINE.mean) / BASELINE.std)[None, :, :])
 
 
+def gray_from_payload(payload, content_type):
+    """上传字节 → 灰度 numpy 数组（含 EXIF 方向校正与白底合成）。多位切分也走这里。"""
+    import numpy as np
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    if not payload:
+        raise InvalidImage("图片不能为空")
+    if len(payload) > IMAGE_MAX_BYTES:
+        raise InvalidImage("图片超过 5 MiB", 413, "IMAGE_TOO_LARGE")
+    if content_type not in ("image/png", "image/jpeg"):
+        raise InvalidImage("只接受 PNG/JPEG", 415, "UNSUPPORTED_IMAGE")
+    try:
+        with Image.open(BytesIO(payload), formats=("PNG", "JPEG")) as image:
+            _check_header(image, content_type)
+            image.verify()
+        with Image.open(BytesIO(payload), formats=("PNG", "JPEG")) as image:
+            _check_header(image, content_type)
+            image.load()
+            oriented = ImageOps.exif_transpose(image)
+            rgba = oriented.convert("RGBA")
+            white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            return np.asarray(Image.alpha_composite(white, rgba).convert("L"))
+    except InvalidImage:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise InvalidImage("图片尺寸超过限制", 413, "IMAGE_TOO_LARGE") from exc
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, EOFError) as exc:
+        raise InvalidImage("图片损坏或格式不受支持") from exc
+
+
 def preprocess_image(payload, content_type):
     if not payload:
         raise InvalidImage("图片不能为空")

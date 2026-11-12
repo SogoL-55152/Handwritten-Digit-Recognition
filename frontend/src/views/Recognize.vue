@@ -8,6 +8,8 @@ import { createRecognitionController } from '@/recognition/controller.js'
 import { prepareImage } from '@/recognition/image-import.js'
 import { appConfig } from '@/app-config.js'
 import { submitSample } from '@/api/collected.js'
+import { previewMulti } from '@/api/multi.js'
+import { MAX_DIGITS_OPTIONS, buildMultiForm, multiSummary } from '@/recognition/multi.js'
 import { FEEDBACK_LABELS, buildFeedbackForm, feedbackMessage, validateFeedback } from '@/recognition/feedback.js'
 const pilot = appConfig.pilot
 
@@ -19,6 +21,41 @@ let board, observer
 const controller = createRecognitionController({ session: user, workspace, exportPng: () => board.exportPng(), prepareImage, send: recognize, reactive })
 const state = controller.state
 const canSubmit = computed(() => (state.inputKind === 'image' || !boardError.value) && controller.canSubmit())
+
+const multi = reactive({ enabled: false, maxDigits: 3, loading: false, result: null, error: '' })
+
+async function submitMulti() {
+  if (multi.loading) return
+  if (state.inputKind !== 'drawing') {
+    multi.error = '多位数预览目前只支持画板书写。'
+    return
+  }
+  if (!state.hasInk || state.drawing) {
+    multi.error = '请先在画板写好数字，抬起指针后再提交。'
+    return
+  }
+  multi.loading = true
+  multi.error = ''
+  try {
+    const image = await board.exportPng()
+    const response = await previewMulti(workspace.getSnapshot(), buildMultiForm(image, multi.maxDigits))
+    const summary = multiSummary(response)
+    if (!summary.valid) throw new Error('多位数接口返回了无法解析的结果')
+    multi.result = { ...summary, modelVersion: response.modelVersion, requestId: response.requestId }
+  } catch (error) {
+    multi.error = error?.message || '多位数识别失败，请稍后重试'
+    multi.result = null
+  } finally {
+    multi.loading = false
+  }
+}
+
+function submitPrimary() {
+  if (multi.enabled) return submitMulti()
+  return controller.submit()
+}
+
+const multiReady = computed(() => state.inputKind === 'drawing' && state.hasInk && !state.drawing && !multi.loading)
 
 const CONSENT_KEY = 'hdr.consent.v1'
 const consentGiven = ref(localStorage.getItem(CONSENT_KEY) === '1')
@@ -130,10 +167,18 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         <p class="muted">仅处理你明确选择的这一张图片，不扫描或批量读取相册。预览只在本地；点击“识别图片”才上传原始文件，不压缩或重新编码。</p>
       </div>
       <div class="actions">
-        <button data-testid="recognition-submit" class="primary" :disabled="!canSubmit" @click="controller.submit()">{{ state.loading ? '识别中…' : state.inputKind === 'image' ? '识别图片' : '识别数字' }}</button>
+        <button data-testid="recognition-submit" class="primary" :disabled="multi.enabled ? !multiReady : !canSubmit" @click="submitPrimary()">{{ multi.enabled ? (multi.loading ? '识别中…' : '识别多位数字') : (state.loading ? '识别中…' : state.inputKind === 'image' ? '识别图片' : '识别数字') }}</button>
         <button v-if="state.inputKind === 'image'" data-testid="image-remove" :disabled="!state.image && !state.validating" @click="controller.removeImage()">移除图片</button>
         <button v-else @click="board?.clear()">清空画板</button>
       </div>
+      <label class="consent-row multi-toggle">
+        <input type="checkbox" v-model="multi.enabled" :disabled="state.inputKind === 'image'" />
+        <span>多位数（预览）：先在画板上写 1–4 个数字，再点识别</span>
+        <select v-model.number="multi.maxDigits" :disabled="!multi.enabled" aria-label="最多几位">
+          <option v-for="value in MAX_DIGITS_OPTIONS" :key="value" :value="value">最多 {{ value }} 位</option>
+        </select>
+      </label>
+      <p v-if="multi.enabled" class="muted">预览功能：不写数据库、不计入统计，仅用于验证切分与整串效果。</p>
       <label class="consent-row">
         <input type="checkbox" :checked="consentGiven" @change="setConsent($event.target.checked)" />
         <span>同意把识别图片与我的标注用于模型评估与改进（勾选一次后长期有效，可随时取消）</span>
@@ -153,6 +198,16 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         <dl v-else class="details"><dt>置信度</dt><dd>{{ (state.result.confidence * 100).toFixed(2) }}%</dd><dt>模型 ID</dt><dd>{{ state.result.modelId }}</dd><dt>模型版本</dt><dd>{{ state.result.modelVersion }}</dd><dt>预处理版本</dt><dd>{{ state.result.preprocessVersion }}</dd><dt>处理耗时</dt><dd>{{ state.result.processingMs }} ms</dd><dt>来源</dt><dd>{{ state.result.source }}</dd><dt>记录 ID</dt><dd>{{ state.result.recognitionId }}</dd><dt>请求 ID</dt><dd>{{ state.result.requestId }}</dd><dt>记录时间</dt><dd>{{ state.result.createdAt }}</dd></dl>
         <p class="muted">置信度表示本次预测的模型评分，不是线上识别准确率。</p>
       </template>
+      <div v-if="multi.result" class="multi-result" aria-live="polite">
+        <p class="prediction">识别为 <strong data-testid="multi-text">{{ multi.result.text }}</strong></p>
+        <div class="multi-chips">
+          <span v-for="item in multi.result.digits" :key="item.position" class="multi-chip" :class="{ low: item.low }">
+            {{ item.position }}: {{ item.digit }} · {{ item.confidence }}
+          </span>
+        </div>
+        <p class="muted">{{ multi.result.hint }}（模型 {{ multi.result.modelVersion }}）</p>
+      </div>
+      <p v-if="multi.error" class="notice error" role="alert">{{ multi.error }}</p>
       <div v-else class="empty-state"><h3>等待你的第一个数字</h3><p>书写或选择图片后，点击识别按钮。这里仅展示服务器返回的结果，不生成示例预测。</p></div>
       <div v-if="state.submitted && !state.loading" class="feedback-inline" aria-live="polite">
         <template v-if="state.result">
