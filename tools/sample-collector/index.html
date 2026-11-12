@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>手写数字样本采集</title>
+<style>
+  :root { --line: #d7dee7; --ink: #111; --muted: #6b7a8c; --accent: #2459ad; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #1f2a37; background: #f5f7fa; }
+  .wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 13px; }
+  input[type="text"], input[type="number"] { width: 100%; padding: 8px 10px; border: 1px solid #b8c4d1; border-radius: 6px; font: inherit; }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #b8c4d1; background: #fff; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.06); }
+  #pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 12px 0; }
+  #pad button { padding: 10px 0; font-size: 18px; font-weight: 600; position: relative; }
+  #pad button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #pad button .n { position: absolute; right: 5px; top: 2px; font-size: 10px; font-weight: 500; opacity: .65; }
+  #pad button.done .n { color: #1a7f37; opacity: 1; }
+  .canvas-wrap { position: relative; width: 320px; height: 320px; margin: 0 auto; }
+  canvas { width: 320px; height: 320px; background: #fff; border: 1px solid var(--line); border-radius: 10px; touch-action: none; cursor: crosshair; }
+  .hint { text-align: center; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid #eef2f6; text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .totals { font-size: 13px; }
+  .totals b { font-size: 18px; }
+  #selftest { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .warn { color: #87392d; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="panel">
+    <h1>手写数字样本采集</h1>
+    <p class="muted">先选数字 → 在画板写 → 保存（Enter）。每条约 4 秒。数据只留在本机，导出 ZIP 后交给维护者。</p>
+
+    <div class="row" style="margin-top:12px">
+      <label class="field" style="flex:1 1 140px">书写者标识
+        <input id="writer" type="text" maxlength="32" placeholder="例如 m1 / zhang" />
+      </label>
+      <label class="field" style="flex:0 0 100px">每数字目标
+        <input id="target" type="number" min="1" max="200" value="20" />
+      </label>
+    </div>
+    <p class="muted" id="writerHint"></p>
+
+    <div id="pad"></div>
+
+    <div class="canvas-wrap"><canvas id="board" aria-label="手写画板"></canvas></div>
+    <p class="hint muted" id="hint">当前数字：—</p>
+
+    <div class="row" style="justify-content:center; margin-top:10px">
+      <button id="save" class="primary" disabled>保存（Enter）</button>
+      <button id="undo" disabled>撤销一笔</button>
+      <button id="clear" disabled>清空</button>
+    </div>
+
+    <div class="panel" style="margin-top:14px; padding:12px">
+      <div class="totals">已采集 <b id="total">0</b> 条 · 本次会话 <span id="session" class="muted"></span></div>
+      <label class="row" style="margin-top:10px; font-weight:500">
+        <input id="consent" type="checkbox" style="width:16px;height:16px;margin:0" />
+        <span>我同意这些手写样本用于本项目的模型评估与改进</span>
+      </label>
+      <div class="row" style="margin-top:10px">
+        <button id="export" class="primary" disabled>导出 ZIP</button>
+        <button id="reset" disabled>清空全部</button>
+      </div>
+      <p class="muted" id="exportHint">导出包含 PNG + manifest.json + README.txt</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3 style="margin:0 0 8px; font-size:15px">进度</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>数字</th><th>已采集</th><th>目标</th><th>状态</th></tr></thead>
+        <tbody id="progress"></tbody>
+      </table>
+    </div>
+    <h3 style="margin:18px 0 8px; font-size:15px">最近记录</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>数字</th><th>文件</th></tr></thead>
+        <tbody id="recent"><tr><td colspan="3" class="muted">还没有记录</td></tr></tbody>
+      </table>
+    </div>
+    <div id="selftest" style="margin-top:14px"></div>
+  </section>
+</div>
+
+<script>
+//#zip-begin
+function crc32(bytes) {
+  let table = crc32._table;
+  if (!table) {
+    table = crc32._table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[i] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+/** 只做 STORE（不压缩）：PNG 本身已压缩，避免引入第三方库。返回 Blob。 */
+function makeZip(files) {
+  const encoder = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const now = new Date();
+  const time = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF;
+  const date = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF;
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const crc = crc32(file.bytes);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, time, true);
+    lv.setUint16(12, date, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, file.bytes.length, true);
+    lv.setUint32(22, file.bytes.length, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    parts.push(local, file.bytes);
+
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, time, true);
+    cv.setUint16(14, date, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, file.bytes.length, true);
+    cv.setUint32(24, file.bytes.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    central.push(cd);
+    offset += local.length + file.bytes.length;
+  }
+  let centralSize = 0;
+  for (const entry of central) centralSize += entry.length;
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
+}
+
+function dataUrlToBytes(dataUrl) {
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+//#zip-end
+
+(function () {
+  'use strict';
+  const BOARD = 320;                 // 与线上画板一致：逻辑边长
+  const SCALE = 2;                   // 导出分辨率倍数（线宽比例不变）
+  const STROKE_RATIO = 0.055;        // 线上规则：lineWidth = size * 0.055
+  const digits = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+  const board = document.getElementById('board');
+  const ctx = board.getContext('2d');
+  const pad = document.getElementById('pad');
+  const hint = document.getElementById('hint');
+  const progressEl = document.getElementById('progress');
+  const recentEl = document.getElementById('recent');
+  const totalEl = document.getElementById('total');
+  const sessionEl = document.getElementById('session');
+  const writerInput = document.getElementById('writer');
+  const targetInput = document.getElementById('target');
+  const consent = document.getElementById('consent');
+  const saveBtn = document.getElementById('save');
+  const undoBtn = document.getElementById('undo');
+  const clearBtn = document.getElementById('clear');
+  const exportBtn = document.getElementById('export');
+  const resetBtn = document.getElementById('reset');
+  const exportHint = document.getElementById('exportHint');
+  const writerHint = document.getElementById('writerHint');
+  const selftestEl = document.getElementById('selftest');
+
+  const sessionId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  let writerId = localStorage.getItem('hdr.writer') || '';
+  let target = Number(localStorage.getItem('hdr.target')) || 20;
+  let current = null;
+  let strokes = [];
+  let samples = [];
+
+  board.width = BOARD * SCALE;
+  board.height = BOARD * SCALE;
+  ctx.scale(SCALE, SCALE);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#111111';
+  ctx.fillStyle = '#111111';
+  ctx.lineWidth = BOARD * STROKE_RATIO;
+  sessionEl.textContent = sessionId;
+  writerInput.value = writerId;
+  targetInput.value = target;
+
+  function counts() {
+    const map = new Map(digits.map((d) => [d, 0]));
+    for (const sample of samples) map.set(sample.label, (map.get(sample.label) || 0) + 1);
+    return map;
+  }
+
+  function renderPad() {
+    const map = counts();
+    pad.innerHTML = '';
+    for (const digit of digits) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.innerHTML = `${digit}<span class="n">${map.get(digit)}</span>`;
+      if (digit === current) button.classList.add('active');
+      if (map.get(digit) >= target) button.classList.add('done');
+      button.addEventListener('click', () => selectDigit(digit));
+      pad.appendChild(button);
+    }
+    hint.textContent = current === null ? '当前数字：—' : `当前数字：${current}（已写 ${map.get(current)} / ${target}）`;
+    saveBtn.disabled = current === null || strokes.length === 0;
+    undoBtn.disabled = strokes.length === 0;
+    clearBtn.disabled = strokes.length === 0;
+    resetBtn.disabled = samples.length === 0;
+    exportBtn.disabled = samples.length === 0 || !consent.checked;
+  }
+
+  function renderProgress() {
+    const map = counts();
+    progressEl.innerHTML = '';
+    for (const digit of digits) {
+      const have = map.get(digit) || 0;
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${digit}</td><td>${have}</td><td>${target}</td><td>${have >= target ? '✅ 已达标' : '待采集'}</td>`;
+      progressEl.appendChild(row);
+    }
+    totalEl.textContent = String(samples.length);
+  }
+
+  function renderRecent() {
+    if (!samples.length) {
+      recentEl.innerHTML = '<tr><td colspan="3" class="muted">还没有记录</td></tr>';
+      return;
+    }
+    recentEl.innerHTML = '';
+    for (const sample of samples.slice(-8).reverse()) {
+      const row = document.createElement('tr');
+      const time = new Date(sample.createdAt).toLocaleTimeString('zh-CN');
+      row.innerHTML = `<td>${time}</td><td>${sample.label}</td><td class="muted">${sample.file}</td>`;
+      recentEl.appendChild(row);
+    }
+  }
+
+  function paint() {
+    ctx.save();
+    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, BOARD, BOARD);
+    ctx.strokeStyle = '#111111';
+    ctx.fillStyle = '#111111';
+    ctx.lineWidth = BOARD * STROKE_RATIO;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const stroke of strokes) {
+      if (stroke.length === 1) {
+        const point = stroke[0];
+        ctx.beginPath();
+        ctx.arc(point.x * BOARD, point.y * BOARD, ctx.lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(stroke[0].x * BOARD, stroke[0].y * BOARD);
+      for (let i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i].x * BOARD, stroke[i].y * BOARD);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function selectDigit(digit) {
+    current = digit;
+    strokes = [];
+    paint();
+    renderPad();
+  }
+
+  function nextDigit() {
+    const map = counts();
+    for (const digit of digits) if ((map.get(digit) || 0) < target) return digit;
+    return null;
+  }
+
+  function pointOf(event) {
+    const rect = board.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+  }
+
+  let drawing = false;
+  board.addEventListener('pointerdown', (event) => {
+    if (current === null) { writerHint.textContent = '先在左侧选一个数字，再开始写。'; writerHint.className = 'muted warn'; return; }
+    board.setPointerCapture(event.pointerId);
+    drawing = true;
+    const stroke = [pointOf(event)];
+    strokes.push(stroke);
+    paint();
+  });
+  board.addEventListener('pointermove', (event) => {
+    if (!drawing) return;
+    const stroke = strokes[strokes.length - 1];
+    const point = pointOf(event);
+    const last = stroke[stroke.length - 1];
+    if (Math.hypot(point.x - last.x, point.y - last.y) < 0.004) return;
+    stroke.push(point);
+    paint();
+    renderPad();
+  });
+  const finish = () => {
+    if (!drawing) return;
+    drawing = false;
+    renderPad();
+  };
+  board.addEventListener('pointerup', finish);
+  board.addEventListener('pointercancel', finish);
+  board.addEventListener('pointerleave', finish);
+
+  function save() {
+    if (current === null || !strokes.length) return;
+    const index = String(samples.filter((sample) => sample.label === current).length + 1).padStart(3, '0');
+    const id = `${writerId || 'anon'}-${current}-${index}`;
+    const file = `${id}.png`;
+    const dataUrl = board.toDataURL('image/png');
+    samples.push({ id, file, label: current, dataUrl, createdAt: new Date().toISOString(), strokes: strokes.length });
+    const next = nextDigit();
+    if (next === null) { current = null; } else { current = next; }
+    strokes = [];
+    paint();
+    renderPad();
+    renderProgress();
+    renderRecent();
+  }
+
+  saveBtn.addEventListener('click', save);
+  undoBtn.addEventListener('click', () => { strokes.pop(); paint(); renderPad(); });
+  clearBtn.addEventListener('click', () => { strokes = []; paint(); renderPad(); });
+  resetBtn.addEventListener('click', () => {
+    if (!samples.length) return;
+    if (!confirm(`确定清空已采集的 ${samples.length} 条？`)) return;
+    samples = [];
+    renderProgress();
+    renderRecent();
+    renderPad();
+  });
+  consent.addEventListener('change', renderPad);
+
+  writerInput.addEventListener('change', () => {
+    writerId = writerInput.value.trim().slice(0, 32);
+    localStorage.setItem('hdr.writer', writerId);
+    writerHint.textContent = writerId ? '' : '未填写书写者标识时，文件名会用 anon，无法按人分折。';
+    renderPad();
+  });
+  targetInput.addEventListener('change', () => {
+    target = Math.min(200, Math.max(1, Number(targetInput.value) || 20));
+    targetInput.value = target;
+    localStorage.setItem('hdr.target', String(target));
+    renderPad();
+    renderProgress();
+  });
+
+  function buildManifest() {
+    return JSON.stringify({
+      samples: samples.map((sample) => ({
+        id: sample.id,
+        file: sample.file,
+        label: sample.label,
+        origin: 'actual-user-board',
+        writerId: writerId || 'anon',
+        captureSessionId: sessionId,
+        consent: true
+      }))
+    }, null, 1);
+  }
+
+  const README = [
+    '手写数字采集结果',
+    '',
+    '目录内容：',
+    '  *.png         —— 画板原始导出（与线上画板同线宽规则）',
+    '  manifest.json —— 评测脚本 evaluate_samples.py 的输入清单',
+    '  README.txt    —— 本文件',
+    '',
+    '字段说明：',
+    '  origin=actual-user-board 表示真实画板书写；writerId 用于按人分折，禁止同一人既训又测。',
+    '  consent=true 表示书写者同意用于本项目评估与改进。',
+    '',
+    '评测命令（仓库根目录）：',
+    '  python -m model_service.evaluate_samples 或参照 model-service/evaluate_samples.py 的 --manifest 用法',
+    ''
+  ].join('\n');
+
+  exportBtn.addEventListener('click', async () => {
+    if (!samples.length) return;
+    if (!consent.checked) { exportHint.textContent = '请先勾选同意。'; exportHint.className = 'muted warn'; return; }
+    exportBtn.disabled = true;
+    exportHint.textContent = '正在打包…';
+    try {
+      const files = samples.map((sample) => ({ name: sample.file, bytes: dataUrlToBytes(sample.dataUrl) }));
+      files.push({ name: 'manifest.json', bytes: new TextEncoder().encode(buildManifest()) });
+      files.push({ name: 'README.txt', bytes: new TextEncoder().encode(README) });
+      const blob = makeZip(files);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `samples-${writerId || 'anon'}-${sessionId}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      exportHint.textContent = `已导出 ${samples.length} 张 PNG + manifest（${(blob.size / 1024).toFixed(0)} KB）`;
+      exportHint.className = 'muted';
+    } catch (error) {
+      exportHint.textContent = '打包失败：' + error.message;
+      exportHint.className = 'muted warn';
+    } finally {
+      exportBtn.disabled = !samples.length || !consent.checked;
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.target instanceof HTMLInputElement) return;
+    if (/^[0-9]$/.test(event.key)) { selectDigit(Number(event.key)); event.preventDefault(); return; }
+    if (event.key === 'Enter') { save(); event.preventDefault(); return; }
+    if (event.key === 'Backspace') { strokes.pop(); paint(); renderPad(); event.preventDefault(); return; }
+    if (event.key === 'Escape') { strokes = []; paint(); renderPad(); }
+  });
+
+  writerHint.textContent = writerId ? '' : '未填写书写者标识时，文件名会用 anon，无法按人分折。';
+  renderPad();
+  renderProgress();
+  renderRecent();
+
+  // 自检入口：?selftest=1 时合成一条样本并验证 ZIP 可生成（供无头浏览器校验）
+  if (location.search.includes('selftest')) {
+    (async () => {
+      writerId = 'selftest';
+      current = 7;
+      strokes = [[{ x: 0.3, y: 0.2 }, { x: 0.45, y: 0.15 }, { x: 0.5, y: 0.3 }, { x: 0.35, y: 0.55 }, { x: 0.3, y: 0.8 }]];
+      paint();
+      save();
+      const bytes = dataUrlToBytes(samples[0].dataUrl);
+      const blob = makeZip([
+        { name: samples[0].file, bytes },
+        { name: 'manifest.json', bytes: new TextEncoder().encode(buildManifest()) }
+      ]);
+      const buffer = new Uint8Array(await blob.arrayBuffer());
+      const manifest = JSON.parse(buildManifest());
+      const ok = buffer[0] === 0x50 && buffer[1] === 0x4b && manifest.samples.length === 1
+        && manifest.samples[0].label === 7 && manifest.samples[0].consent === true
+        && manifest.samples[0].origin === 'actual-user-board' && bytes[1] === 0x50 && bytes[2] === 0x4e;
+      selftestEl.textContent = JSON.stringify({
+        samples: samples.length, pngBytes: bytes.length, zipBytes: buffer.length,
+        manifestSamples: manifest.samples.length, label: manifest.samples[0].label,
+        writerId: manifest.samples[0].writerId, ok
+      }, null, 1);
+      document.title = ok ? 'SELFTEST_OK' : 'SELFTEST_FAILED';
+    })();
+  }
+})();
+</script>
+</body>
+</html>

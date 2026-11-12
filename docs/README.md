@@ -27,6 +27,8 @@
 | [W4 训练管理设计与交付](W4-训练管理-设计与交付.md) | 训练任务状态机、Celery/Redis 队列四项断言、租约重投与生产层限制 | M1 / M2 / M3 |
 | [W5 训练可视化与统计设计与交付](W5-训练可视化与统计-设计与交付.md) | SSE 实时推送、逐轮曲线、统计口径与实测 13 项断言 | M1 / M2 / M4 |
 
+自采手写样本用 [tools/sample-collector](../tools/sample-collector/README.md)（单文件采集页，导出 ZIP 可直接进评测脚本）。
+
 各模块的操作方法见 [后端 README](../backend/README.md)、[模型服务 README](../model-service/README.md)、[管理端 README](../frontend/README.md)、[小程序 README](../miniprogram/README.md)。Wiki 同时提供对应的“开发指南”页面。
 
 ## Wiki 与仓库文档
