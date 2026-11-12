@@ -9,7 +9,7 @@ import { prepareImage } from '@/recognition/image-import.js'
 import { appConfig } from '@/app-config.js'
 import { submitSample } from '@/api/collected.js'
 import { submitMulti } from '@/api/multi.js'
-import { MAX_DIGITS_OPTIONS, buildMultiForm, multiSummary } from '@/recognition/multi.js'
+import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, validateMultiLabel } from '@/recognition/multi.js'
 import { FEEDBACK_LABELS, buildFeedbackForm, feedbackMessage, validateFeedback } from '@/recognition/feedback.js'
 const pilot = appConfig.pilot
 
@@ -22,7 +22,9 @@ const controller = createRecognitionController({ session: user, workspace, expor
 const state = controller.state
 const canSubmit = computed(() => (state.inputKind === 'image' || !boardError.value) && controller.canSubmit())
 
-const multi = reactive({ enabled: false, maxDigits: 3, loading: false, result: null, error: '' })
+const multi = reactive({ enabled: false, maxDigits: 3, loading: false, result: null, error: '',
+  submittedImage: null, requestId: null, labelText: '', sampleSubmitting: false, sampleMessage: '',
+  sampleError: '', sampleDone: null })
 
 async function runMultiRecognition() {
   if (multi.loading) return
@@ -36,19 +38,56 @@ async function runMultiRecognition() {
   }
   multi.loading = true
   multi.error = ''
+  multi.sampleMessage = ''
+  multi.sampleError = ''
+  multi.sampleDone = null
+  multi.labelText = ''
   try {
     const image = await board.exportPng()
+    multi.submittedImage = image
     const requestId = crypto.randomUUID()
     const response = await submitMulti(workspace.getSnapshot(), buildMultiForm(image, multi.maxDigits),
       requestId, { inputCurrent: () => true })
     const summary = multiSummary(response)
     if (!summary.valid) throw new Error('多位数接口返回了无法解析的结果')
     multi.result = { ...summary, modelVersion: response.modelVersion, requestId: response.requestId }
+    multi.requestId = response.requestId
   } catch (error) {
     multi.error = error?.message || '多位数识别失败，请稍后重试'
     multi.result = null
   } finally {
     multi.loading = false
+  }
+}
+
+async function submitMultiSample() {
+  if (multi.sampleSubmitting || !multi.submittedImage) return
+  const text = String(multi.labelText || '').trim()
+  const invalid = validateMultiLabel(text)
+  if (invalid) {
+    multi.sampleError = invalid
+    return
+  }
+  if (!consentGiven.value) {
+    multi.sampleError = '请先在左侧勾选同意，才会保存这张图。'
+    return
+  }
+  multi.sampleSubmitting = true
+  multi.sampleError = ''
+  try {
+    const response = await submitSample(workspace.getSnapshot(), buildMultiSampleForm({
+      image: multi.submittedImage,
+      labelText: text,
+      consent: true,
+      result: multi.result
+    }), { inputCurrent: () => true })
+    multi.sampleMessage = feedbackMessage(response)
+    multi.sampleDone = multi.requestId
+    multi.labelText = ''
+  } catch (error) {
+    multi.sampleError = error?.message || '提交失败，请稍后重试'
+  } finally {
+    multi.sampleSubmitting = false
   }
 }
 
@@ -208,6 +247,20 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
           </span>
         </div>
         <p class="muted">{{ multi.result.hint }}（{{ multi.result.recognitionId ? "记录 #" + multi.result.recognitionId + " · " : "" }}模型 {{ multi.result.modelVersion }}）</p>
+        <div v-if="multi.submittedImage && multi.sampleDone !== multi.requestId" class="multi-sample">
+          <label class="sample-input-row">
+            <span>你写的是什么？</span>
+            <input v-model="multi.labelText" maxlength="4" inputmode="numeric" placeholder="例如 351"
+                   aria-label="你实际写的数字" @input="multi.sampleError = ''" />
+          </label>
+          <div class="feedback-actions">
+            <button type="button" class="primary" :disabled="multi.sampleSubmitting || !multi.labelText" @click="submitMultiSample">{{ multi.sampleSubmitting ? '提交中…' : '提交标注' }}</button>
+            <button type="button" :disabled="multi.sampleSubmitting" @click="multi.sampleDone = multi.requestId">跳过</button>
+          </div>
+          <p v-if="!consentGiven" class="muted">提交前请先在左侧勾选同意，才会保存这张图。</p>
+          <p v-if="multi.sampleError" class="notice error" role="alert">{{ multi.sampleError }}</p>
+        </div>
+        <p v-if="multi.sampleMessage" class="notice" role="status">{{ multi.sampleMessage }}</p>
       </div>
       <p v-if="multi.error" class="notice error" role="alert">{{ multi.error }}</p>
       <div v-else class="empty-state"><h3>等待你的第一个数字</h3><p>书写或选择图片后，点击识别按钮。这里仅展示服务器返回的结果，不生成示例预测。</p></div>

@@ -33,3 +33,24 @@ export function multiSummary(response) {
         : '整串未达到接受阈值，请重写或减少位数'
   }
 }
+
+/** 多位数采集：用户手输实际写的数字串（1–4 位），不是点选。 */
+export function validateMultiLabel(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return '请填写你实际写的数字'
+  if (!/^[0-9]{1,4}$/.test(text)) return '只能填 1–4 位数字'
+  return ''
+}
+
+export function buildMultiSampleForm({ image, labelText, consent, result, source = 'WEB' }) {
+  const form = new FormData()
+  const name = image && typeof image.name === 'string' && image.name ? image.name : 'drawing.png'
+  form.append('image', image, name)
+  form.append('labelText', String(labelText).trim())
+  form.append('consent', String(Boolean(consent)))
+  form.append('source', source)
+  if (result && result.text) form.append('predictedText', result.text)
+  if (result && result.recognitionId) form.append('recognitionId', String(result.recognitionId))
+  if (result && result.modelVersion) form.append('modelVersion', String(result.modelVersion))
+  return form
+}

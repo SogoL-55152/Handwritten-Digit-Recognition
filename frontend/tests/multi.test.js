@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MAX_DIGITS_OPTIONS, buildMultiForm, multiSummary } from '../src/recognition/multi.js'
+import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, validateMultiLabel } from '../src/recognition/multi.js'
 
 test('multi-digit options cover 1-4', () => {
   assert.deepEqual(MAX_DIGITS_OPTIONS, [1, 2, 3, 4])
@@ -46,4 +46,23 @@ test('summary reports an accepted string', () => {
   })
   assert.equal(summary.accepted, true)
   assert.match(summary.hint, /阈值以上/)
+})
+
+test('multi sample label must be 1-4 digits typed by the user', () => {
+  assert.equal(validateMultiLabel('351'), '')
+  assert.equal(validateMultiLabel(' 7 '), '')
+  assert.match(validateMultiLabel(''), /请填写/)
+  assert.match(validateMultiLabel('35a'), /1–4 位数字/)
+  assert.match(validateMultiLabel('12345'), /1–4 位数字/)
+})
+
+test('multi sample form carries labelText instead of a single label', () => {
+  const image = new File([new Uint8Array([0x89, 0x50])], 'drawing.png', { type: 'image/png' })
+  const form = buildMultiSampleForm({ image, labelText: '351', consent: true,
+    result: { text: '351', recognitionId: '280', modelVersion: 'w4-task-8-a1' } })
+  assert.equal(form.get('labelText'), '351')
+  assert.equal(form.get('label'), null)
+  assert.equal(form.get('consent'), 'true')
+  assert.equal(form.get('predictedText'), '351')
+  assert.equal(form.get('recognitionId'), '280')
 })

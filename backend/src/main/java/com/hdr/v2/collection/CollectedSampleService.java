@@ -40,12 +40,18 @@ public class CollectedSampleService {
         this.root = Paths.get(directory).toAbsolutePath().normalize();
     }
 
-    public Saved save(long workspaceId, long userId, Integer label, boolean consent, ImageValidator.Image image,
-                      Integer predictedDigit, Double confidence, String modelVersion, Long recognitionId,
-                      String source) {
+    public Saved save(long workspaceId, long userId, Integer label, String labelText, boolean consent,
+                      ImageValidator.Image image, Integer predictedDigit, String predictedText, Double confidence,
+                      String modelVersion, Long recognitionId, String source) {
         spaces.requireMember(workspaceId, userId);
         if (!consent) throw new V2Exception(400, "未同意采集时不会保存图片", "CONSENT_REQUIRED");
-        if (label == null || label < 0 || label > 9) throw new V2Exception(400, "标签必须是 0–9", "VALIDATION");
+        boolean multi = labelText != null && !labelText.isBlank();
+        if (multi) {
+            if (!labelText.matches("[0-9]{1,4}")) throw new V2Exception(400, "多位标签必须是 1–4 位数字", "VALIDATION");
+            if (label != null) throw new V2Exception(400, "单字标签与多位标签只能二选一", "VALIDATION");
+        } else if (label == null || label < 0 || label > 9) {
+            throw new V2Exception(400, "标签必须是 0–9，或提供 1–4 位数字串", "VALIDATION");
+        }
         String digest = image.digest();
         List<Long> existing = jdbc.queryForList("""
                 SELECT id FROM t_collected_sample WHERE workspace_id=? AND creator_id=? AND image_digest=?
@@ -65,13 +71,14 @@ public class CollectedSampleService {
         jdbc.update(connection -> {
             var statement = connection.prepareStatement("""
                     INSERT INTO t_collected_sample(workspace_id,creator_id,recognition_id,label,predicted_digit,
-                        confidence,model_version,source,image_digest,artifact_path,size_bytes,content_type,consent)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)
+                        confidence,model_version,source,image_digest,artifact_path,size_bytes,content_type,consent,
+                        sample_kind,label_text,predicted_text,digit_count)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
                     """, java.sql.Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, workspaceId);
             statement.setLong(2, userId);
             if (recognitionId == null) statement.setNull(3, java.sql.Types.BIGINT); else statement.setLong(3, recognitionId);
-            statement.setInt(4, label);
+            if (label == null) statement.setNull(4, java.sql.Types.TINYINT); else statement.setInt(4, label);
             if (predictedDigit == null) statement.setNull(5, java.sql.Types.TINYINT);
             else statement.setInt(5, predictedDigit);
             if (confidence == null) statement.setNull(6, java.sql.Types.DOUBLE); else statement.setDouble(6, confidence);
@@ -81,6 +88,11 @@ public class CollectedSampleService {
             statement.setString(10, root.relativize(target).toString().replace('\\', '/'));
             statement.setInt(11, image.bytes().length);
             statement.setString(12, image.contentType());
+            statement.setString(13, multi ? "MULTI" : "SINGLE");
+            if (multi) statement.setString(14, labelText); else statement.setNull(14, java.sql.Types.VARCHAR);
+            if (predictedText == null || predictedText.isBlank()) statement.setNull(15, java.sql.Types.VARCHAR);
+            else statement.setString(15, predictedText);
+            if (multi) statement.setInt(16, labelText.length()); else statement.setNull(16, java.sql.Types.TINYINT);
             return statement;
         }, keyHolder);
         Number generated = keyHolder.getKey();

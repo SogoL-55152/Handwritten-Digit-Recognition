@@ -33,9 +33,11 @@ public class CollectedSampleController {
     @PostMapping(value = "/workspaces/{workspaceId}/collected-samples", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<Map<String, Object>> submit(@PathVariable long workspaceId,
                                               @RequestParam("image") MultipartFile file,
-                                              @RequestParam("label") Integer label,
+                                              @RequestParam(value = "label", required = false) Integer label,
+                                              @RequestParam(value = "labelText", required = false) String labelText,
                                               @RequestParam(value = "consent", defaultValue = "false") boolean consent,
                                               @RequestParam(value = "predictedDigit", required = false) Integer predictedDigit,
+                                              @RequestParam(value = "predictedText", required = false) String predictedText,
                                               @RequestParam(value = "confidence", required = false) Double confidence,
                                               @RequestParam(value = "modelVersion", required = false) String modelVersion,
                                               @RequestParam(value = "recognitionId", required = false) Long recognitionId,
@@ -43,13 +45,21 @@ public class CollectedSampleController {
                                               HttpServletRequest request) {
         V2Principal principal = V2Principal.require(request);
         if (!consent) throw new V2Exception(400, "未同意采集时不会保存图片", "CONSENT_REQUIRED");
-        if (label == null || label < 0 || label > 9) throw new V2Exception(400, "标签必须是 0–9", "VALIDATION");
+        boolean multi = labelText != null && !labelText.isBlank();
+        if (multi) {
+            if (!labelText.matches("[0-9]{1,4}")) throw new V2Exception(400, "多位标签必须是 1–4 位数字", "VALIDATION");
+            if (label != null) throw new V2Exception(400, "单字标签与多位标签只能二选一", "VALIDATION");
+        } else if (label == null || label < 0 || label > 9) {
+            throw new V2Exception(400, "标签必须是 0–9，或提供 1–4 位数字串", "VALIDATION");
+        }
+        if (predictedText != null && !predictedText.matches("[0-9]{0,4}"))
+            throw new V2Exception(400, "预测整串格式无效", "VALIDATION");
         if (confidence != null && (!Double.isFinite(confidence) || confidence < 0 || confidence > 1))
             throw new V2Exception(400, "置信度必须在 0–1", "VALIDATION");
         limiter.check("collected:user:" + principal.userId(), 60, 60);
         ImageValidator.Image image = images.validate(file);
-        CollectedSampleService.Saved saved = samples.save(workspaceId, principal.userId(), label, true, image,
-                predictedDigit, confidence, modelVersion, recognitionId, source);
+        CollectedSampleService.Saved saved = samples.save(workspaceId, principal.userId(), label, labelText, true,
+                image, predictedDigit, predictedText, confidence, modelVersion, recognitionId, source);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id", Long.toString(saved.id()));
         body.put("duplicate", saved.duplicate());
