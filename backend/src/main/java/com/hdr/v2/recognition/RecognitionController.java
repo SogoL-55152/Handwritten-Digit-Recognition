@@ -37,13 +37,28 @@ public class RecognitionController {
             @RequestHeader("Idempotency-Key") String requestId,HttpServletRequest request) {
         long user=V2Principal.require(request).userId();
         spaces.requireMember(workspaceId,user);
-        if(request.getQueryString()!=null || !(request instanceof MultipartHttpServletRequest multipart)
+        // 只允许一个可选查询参数 enhance（图片导入路径才需要），其余一律拒绝
+        String query=request.getQueryString();
+        boolean enhance=false;
+        if(query!=null) {
+            if(!"enhance=true".equalsIgnoreCase(query) && !"enhance=false".equalsIgnoreCase(query))
+                throw new V2Exception(400,"只允许 enhance 查询参数","VALIDATION");
+            enhance="enhance=true".equalsIgnoreCase(query);
+        }
+        int expectedParams=enhance?2:1;
+        if(!(request instanceof MultipartHttpServletRequest multipart)
                 || multipart.getMultiFileMap().size()!=1 || multipart.getFiles("image").size()!=1
-                || request.getParameterMap().size()!=1 || request.getParameterValues("source").length!=1
+                || request.getParameterMap().size()!=expectedParams
+                || request.getParameterValues("source")==null || request.getParameterValues("source").length!=1
+                || (enhance && request.getParameterValues("enhance").length!=1)
                 || java.util.Collections.list(request.getHeaders("Idempotency-Key")).size()!=1)
             throw new V2Exception(400,"图片与来源必须各提供一次，不能附带其他字段","VALIDATION");
         RecognitionService.validateRequest(requestId,source);
-        return Result.ok(service.predict(workspaceId,user,requestId.toLowerCase(java.util.Locale.ROOT),source,images.validate(image)));
+        ImageValidator.Image validated=images.validate(image);
+        // 不增强时走原来的 5 参重载，保持既有行为与测试契约
+        return Result.ok(enhance
+                ? service.predict(workspaceId,user,requestId.toLowerCase(java.util.Locale.ROOT),source,validated,true)
+                : service.predict(workspaceId,user,requestId.toLowerCase(java.util.Locale.ROOT),source,validated));
     }
     @PostMapping(value = "/multi", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<RecognitionService.MultiResult> multi(@PathVariable long workspaceId,
@@ -56,6 +71,19 @@ public class RecognitionController {
         RecognitionService.validateRequest(requestId, source);
         return Result.ok(service.predictMulti(workspaceId, user, requestId.toLowerCase(java.util.Locale.ROOT),
                 source, maxDigits, images.validate(image)));
+    }
+
+    @PostMapping(value = "/preview-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public org.springframework.http.ResponseEntity<byte[]> previewImage(@PathVariable long workspaceId,
+            @RequestPart("image") MultipartFile image, jakarta.servlet.http.HttpServletRequest request) {
+        long user = V2Principal.require(request).userId();
+        spaces.requireMember(workspaceId, user);
+        limiter.check("preview-image:user:" + user, 60, 60);
+        ImageValidator.Image validated = images.validate(image);
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Cache-Control", "no-store")
+                .contentType(MediaType.IMAGE_PNG)
+                .body(service.enhanceImage(validated));
     }
 
     @GetMapping("/{id}/detail")

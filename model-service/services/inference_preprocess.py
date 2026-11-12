@@ -152,33 +152,13 @@ def gray_from_payload(payload, content_type):
         raise InvalidImage("图片损坏或格式不受支持") from exc
 
 
-def preprocess_image(payload, content_type):
-    if not payload:
-        raise InvalidImage("图片不能为空")
-    if len(payload) > IMAGE_MAX_BYTES:
-        raise InvalidImage("图片超过 5 MiB", 413, "IMAGE_TOO_LARGE")
-    if content_type not in ("image/png", "image/jpeg"):
-        raise InvalidImage("只接受 PNG/JPEG", 415, "UNSUPPORTED_IMAGE")
-    import numpy as np
-    from PIL import Image, ImageOps, UnidentifiedImageError
-
-    try:
-        # 限定解码插件；先检查头尺寸再 verify/load，不能先解压再检查。
-        with Image.open(BytesIO(payload), formats=("PNG", "JPEG")) as image:
-            _check_header(image, content_type)
-            image.verify()
-        with Image.open(BytesIO(payload), formats=("PNG", "JPEG")) as image:
-            _check_header(image, content_type)
-            image.load()  # Pillow 默认拒绝截断，不设置 LOAD_TRUNCATED_IMAGES。
-            oriented = ImageOps.exif_transpose(image)
-            rgba = oriented.convert("RGBA")
-            white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
-            gray = np.asarray(Image.alpha_composite(white, rgba).convert("L"))
-    except InvalidImage:
-        raise
-    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
-        raise InvalidImage("图片尺寸超过限制", 413, "IMAGE_TOO_LARGE") from exc
-    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, EOFError) as exc:
-        raise InvalidImage("图片损坏或格式不受支持") from exc
-
+def preprocess_image(payload, content_type, enhance=False):
+    """enhance=True 时先做照片增强（白底黑字 + 加粗），画板路径保持原样。"""
+    gray = gray_from_payload(payload, content_type)
+    if enhance:
+        from services.image_enhance import enhance_photo
+        try:
+            gray = enhance_photo(gray)
+        except ValueError:
+            raise InvalidImage("图片对比度过低，无法分离笔迹", category="BLANK_IMAGE")
     return canvas_input(gray)

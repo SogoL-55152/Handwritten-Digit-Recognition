@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { recognize } from '@/api/workspaces.js'
+import { previewEnhancedImage, recognize } from '@/api/workspaces.js'
 import { createDrawingBoard } from '@/recognition/drawing-board.js'
 import { createRecognitionController } from '@/recognition/controller.js'
 import { prepareImage } from '@/recognition/image-import.js'
@@ -108,6 +108,37 @@ function setConsent(value) {
   if (consentGiven.value) feedbackErrors.value = {}
 }
 
+const enhanced = reactive({ loading: false, url: '', error: '' })
+
+async function previewEnhanced() {
+  const file = controller.selectedFile()
+  if (!file) {
+    enhanced.error = '请先选择一张图片。'
+    return
+  }
+  if (enhanced.url) {
+    URL.revokeObjectURL(enhanced.url)
+    enhanced.url = ''
+  }
+  enhanced.loading = true
+  enhanced.error = ''
+  try {
+    const blob = await previewEnhancedImage(workspace.getSnapshot(), file)
+    enhanced.url = URL.createObjectURL(blob)
+  } catch (error) {
+    enhanced.error = error?.message || '预处理预览失败，请稍后重试'
+  } finally {
+    enhanced.loading = false
+  }
+}
+
+// 换图/移除图片时清掉旧的预览
+watch(() => state.image?.previewUrl, () => {
+  if (enhanced.url) URL.revokeObjectURL(enhanced.url)
+  enhanced.url = ''
+  enhanced.error = ''
+})
+
 const feedback = reactive({ submitting: false, message: '', error: '', sentFor: null, wrongOpen: false })
 const feedbackErrors = ref({})
 const feedbackDone = computed(() => !state.submitted || feedback.sentFor === state.submitted.requestId)
@@ -207,11 +238,16 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
           <figcaption>{{ state.image.mime === 'image/jpeg' ? 'JPEG' : 'PNG' }} · {{ state.image.width }} × {{ state.image.height }} 像素 · {{ (state.image.size / 1024).toFixed(1) }} KiB</figcaption>
         </figure>
         <p v-else-if="!state.validating" class="muted">尚未选择有效图片。</p>
+        <figure v-if="state.inputKind === 'image' && (enhanced.url || enhanced.error)" class="enhanced-preview">
+          <figcaption class="muted">{{ enhanced.error || '预处理后（白底黑字、笔画加粗；实际送入模型的就是这张）' }}</figcaption>
+          <img v-if="enhanced.url" :src="enhanced.url" alt="预处理后的图片" />
+        </figure>
         <p class="muted">仅处理你明确选择的这一张图片，不扫描或批量读取相册。预览只在本地；点击“识别图片”才上传原始文件，不压缩或重新编码。</p>
       </div>
       <div class="actions">
         <button data-testid="recognition-submit" class="primary" :disabled="multi.enabled ? !multiReady : !canSubmit" @click="submitPrimary()">{{ multi.enabled ? (multi.loading ? '识别中…' : '识别多位数字') : (state.loading ? '识别中…' : state.inputKind === 'image' ? '识别图片' : '识别数字') }}</button>
         <button v-if="state.inputKind === 'image'" data-testid="image-remove" :disabled="!state.image && !state.validating" @click="controller.removeImage()">移除图片</button>
+        <button v-if="state.inputKind === 'image'" type="button" :disabled="!state.image || enhanced.loading" @click="previewEnhanced">{{ enhanced.loading ? '处理中…' : '查看预处理效果' }}</button>
         <button v-else @click="board?.clear()">清空画板</button>
       </div>
       <label class="consent-row multi-toggle">

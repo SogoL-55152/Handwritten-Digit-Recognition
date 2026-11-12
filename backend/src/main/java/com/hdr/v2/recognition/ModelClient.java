@@ -77,6 +77,11 @@ public class ModelClient {
     }
 
     public Prediction predict(long workspaceId,String requestId,CatalogueService.Model model,ImageValidator.Image image) {
+        return predict(workspaceId,requestId,model,image,false);
+    }
+
+    public Prediction predict(long workspaceId,String requestId,CatalogueService.Model model,ImageValidator.Image image,
+                              boolean enhance) {
         requireConfigured();
         if(model.sha256()==null || model.sha256().isBlank() || model.artifact()==null || model.artifact().isBlank())
             throw new V2Exception(503,"当前模型缺少可信文件信息","MODEL_UNAVAILABLE");
@@ -89,7 +94,8 @@ public class ModelClient {
         body.add("modelId",model.externalId()); body.add("modelVersion",model.version());
         body.add("preprocessVersion",model.preprocessVersion());
         try {
-            JsonNode data=client.post().uri("/internal/v2/predict").header("X-HDR-Internal-Token",internalToken)
+            String uri=enhance?"/internal/v2/predict?enhance=1":"/internal/v2/predict";
+            JsonNode data=client.post().uri(uri).header("X-HDR-Internal-Token",internalToken)
                     .contentType(MediaType.MULTIPART_FORM_DATA).body(body).exchange((request,response)->read(response));
             if(!requestId.equals(data.path("requestId").asText())
                     || !model.externalId().equals(data.path("modelId").asText())
@@ -178,6 +184,29 @@ public class ModelClient {
         catch(Exception error) {
             LOG.warn("Multi-digit prediction transport failed ({})",error.getClass().getSimpleName());
             throw new V2Exception(502,"模型调用失败或超时，请使用新的请求重试","MODEL_UNAVAILABLE");
+        }
+    }
+
+
+    /** 返回增强后的图片（白底黑字 + 加粗），用于前端预览；不落库、不参与识别。 */
+    public byte[] enhanceImage(ImageValidator.Image image) {
+        requireConfigured();
+        var body=new LinkedMultiValueMap<String,Object>();
+        var headers=new HttpHeaders(); headers.setContentType(MediaType.parseMediaType(image.contentType()));
+        body.add("image",new HttpEntity<>(new ByteArrayResource(image.bytes()) {
+            @Override public String getFilename() { return "drawing"; }
+        },headers));
+        try {
+            return client.post().uri("/internal/v2/enhance").header("X-HDR-Internal-Token",internalToken)
+                    .contentType(MediaType.MULTIPART_FORM_DATA).body(body)
+                    .exchange((request,response)->{
+                        if(response.getStatusCode().value()!=200) throw invalidResponse();
+                        return response.getBody().readNBytes((int)com.hdr.v2.platform.W2Limits.IMAGE_MAX_BYTES+1);
+                    });
+        } catch(V2Exception error) { throw error; }
+        catch(Exception error) {
+            LOG.warn("Enhance preview failed ({})",error.getClass().getSimpleName());
+            throw new V2Exception(502,"预处理预览失败，请稍后重试","MODEL_UNAVAILABLE");
         }
     }
 

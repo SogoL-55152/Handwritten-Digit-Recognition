@@ -214,3 +214,7 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
   background: #f6f9fd; border: 1px solid #e2eaf4; border-radius: 10px; padding: 10px; margin-bottom: 14px; }
 .detail-image img { max-width: 100%; max-height: 320px; image-rendering: auto; }
 .detail-fields { grid-template-columns: 96px 1fr; }
+
+.enhanced-preview { margin: 12px 0; padding: 12px; border: 1px dashed #c9d8ea; border-radius: 10px; background: #fbfdff; }
+.enhanced-preview figcaption { margin-bottom: 8px; font-size: 13px; }
+.enhanced-preview img { display: block; max-width: 100%; max-height: 260px; image-rendering: pixelated; margin: 0 auto; }

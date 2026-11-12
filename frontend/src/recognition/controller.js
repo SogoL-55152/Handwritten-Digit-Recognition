@@ -91,7 +91,7 @@ export function createRecognitionController({ session, workspace, exportPng, pre
       const image = kind === 'image' ? imageInput.file : await exportPng()
       if (!current()) return
       state.submitted = { image, kind, requestId }
-      const result = await send(snapshot, image, requestId, { inputCurrent: current })
+      const result = await send(snapshot, image, requestId, { inputCurrent: current, inputKind: kind })
       if (!current()) return
       if (!validateRecognition(result, requestId)) throw new Error('识别接口返回了无效结果；未展示未经验证的预测')
       state.result = result

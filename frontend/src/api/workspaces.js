@@ -10,8 +10,10 @@ export function recognize(snapshot, image, requestId, options = {}) {
   const form = new FormData()
   form.append('image', image, image.type === 'image/jpeg' ? 'drawing.jpeg' : 'drawing.png')
   form.append('source', 'WEB')
+  // 图片导入路径先做照片增强（白底黑字 + 加粗）；画板路径不加，避免改变已有行为。
+  const query = options.enhance ? '?enhance=true' : ''
   // Browser supplies the multipart boundary. No automatic POST retries.
-  return request.post(`${workspacePath(snapshot.workspaceId)}/recognitions`, form, {
+  return request.post(`${workspacePath(snapshot.workspaceId)}/recognitions${query}`, form, {
     authSession: snapshot.session, inputCurrent: options.inputCurrent, silent: true, headers: { 'Idempotency-Key': requestId }
   })
 }
@@ -26,4 +28,14 @@ export function errorMessage(error) {
   if (status === 409) return `请求未完成（${error.data?.category || '冲突'}）。不会自动重发；再次识别将创建新请求。`
   if (status === 502 || status === 503) return '识别或基础服务暂不可用，请稍后手动重试。'
   return error?.message || '请求失败，请稍后重试。'
+}
+
+/** 预览"预处理后"的图片（白底黑字 + 加粗），不参与识别、不落库。 */
+export async function previewEnhancedImage(snapshot, image) {
+  const form = new FormData()
+  form.append('image', image, image.type === 'image/jpeg' ? 'drawing.jpeg' : 'drawing.png')
+  const response = await request.post(`${workspacePath(snapshot.workspaceId)}/recognitions/preview-image`, form, {
+    authSession: snapshot.session, silent: true, responseType: 'blob'
+  })
+  return response
 }

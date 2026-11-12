@@ -33,6 +33,7 @@ export function createRequest({ hooks = {}, adapter } = {}) {
 
   client.interceptors.response.use(
     (response) => {
+      if (response.config?.responseType === 'blob') return response.data
       const body = response.data
       if (body && body.code === 0) return body.data
       const error = new Error(body?.message || '服务器返回了无效响应，请稍后重试')

@@ -172,9 +172,10 @@ def predict():
     started = time.perf_counter()
     try:
         service = None
-        invalid = _validate_form()
+        invalid = _validate_form(allow_args=("enhance",))
         if invalid is not None:
             return invalid
+        enhance = request.args.get("enhance", "").lower() in ("1", "true", "yes")
         try:
             service = registry().service(request.form["modelId"], request.form["modelVersion"],
                                          request.form["preprocessVersion"])
@@ -185,7 +186,7 @@ def predict():
         try:
             image = request.files["image"]
             payload = image.stream.read(IMAGE_MAX_BYTES + 1)
-            normalized = preprocess_image(payload, image.mimetype)
+            normalized = preprocess_image(payload, image.mimetype, enhance=enhance)
             digit, confidence = service.predict(normalized)
             return jsonify({
                 "code": 0, "message": "ok", "data": {
@@ -267,3 +268,28 @@ def predict_multi():
         return error_response(503, "推理依赖不可用", "MODEL_UNAVAILABLE")
     except ModelUnavailable as exc:
         return error_response(503, str(exc), "MODEL_UNAVAILABLE")
+
+@bp.post("/enhance")
+def enhance_preview():
+    """返回增强后的图片（PNG），供前端预览"预处理后长什么样"。不落库。"""
+    from io import BytesIO
+
+    from PIL import Image
+
+    from services.image_enhance import enhance_photo
+    from services.inference_preprocess import InvalidImage, gray_from_payload
+
+    image = request.files.get("image")
+    if image is None:
+        return error_response(400, "缺少图片", "INVALID_REQUEST")
+    try:
+        payload = image.stream.read(IMAGE_MAX_BYTES + 1)
+        gray = gray_from_payload(payload, image.mimetype)
+        enhanced = enhance_photo(gray)
+    except InvalidImage as exc:
+        return error_response(exc.status, str(exc), exc.category)
+    except ValueError:
+        return error_response(400, "图片对比度过低，无法分离笔迹", "BLANK_IMAGE")
+    buffer = BytesIO()
+    Image.fromarray(enhanced).save(buffer, format="PNG")
+    return current_app.response_class(buffer.getvalue(), mimetype="image/png")

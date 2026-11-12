@@ -41,6 +41,12 @@ public class RecognitionService {
         this.limits=limits; this.mapper=mapper; this.imageStore=imageStore;
     }
     public Recognition predict(long wid,long uid,String requestId,String source,ImageValidator.Image image) {
+        return predict(wid,uid,requestId,source,image,false);
+    }
+
+    /** enhance=true 只用于图片导入路径：先做照片增强再识别。 */
+    public Recognition predict(long wid,long uid,String requestId,String source,ImageValidator.Image image,
+                               boolean enhance) {
         validateRequest(requestId,source);
         spaces.requireMember(wid,uid);
         List<Existing> previous=existing(wid,uid,requestId);
@@ -69,7 +75,7 @@ public class RecognitionService {
             }
             id=keys.getKey().longValue();
             // Autocommit above: never hold a database transaction during a model request.
-            ModelClient.Prediction prediction=model.predict(wid,requestId,selected,image);
+            ModelClient.Prediction prediction=model.predict(wid,requestId,selected,image,enhance);
             long elapsed=(System.nanoTime()-started)/1_000_000L;
             int saved=jdbc.update("UPDATE t_recognition_v2 SET status='SUCCEEDED',digit=?,confidence=?,processing_ms=? WHERE id=? AND status='PROCESSING'",prediction.digit(),prediction.confidence(),elapsed,id);
             if(saved!=1) throw new V2Exception(409,"请求状态已失效，结果未确认","REQUEST_FAILED");
@@ -180,6 +186,9 @@ public class RecognitionService {
             return List.copyOf(list);
         } catch(Exception ignored) { return List.of(); }
     }
+
+    /** 预处理预览：只做增强，不写库、不计数。 */
+    public byte[] enhanceImage(ImageValidator.Image image) { return model.enhanceImage(image); }
 
     public Recognition get(long wid,long uid,long id) {
         spaces.requireMember(wid,uid);
