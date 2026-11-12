@@ -28,6 +28,8 @@ spring:
       resolve-lazily: true
       max-file-size: 5MB
       max-request-size: 6MB
+      # 1MB 以内不落盘：小图上传不再依赖临时目录（安全软件占用临时文件曾导致解析失败）
+      file-size-threshold: 1MB
   jackson:
     time-zone: UTC
 

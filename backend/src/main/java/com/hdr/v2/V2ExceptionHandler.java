@@ -51,6 +51,13 @@ public class V2ExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<?> oversized(Exception error) { return business(new V2Exception(413, "图片最大为5MiB", "IMAGE_TOO_LARGE")); }
 
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ResponseEntity<?> multipart(org.springframework.web.multipart.MultipartException error) {
+        // 常见原因：临时目录不可写/被占用、请求体不是合法 multipart。记下根因再返回可读错误。
+        LOG.error("V2 multipart parse failed", error);
+        return business(new V2Exception(400, "图片上传解析失败，请重试或换一张图片", "UPLOAD_PARSE_FAILED"));
+    }
+
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<?> database(DataAccessException error) {
         LOG.error("V2 persistence operation failed: {}", error.getClass().getSimpleName());
@@ -59,7 +66,8 @@ public class V2ExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> unexpected(Exception error, HttpServletRequest request) {
-        LOG.error("V2 request failed: {}", error.getClass().getSimpleName());
+        // 带上完整堆栈：只记类名会让线上 500 无法定位。
+        LOG.error("V2 request failed: {}", error.getClass().getName(), error);
         return business(new V2Exception(500, "服务暂时异常，请稍后重试", "INTERNAL_ERROR"));
     }
 }
