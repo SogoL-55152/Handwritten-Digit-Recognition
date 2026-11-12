@@ -48,11 +48,14 @@
         </picker>
       </view>
       <view class="note" wx:if="{{multiEnabled}}">先在画板写 1–4 个间隔的数字，或导入这样的图片，再点下方的多位数识别。</view>
-      <button id="recognize-input" class="recognize" bindtap="recognize" loading="{{recognizing}}" disabled="{{recognizing || (inputKind === 'image' ? (!imagePath || imageBusy) : !hasInk)}}">{{recognizing ? '正在识别…' : inputKind === 'image' ? '识别图片' : '识别这个数字'}}</button>
-      <view class="note">每次只识别一个数字。请使用白底黑字、清晰且适当留白的图片。</view>
+      <button id="recognize-input" class="recognize" bindtap="recognizePrimary"
+              loading="{{recognizing || multiBusy}}"
+              disabled="{{recognizing || multiBusy || (inputKind === 'image' ? (!imagePath || imageBusy) : !hasInk)}}">
+        {{ (recognizing || multiBusy) ? '正在识别…' : (multiEnabled ? '识别多位数字' : (inputKind === 'image' ? '识别图片' : '识别这个数字')) }}
+      </button>
+      <view class="note" wx:if="{{multiEnabled}}">多位数：切分后逐字识别整串，不认连笔；结果会写入识别历史。</view>
+      <view class="note" wx:else>每次只识别一个数字。请使用白底黑字、清晰且适当留白的图片。</view>
       <view class="error" wx:if="{{recognitionError}}">{{recognitionError}}</view>
-      <view class="note">多位数：切分后逐字识别整串，不认连笔；结果会写入识别历史。</view>
-      <button wx:if="{{multiEnabled}}" id="recognize-multi" class="recognize" bindtap="recognizeMulti" loading="{{multiBusy}}" disabled="{{multiBusy || (inputKind === 'image' ? (!imagePath || imageBusy) : !hasInk)}}">{{multiBusy ? '正在识别…' : '识别多位数字'}}</button>
       <view class="error" wx:if="{{multiError}}">{{multiError}}</view>
       <view class="card result" wx:if="{{multiResult}}">
         <view class="welcome">识别结果：{{multiResult.text}}</view>

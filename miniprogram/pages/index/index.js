@@ -261,6 +261,12 @@ Page({
       multiBusy: false, multiResult: null, multiError: '' })
   },
 
+  /** 主按钮：按多位数开关决定走单字还是整串识别。 */
+  recognizePrimary() {
+    if (!this._active) return
+    return this.data.multiEnabled ? this.recognizeMulti() : this.recognize()
+  },
+
   async recognize() {
     if (!this._active || !this.data.authorized || !this.data.workspaceReady ||
         this.data.recognizing || !getApp().globalData.verified) return
@@ -279,7 +285,7 @@ Page({
       isWorkspaceCurrent(saved) && kind === this.data.inputKind && (kind === 'image'
         ? imported === this._image && !this.data.imageBusy
         : board.getSnapshot().ready && board.getSnapshot().revision === drawing.revision)
-    this.setData({ recognizing: true, result: null, recognitionError: '' })
+    this.setData({ recognizing: true, result: null, recognitionError: '', multiResult: null, multiError: '' })
     try {
       const image = kind === 'image' ? imported : await board.exportSnapshot()
       if (!current() || (kind === 'drawing' && image.revision !== drawing.revision)) return
@@ -339,7 +345,7 @@ Page({
       isWorkspaceCurrent(saved) && kind === this.data.inputKind && (kind === 'image'
         ? imported === this._image && !this.data.imageBusy
         : board.getSnapshot().ready && board.getSnapshot().revision === drawing.revision)
-    this.setData({ multiBusy: true, multiResult: null, multiError: '' })
+    this.setData({ multiBusy: true, multiResult: null, multiError: '', result: null, recognitionError: '' })
     try {
       const image = kind === 'image' ? imported : await board.exportSnapshot()
       if (!current() || (kind === 'drawing' && image.revision !== drawing.revision)) return
