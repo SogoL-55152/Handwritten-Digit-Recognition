@@ -110,7 +110,6 @@ input[type='checkbox'] { width: 16px; height: 16px; min-height: 0; padding: 0; m
 tr.selected td { background: #f3f8ff; }
 .multi-toggle { flex-wrap: wrap; }
 .multi-toggle select { width: auto; min-height: 30px; padding: 4px 8px; }
-.multi-result { margin: 12px 0; }
 .multi-sample { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #dbe3ec; }
 .sample-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .sample-input-row input { width: 140px; text-align: center; letter-spacing: 2px; }
@@ -157,8 +156,10 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .drawing-panel > .muted:last-child { text-align: center; margin-bottom: 0; }
 .empty-state { padding: 56px 12px; text-align: center; color: var(--muted); }
 .empty-state p { font-size: 14px; }
-.prediction { font-size: 16px; padding: 20px 0 4px; }
-.prediction strong { font-size: 46px; font-weight: 650; margin-left: 22px; color: #244f94; }
+.prediction { display: flex; align-items: baseline; gap: 14px; font-size: 16px; padding: 18px 0 4px; }
+.prediction strong { font-size: 40px; font-weight: 650; margin-left: 0; line-height: 1.1; color: #244f94; }
+.multi-result { margin: 10px 0 0; }
+.multi-result .prediction { padding-top: 12px; }
 .training-panel { max-width: 890px; }
 .training-form { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 28px; }
 .full-row { grid-column: 1 / -1; }

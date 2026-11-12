@@ -97,6 +97,8 @@ async function submitMultiSample(mode) {
 
 function submitPrimary() {
   if (multi.enabled) return runMultiRecognition()
+  multi.result = null
+  multi.error = ''
   return controller.submit()
 }
 
@@ -193,6 +195,14 @@ const skipFeedback = () => {
   feedback.error = ''
 }
 
+// 关掉多位数开关就把结果收掉，避免和单字结果混在一起
+watch(() => multi.enabled, (enabled) => {
+  if (!enabled) {
+    multi.result = null
+    multi.error = ''
+  }
+})
+
 // 每次重新识别都重置标注状态，避免把上一张的标签带到新图上
 watch(() => state.submitted?.requestId, () => {
   feedback.message = ''
@@ -284,12 +294,12 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
       </template>
       <div v-if="multi.result" class="multi-result" aria-live="polite">
         <p class="prediction">识别为 <strong data-testid="multi-text">{{ multi.result.text }}</strong></p>
-        <div class="multi-chips">
+        <div v-if="multi.result.digits.length > 1" class="multi-chips">
           <span v-for="item in multi.result.digits" :key="item.position" class="multi-chip" :class="{ low: item.low }">
             {{ item.position }}: {{ item.digit }} · {{ item.confidence }}
           </span>
         </div>
-        <p class="muted">{{ multi.result.hint }}（{{ multi.result.recognitionId ? "记录 #" + multi.result.recognitionId + " · " : "" }}模型 {{ multi.result.modelVersion }}）</p>
+        <p class="muted">{{ multi.result.digits.length > 1 ? multi.result.hint + '（' : '（' }}{{ multi.result.recognitionId ? "记录 #" + multi.result.recognitionId + " · " : "" }}模型 {{ multi.result.modelVersion }}）</p>
         <div v-if="multi.submittedImage && multi.sampleDone !== multi.requestId" class="multi-sample">
           <p class="feedback-question">这次识别对了吗？</p>
           <div class="feedback-actions">
