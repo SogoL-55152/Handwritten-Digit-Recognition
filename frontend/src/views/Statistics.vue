@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
@@ -78,6 +78,7 @@ async function load() {
     ])
     stats.value = summary
     recent.value = recentRows(latest)
+    await nextTick()
     render()
   } catch (failure) {
     errorMessage.value = failure?.message || '加载统计失败'
@@ -95,11 +96,23 @@ function render() {
   if (dailyEl.value) {
     dailyChart.value ??= echarts.init(dailyEl.value)
     dailyChart.value.setOption(dailyOption(series, scope.value === 'platform' ? '平台每日识别量' : '本空间每日识别量'), true)
+    ensureRendered(dailyEl.value, dailyChart)
   }
   if (modelsEl.value) {
     modelsChart.value ??= echarts.init(modelsEl.value)
     modelsChart.value.setOption(modelShareOption(rows), true)
+    ensureRendered(modelsEl.value, modelsChart)
   }
+}
+
+/** 容器刚挂载时宽度可能还是 0，echarts 会画成空白；这里轮询到有宽度再 resize 一次。 */
+function ensureRendered(element, chart, attempt = 0) {
+  if (disposed || !element || !chart.value) return
+  if (element.clientWidth > 0 || attempt >= 10) {
+    chart.value.resize()
+    return
+  }
+  window.setTimeout(() => ensureRendered(element, chart, attempt + 1), 60)
 }
 
 function resize() {

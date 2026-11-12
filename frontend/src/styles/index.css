@@ -129,7 +129,9 @@ td.recent-failed { color: #87392d; }
 tr.curve-row td { background: #f7fafe; padding: 6px 12px 14px; border-bottom: 1px solid #e9edf2; }
 button.link { background: none; border: 0; padding: 0; color: #2459ad; font-size: 12px; cursor: pointer; text-decoration: underline; }
 .chart { width: 100%; min-height: 240px; }
-.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.model-chart { min-height: 240px; }
+.split { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
 .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 18px; }
 .stat-card { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
 .stat-card small { color: var(--muted); font-size: 12px; }
