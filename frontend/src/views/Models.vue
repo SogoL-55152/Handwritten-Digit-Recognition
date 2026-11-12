@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import * as api from '@/api/models.js'
 import { useUserStore } from '@/stores/user.js'
 import { createModelAdmin, summarize, canActivate, canDisable, canDelete } from '@/models/controller.js'
+import { originOf, provenanceDetail } from '@/models/provenance.js'
 
 const user = useUserStore()
 const admin = createModelAdmin({ api, getSession: () => user.getSnapshot() })
@@ -69,6 +70,8 @@ refresh()
             <tr v-for="model in models" :key="model.id">
               <td>
                 {{ model.externalId }}<small class="cell-detail">版本 {{ model.version }}</small>
+                <span class="origin-badge" :class="'origin-' + originOf(model).tone">{{ originOf(model).label }}</span>
+                <small class="cell-detail">{{ provenanceDetail(model) }}</small>
                 <small class="cell-detail">预处理 {{ model.preprocessVersion }}</small>
                 <small class="cell-detail">{{ summarize(model).registryLabel }}</small>
               </td>

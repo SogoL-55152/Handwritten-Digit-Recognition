@@ -219,3 +219,10 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .enhanced-preview { margin: 12px 0; padding: 12px; border: 1px dashed #c9d8ea; border-radius: 10px; background: #fbfdff; }
 .enhanced-preview figcaption { margin-bottom: 8px; font-size: 13px; }
 .enhanced-preview img { display: block; max-width: 100%; max-height: 260px; image-rendering: pixelated; margin: 0 auto; }
+
+.origin-badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; line-height: 1.7; border: 1px solid transparent; vertical-align: 1px; }
+.origin-builtin { background: #eef2f7; border-color: #d8e0ea; color: #44586f; }
+.origin-trained { background: #eaf2ff; border-color: #cadcf7; color: #2459ad; }
+.origin-fine-tuned { background: #f2edff; border-color: #ddd2f7; color: #5a3ba8; }
+.origin-imported { background: #f5f6f8; border-color: #e2e5ea; color: #5a6675; }

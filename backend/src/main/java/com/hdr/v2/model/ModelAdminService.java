@@ -20,6 +20,7 @@ import java.util.Map;
 public class ModelAdminService {
     public record ModelView(String id,String externalId,String version,String preprocessVersion,String status,
                             Double accuracy,String accuracyDataset,String sha256,Long sizeBytes,String artifact,
+                            String origin,Long taskId,String initFrom,String trainedAt,
                             boolean inRegistry,boolean verified,String registryReason) {}
     public record RegisterCommand(String externalId,String version) {}
     private final JdbcTemplate jdbc;
@@ -35,6 +36,7 @@ public class ModelAdminService {
             ModelClient.RegisteredModel entry=registry.get(key(row.externalId(),row.version()));
             views.add(new ModelView(row.id(),row.externalId(),row.version(),row.preprocessVersion(),row.status(),
                     row.accuracy(),row.accuracyDataset(),row.sha256(),row.sizeBytes(),row.artifact(),
+                    row.origin(),row.taskId(),row.initFrom(),row.trainedAt(),
                     entry!=null,entry!=null&&entry.verified(),entry==null?"NOT_IN_REGISTRY":(entry.verified()?"":entry.reason())));
         }
         return views;
@@ -53,13 +55,14 @@ public class ModelAdminService {
                 .filter(item->externalId.equals(item.modelId())&&version.equals(item.modelVersion()))
                 .findFirst().orElseThrow(()->new V2Exception(400,"模型服务注册表中没有该模型文件","MODEL_NOT_REGISTERED"));
         if(!entry.verified()) throw new V2Exception(409,"模型文件未通过摘要校验，不能注册","MODEL_UNVERIFIED");
+        Provenance provenance=provenanceOf(version);
         jdbc.update("""
                 INSERT INTO t_v2_model(name,version,scope,external_id,accuracy,accuracy_dataset,preprocess_version,
-                    description,status,sha256,size_bytes,artifact)
-                VALUES(?,?,'PUBLIC',?,NULL,NULL,?,?,'INACTIVE',?,?,?)
+                    description,status,sha256,size_bytes,artifact,origin,task_id,init_from,trained_at)
+                VALUES(?,?,'PUBLIC',?,NULL,NULL,?,?,'INACTIVE',?,?,?,?,?,?,?)
                 """,externalId+" "+version,version,externalId,entry.preprocessVersion(),
-                "Registered from model-service registry; not active until an admin activates it",
-                entry.sha256(),entry.sizeBytes(),entry.artifact());
+                provenance.description(),entry.sha256(),entry.sizeBytes(),entry.artifact(),
+                provenance.origin(),provenance.taskId(),provenance.initFrom(),provenance.trainedAt());
         Long id=jdbc.queryForObject("SELECT id FROM t_v2_model WHERE scope='PUBLIC' AND external_id=? AND version=?",
                 Long.class,externalId,version);
         return view(id);
@@ -99,6 +102,26 @@ public class ModelAdminService {
         jdbc.update("DELETE FROM t_v2_model WHERE id=?",id);
     }
 
+    /** 按模型版本回溯训练任务，得到来源；找不到任务就是手工导入。 */
+    private record Provenance(String origin,Long taskId,String initFrom,java.sql.Timestamp trainedAt,String description) {}
+
+    private Provenance provenanceOf(String version) {
+        List<Provenance> found=jdbc.query("""
+                SELECT id,init_from,finished_at FROM t_v2_training_task
+                WHERE model_version=? AND status='SUCCEEDED' ORDER BY id DESC LIMIT 1
+                """,(rs,i)->new Provenance("x",rs.getLong("id"),rs.getString("init_from"),
+                rs.getTimestamp("finished_at"),""),version);
+        if(found.isEmpty()) return new Provenance("IMPORTED",null,null,null,
+                "Registered from model-service registry; not active until an admin activates it");
+        Provenance task=found.get(0);
+        boolean fineTuned=task.initFrom()!=null && !task.initFrom().isBlank();
+        String origin=fineTuned?"FINE_TUNED":"TRAINED";
+        String description=fineTuned
+                ? "Trained by task #"+task.taskId()+" (fine-tuned from "+task.initFrom()+")"
+                : "Trained by task #"+task.taskId();
+        return new Provenance(origin,task.taskId(),task.initFrom(),task.trainedAt(),description);
+    }
+
     private ModelView view(long id) {
         return list().stream().filter(item->item.id().equals(Long.toString(id))).findFirst()
                 .orElseThrow(()->new V2Exception(404,"模型不存在"));
@@ -114,12 +137,17 @@ public class ModelAdminService {
     }
     private static String key(String modelId,String version) { return modelId+"\u0000"+version; }
     private record ModelRow(String id,String externalId,String version,String preprocessVersion,String status,
-                            Double accuracy,String accuracyDataset,String sha256,Long sizeBytes,String artifact) {}
+                            Double accuracy,String accuracyDataset,String sha256,Long sizeBytes,String artifact,
+                            String origin,Long taskId,String initFrom,String trainedAt) {}
     private static ModelRow row(ResultSet rs,int index) throws SQLException {
         Object size=rs.getObject("size_bytes");
+        Object taskId=rs.getObject("task_id");
+        java.sql.Timestamp trainedAt=rs.getTimestamp("trained_at");
         return new ModelRow(rs.getString("id"),rs.getString("external_id"),rs.getString("version"),
                 rs.getString("preprocess_version"),rs.getString("status"),(Double)rs.getObject("accuracy"),
                 rs.getString("accuracy_dataset"),rs.getString("sha256"),size==null?null:((Number)size).longValue(),
-                rs.getString("artifact"));
+                rs.getString("artifact"),rs.getString("origin"),
+                taskId==null?null:((Number)taskId).longValue(),rs.getString("init_from"),
+                trainedAt==null?null:trainedAt.toInstant().toString());
     }
 }

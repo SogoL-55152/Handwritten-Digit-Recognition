@@ -41,7 +41,8 @@ class ModelAdminControllerTest {
 
     private ModelAdminService.ModelView view(String id, String status) {
         return new ModelAdminService.ModelView(id, "mnist-cnn-w1", "w2-canvas-photo-3epoch", "adaptive-mnist-v2",
-                status, .977, "MNIST test", "a".repeat(64), 1690340L, "w2-canvas-photo/checkpoint.pt", true, true, "");
+                status, .977, "MNIST test", "a".repeat(64), 1690340L, "w2-canvas-photo/checkpoint.pt",
+                "BUILTIN", null, null, null, true, true, "");
     }
 
     @Test
