@@ -263,3 +263,6 @@ desktop.ini
 /*.zip
 /*.tar.gz
 /database.sqlite
+
+# 用户采集样本（含个人笔迹，不入仓库）
+/collected-samples/

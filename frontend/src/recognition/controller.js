@@ -11,7 +11,8 @@ export function validateRecognition(data, requestId) {
 
 export function createRecognitionController({ session, workspace, exportPng, prepareImage, send, randomUUID = () => crypto.randomUUID(), reactive = (value) => value }) {
   const state = reactive({ inputKind: 'drawing', image: null, validating: false,
-    hasInk: false, drawing: false, revision: 0, loading: false, result: null, error: '', requestId: null })
+    hasInk: false, drawing: false, revision: 0, loading: false, result: null, error: '', requestId: null,
+    submitted: null })
   let operation = 0
   let disposed = false
   let selectedImage = null
@@ -19,7 +20,7 @@ export function createRecognitionController({ session, workspace, exportPng, pre
   function invalidate() {
     operation += 1
     state.revision += 1
-    Object.assign(state, { loading: false, result: null, error: '', requestId: null })
+    Object.assign(state, { loading: false, result: null, error: '', requestId: null, submitted: null })
   }
   function reset() {
     invalidate()
@@ -89,6 +90,7 @@ export function createRecognitionController({ session, workspace, exportPng, pre
       state.requestId = requestId
       const image = kind === 'image' ? imageInput.file : await exportPng()
       if (!current()) return
+      state.submitted = { image, kind, requestId }
       const result = await send(snapshot, image, requestId, { inputCurrent: current })
       if (!current()) return
       if (!validateRecognition(result, requestId)) throw new Error('识别接口返回了无效结果；未展示未经验证的预测')

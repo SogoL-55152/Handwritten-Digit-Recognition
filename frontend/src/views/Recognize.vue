@@ -7,6 +7,8 @@ import { createDrawingBoard } from '@/recognition/drawing-board.js'
 import { createRecognitionController } from '@/recognition/controller.js'
 import { prepareImage } from '@/recognition/image-import.js'
 import { appConfig } from '@/app-config.js'
+import { submitSample } from '@/api/collected.js'
+import { FEEDBACK_LABELS, buildFeedbackForm, feedbackMessage, validateFeedback } from '@/recognition/feedback.js'
 const pilot = appConfig.pilot
 
 const canvas = ref(null)
@@ -17,6 +19,60 @@ let board, observer
 const controller = createRecognitionController({ session: user, workspace, exportPng: () => board.exportPng(), prepareImage, send: recognize, reactive })
 const state = controller.state
 const canSubmit = computed(() => (state.inputKind === 'image' || !boardError.value) && controller.canSubmit())
+
+const feedback = reactive({ label: null, consent: false, submitting: false, message: '', error: '', sentFor: null })
+const feedbackErrors = ref({})
+const feedbackDone = computed(() => !state.submitted || feedback.sentFor === state.submitted.requestId)
+
+function chooseLabel(value) {
+  if (feedbackDone.value || feedback.submitting) return
+  feedback.label = value
+  feedbackErrors.value = {}
+}
+
+function skipFeedback() {
+  if (!state.submitted) return
+  feedback.sentFor = state.submitted.requestId
+  feedback.message = ''
+  feedback.error = ''
+}
+
+async function sendFeedback() {
+  const submitted = state.submitted
+  if (!submitted || feedback.submitting || feedbackDone.value) return
+  feedbackErrors.value = validateFeedback({ label: feedback.label, consent: feedback.consent })
+  if (Object.keys(feedbackErrors.value).length) return
+  feedback.submitting = true
+  feedback.error = ''
+  try {
+    const snapshot = workspace.getSnapshot()
+    const form = buildFeedbackForm({
+      image: submitted.image,
+      label: feedback.label,
+      consent: true,
+      result: state.result,
+      source: 'WEB'
+    })
+    const response = await submitSample(snapshot, form, { inputCurrent: () => true })
+    feedback.message = feedbackMessage(response)
+    feedback.sentFor = submitted.requestId
+    feedback.label = null
+    feedback.consent = false
+  } catch (error) {
+    feedback.error = error?.message || '提交失败，请稍后重试'
+  } finally {
+    feedback.submitting = false
+  }
+}
+
+// 每次重新识别都重置标注状态，避免把上一张的标签带到新图上
+watch(() => state.submitted?.requestId, () => {
+  feedback.label = null
+  feedback.consent = false
+  feedback.message = ''
+  feedback.error = ''
+  feedbackErrors.value = {}
+})
 function selectFile(event) {
   const file = event.target.files?.[0]
   event.target.value = '' // Selecting the same file again still emits change; never retain a path.
@@ -83,6 +139,37 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
       </template>
       <div v-else class="empty-state"><h3>等待你的第一个数字</h3><p>书写或选择图片后，点击识别按钮。这里仅展示服务器返回的结果，不生成示例预测。</p></div>
       <hr /><p class="muted">{{ pilot ? '切换输入、换图、移除、重画或退出后，旧请求不会覆盖当前结果。' : '空间默认模型由服务器决定。切换空间、输入、换图、移除、重画或退出后，旧请求不会覆盖当前结果。' }}超时后再次点击属于新的识别操作。</p>
+    </section>
+    <section v-if="state.submitted && !state.loading" class="panel feedback-panel" aria-live="polite">
+      <p class="eyebrow">可选</p>
+      <h2>你写的是几？</h2>
+      <p class="muted" v-if="state.result">
+        模型认为是 <strong>{{ state.result.digit }}</strong>（置信度 {{ (state.result.confidence * 100).toFixed(1) }}%）。
+        如果不对，请点正确的数字——你的标注会帮我们改进。
+      </p>
+      <p class="muted" v-else>这次没有给出结果。如果你愿意，可以告诉我们实际写的是几，这张图会作为改进依据。</p>
+      <div class="label-grid">
+        <button
+          v-for="value in FEEDBACK_LABELS"
+          :key="value"
+          type="button"
+          :class="{ primary: feedback.label === value }"
+          :disabled="feedbackDone || feedback.submitting"
+          @click="chooseLabel(value)"
+        >{{ value }}</button>
+      </div>
+      <label class="consent-row">
+        <input id="feedback-consent" type="checkbox" v-model="feedback.consent" :disabled="feedbackDone || feedback.submitting" />
+        <span>我同意把这张图与我的标注用于模型评估与改进（不用于其他用途，可要求删除）</span>
+      </label>
+      <p v-if="feedbackErrors.label" class="field-error">{{ feedbackErrors.label }}</p>
+      <p v-if="feedbackErrors.consent" class="field-error">{{ feedbackErrors.consent }}</p>
+      <div class="actions">
+        <button type="button" class="primary" :disabled="feedbackDone || feedback.submitting || !feedback.label" @click="sendFeedback">{{ feedback.submitting ? '提交中…' : '提交标注' }}</button>
+        <button type="button" :disabled="feedback.submitting || feedbackDone" @click="skipFeedback">跳过</button>
+      </div>
+      <p v-if="feedback.message" class="notice" role="status">{{ feedback.message }}</p>
+      <p v-if="feedback.error" class="notice error" role="alert">{{ feedback.error }}</p>
     </section>
   </div>
 </template>
