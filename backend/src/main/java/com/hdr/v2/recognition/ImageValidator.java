@@ -54,6 +54,12 @@ public class ImageValidator {
                 } finally { reader.dispose(); }
             }
         } catch(IOException | IllegalArgumentException error) { throw invalid(); }
+        catch(LinkageError error) {
+            // 本机 JDK 缺 lcms 原生库（色彩管理），CMYK 或带 ICC 的 JPEG 解码会抛 UnsatisfiedLinkError。
+            // 这类图像需要重新导出为 sRGB，不能当成"服务异常"。
+            throw new V2Exception(400, "这张图片的色彩配置暂不支持，请用手机相册或画图另存为普通 JPEG（sRGB）后重试",
+                    "IMAGE_COLOR_PROFILE_UNSUPPORTED");
+        }
         catch(NoSuchAlgorithmException error) { throw new IllegalStateException(error); }
     }
     private V2Exception invalid() { return new V2Exception(400,"图片格式不支持或内容损坏","INVALID_IMAGE"); }
