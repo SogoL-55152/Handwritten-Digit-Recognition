@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, validateMultiLabel } from '../src/recognition/multi.js'
+import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, resolveMultiSampleLabel, validateMultiLabel } from '../src/recognition/multi.js'
 
 test('multi-digit options cover 1-4', () => {
   assert.deepEqual(MAX_DIGITS_OPTIONS, [1, 2, 3, 4])
@@ -65,4 +65,12 @@ test('multi sample form carries labelText instead of a single label', () => {
   assert.equal(form.get('consent'), 'true')
   assert.equal(form.get('predictedText'), '351')
   assert.equal(form.get('recognitionId'), '280')
+})
+
+test('verdict confirm reuses the predicted string, correct mode uses what the user typed', () => {
+  assert.equal(resolveMultiSampleLabel('confirm', '351', ''), '351')
+  assert.equal(resolveMultiSampleLabel('confirm', '351', '999'), '351')
+  assert.equal(resolveMultiSampleLabel('correct', '351', ' 357 '), '357')
+  assert.equal(resolveMultiSampleLabel('correct', '351', ''), '')
+  assert.equal(validateMultiLabel(resolveMultiSampleLabel('correct', '351', '357')), '')
 })

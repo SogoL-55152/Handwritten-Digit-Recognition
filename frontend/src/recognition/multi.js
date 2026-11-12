@@ -54,3 +54,12 @@ export function buildMultiSampleForm({ image, labelText, consent, result, source
   if (result && result.modelVersion) form.append('modelVersion', String(result.modelVersion))
   return form
 }
+
+/**
+ * 根据用户的选择得出要提交的标签：
+ * confirm = 确认模型判断正确，直接用品串；correct = 用户自己输入正确串。
+ */
+export function resolveMultiSampleLabel(mode, predicted, input) {
+  if (mode === 'confirm') return String(predicted ?? '').trim()
+  return String(input ?? '').trim()
+}

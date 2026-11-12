@@ -9,7 +9,7 @@ import { prepareImage } from '@/recognition/image-import.js'
 import { appConfig } from '@/app-config.js'
 import { submitSample } from '@/api/collected.js'
 import { submitMulti } from '@/api/multi.js'
-import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, validateMultiLabel } from '@/recognition/multi.js'
+import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, resolveMultiSampleLabel, validateMultiLabel } from '@/recognition/multi.js'
 import { FEEDBACK_LABELS, buildFeedbackForm, feedbackMessage, validateFeedback } from '@/recognition/feedback.js'
 const pilot = appConfig.pilot
 
@@ -24,7 +24,7 @@ const canSubmit = computed(() => (state.inputKind === 'image' || !boardError.val
 
 const multi = reactive({ enabled: false, maxDigits: 3, loading: false, result: null, error: '',
   submittedImage: null, requestId: null, labelText: '', sampleSubmitting: false, sampleMessage: '',
-  sampleError: '', sampleDone: null })
+  sampleError: '', sampleDone: null, sampleMode: null })
 
 async function runMultiRecognition() {
   if (multi.loading) return
@@ -41,6 +41,7 @@ async function runMultiRecognition() {
   multi.sampleMessage = ''
   multi.sampleError = ''
   multi.sampleDone = null
+  multi.sampleMode = null
   multi.labelText = ''
   try {
     const image = await board.exportPng()
@@ -60,9 +61,9 @@ async function runMultiRecognition() {
   }
 }
 
-async function submitMultiSample() {
+async function submitMultiSample(mode) {
   if (multi.sampleSubmitting || !multi.submittedImage) return
-  const text = String(multi.labelText || '').trim()
+  const text = resolveMultiSampleLabel(mode, multi.result && multi.result.text, multi.labelText)
   const invalid = validateMultiLabel(text)
   if (invalid) {
     multi.sampleError = invalid
@@ -83,6 +84,7 @@ async function submitMultiSample() {
     }), { inputCurrent: () => true })
     multi.sampleMessage = feedbackMessage(response)
     multi.sampleDone = multi.requestId
+    multi.sampleMode = null
     multi.labelText = ''
   } catch (error) {
     multi.sampleError = error?.message || '提交失败，请稍后重试'
@@ -248,14 +250,17 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         </div>
         <p class="muted">{{ multi.result.hint }}（{{ multi.result.recognitionId ? "记录 #" + multi.result.recognitionId + " · " : "" }}模型 {{ multi.result.modelVersion }}）</p>
         <div v-if="multi.submittedImage && multi.sampleDone !== multi.requestId" class="multi-sample">
-          <label class="sample-input-row">
-            <span>你写的是什么？</span>
+          <p class="feedback-question">这次识别对了吗？</p>
+          <div class="feedback-actions">
+            <button type="button" class="primary" :disabled="multi.sampleSubmitting" @click="submitMultiSample('confirm')">✓ 对，就是 {{ multi.result.text }}</button>
+            <button type="button" :disabled="multi.sampleSubmitting" @click="multi.sampleMode = multi.sampleMode === 'correct' ? null : 'correct'">✗ 不对，我来输入</button>
+            <button type="button" :disabled="multi.sampleSubmitting" @click="multi.sampleDone = multi.requestId">跳过</button>
+          </div>
+          <div v-if="multi.sampleMode === 'correct'" class="sample-input-row">
+            <span>实际是：</span>
             <input v-model="multi.labelText" maxlength="4" inputmode="numeric" placeholder="例如 351"
                    aria-label="你实际写的数字" @input="multi.sampleError = ''" />
-          </label>
-          <div class="feedback-actions">
-            <button type="button" class="primary" :disabled="multi.sampleSubmitting || !multi.labelText" @click="submitMultiSample">{{ multi.sampleSubmitting ? '提交中…' : '提交标注' }}</button>
-            <button type="button" :disabled="multi.sampleSubmitting" @click="multi.sampleDone = multi.requestId">跳过</button>
+            <button type="button" class="primary" :disabled="multi.sampleSubmitting || !multi.labelText" @click="submitMultiSample('correct')">{{ multi.sampleSubmitting ? '提交中…' : '提交标注' }}</button>
           </div>
           <p v-if="!consentGiven" class="muted">提交前请先在左侧勾选同意，才会保存这张图。</p>
           <p v-if="multi.sampleError" class="notice error" role="alert">{{ multi.sampleError }}</p>
