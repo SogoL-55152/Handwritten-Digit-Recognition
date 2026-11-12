@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiSampleForm, multiSummary, resolveMultiSampleLabel, validateMultiLabel } from '../src/recognition/multi.js'
+import { MAX_DIGITS_OPTIONS, buildMultiForm, buildMultiQuery, buildMultiSampleForm, multiSummary, resolveMultiSampleLabel, validateMultiLabel } from '../src/recognition/multi.js'
 
 test('multi-digit options cover 1-4', () => {
   assert.deepEqual(MAX_DIGITS_OPTIONS, [1, 2, 3, 4])
@@ -73,4 +73,10 @@ test('verdict confirm reuses the predicted string, correct mode uses what the us
   assert.equal(resolveMultiSampleLabel('correct', '351', ' 357 '), '357')
   assert.equal(resolveMultiSampleLabel('correct', '351', ''), '')
   assert.equal(validateMultiLabel(resolveMultiSampleLabel('correct', '351', '357')), '')
+})
+
+test('query carries the digit limit and asks for enhancement only for images', () => {
+  assert.equal(buildMultiQuery(3, false), '?maxDigits=3')
+  assert.equal(buildMultiQuery(4, true), '?maxDigits=4&enhance=true')
+  assert.equal(buildMultiQuery(1, undefined), '?maxDigits=1')
 })

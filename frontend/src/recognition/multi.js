@@ -63,3 +63,10 @@ export function resolveMultiSampleLabel(mode, predicted, input) {
   if (mode === 'confirm') return String(predicted ?? '').trim()
   return String(input ?? '').trim()
 }
+
+/** 多位数接口的查询串：位数 + 是否需要照片增强。 */
+export function buildMultiQuery(maxDigits, enhance) {
+  const parts = [`maxDigits=${encodeURIComponent(maxDigits)}`]
+  if (enhance) parts.push('enhance=true')
+  return `?${parts.join('&')}`
+}

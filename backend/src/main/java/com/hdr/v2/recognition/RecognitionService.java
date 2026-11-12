@@ -94,6 +94,11 @@ public class RecognitionService {
     /** 多位数：切分 + 逐字识别后落库；同一 requestId 重复提交返回已存结果。 */
     public MultiResult predictMulti(long wid,long uid,String requestId,String source,int maxDigits,
                                     ImageValidator.Image image) {
+        return predictMulti(wid,uid,requestId,source,maxDigits,image,false);
+    }
+
+    public MultiResult predictMulti(long wid,long uid,String requestId,String source,int maxDigits,
+                                    ImageValidator.Image image,boolean enhance) {
         validateRequest(requestId,source);
         if(maxDigits<1 || maxDigits>4) throw new V2Exception(400,"maxDigits 必须是 1–4","VALIDATION");
         spaces.requireMember(wid,uid);
@@ -122,7 +127,7 @@ public class RecognitionService {
                 return repeatMulti(wid,uid,existing(wid,uid,requestId).get(0),source,image.digest());
             }
             id=keys.getKey().longValue();
-            ModelClient.MultiPrediction prediction=model.predictMulti(wid,requestId,selected,image,maxDigits);
+            ModelClient.MultiPrediction prediction=model.predictMulti(wid,requestId,selected,image,maxDigits,enhance);
             long elapsed=(System.nanoTime()-started)/1_000_000L;
             int saved=jdbc.update("""
                     UPDATE t_recognition_v2 SET status='SUCCEEDED',result_text=?,digits_json=?,accepted=?,

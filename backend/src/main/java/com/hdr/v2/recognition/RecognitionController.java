@@ -65,12 +65,16 @@ public class RecognitionController {
             @RequestPart("image") MultipartFile image,
             @RequestParam(defaultValue = "3") int maxDigits,
             @RequestParam(defaultValue = "WEB") String source,
+            @RequestParam(defaultValue = "false") boolean enhance,
             @RequestHeader("Idempotency-Key") String requestId, HttpServletRequest request) {
         long user = V2Principal.require(request).userId();
         spaces.requireMember(workspaceId, user);
         RecognitionService.validateRequest(requestId, source);
-        return Result.ok(service.predictMulti(workspaceId, user, requestId.toLowerCase(java.util.Locale.ROOT),
-                source, maxDigits, images.validate(image)));
+        ImageValidator.Image validated = images.validate(image);
+        String normalizedId = requestId.toLowerCase(java.util.Locale.ROOT);
+        return Result.ok(enhance
+                ? service.predictMulti(workspaceId, user, normalizedId, source, maxDigits, validated, true)
+                : service.predictMulti(workspaceId, user, normalizedId, source, maxDigits, validated));
     }
 
     @PostMapping(value = "/preview-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

@@ -148,6 +148,12 @@ public class ModelClient {
     /** 多位数字预览：切分与逐字推理都在模型服务内完成；不写数据库由调用方决定。 */
     public MultiPrediction predictMulti(long workspaceId, String requestId, CatalogueService.Model model,
                                         ImageValidator.Image image, int maxDigits) {
+        return predictMulti(workspaceId, requestId, model, image, maxDigits, false);
+    }
+
+    /** enhance=true 只用于图片导入：先做照片增强再切分。 */
+    public MultiPrediction predictMulti(long workspaceId, String requestId, CatalogueService.Model model,
+                                        ImageValidator.Image image, int maxDigits, boolean enhance) {
         requireConfigured();
         if(model.sha256()==null || model.sha256().isBlank() || model.artifact()==null || model.artifact().isBlank())
             throw new V2Exception(503,"当前模型缺少可信文件信息","MODEL_UNAVAILABLE");
@@ -161,7 +167,8 @@ public class ModelClient {
         body.add("preprocessVersion",model.preprocessVersion());
         // 位数走查询参数：multipart 的 part 数有上限（字段也占 part），不再往表单里加字段。
         try {
-            JsonNode data=client.post().uri("/internal/v2/predict/multi?maxDigits="+maxDigits).header("X-HDR-Internal-Token",internalToken)
+            String uri="/internal/v2/predict/multi?maxDigits="+maxDigits+(enhance?"&enhance=1":"");
+            JsonNode data=client.post().uri(uri).header("X-HDR-Internal-Token",internalToken)
                     .contentType(MediaType.MULTIPART_FORM_DATA).body(body).exchange((request,response)->read(response));
             String text=data.path("text").asText("");
             if(!requestId.equals(data.path("requestId").asText()) || !model.version().equals(data.path("modelVersion").asText())

@@ -212,9 +212,10 @@ def predict_multi():
     """多位数字预览：切分后逐字识别。是否落库、是否计入统计由调用方决定。"""
     started = time.perf_counter()
     try:
-        invalid = _validate_form(allow_args=("maxDigits",))
+        invalid = _validate_form(allow_args=("maxDigits", "enhance"))
         if invalid is not None:
             return invalid
+        enhance = request.args.get("enhance", "").lower() in ("1", "true", "yes")
         try:
             max_digits = int(request.args.get("maxDigits", "3"))
         except (TypeError, ValueError):
@@ -232,6 +233,12 @@ def predict_multi():
             image = request.files["image"]
             payload = image.stream.read(IMAGE_MAX_BYTES + 1)
             gray = gray_from_payload(payload, image.mimetype)
+            if enhance:
+                from services.image_enhance import enhance_photo
+                try:
+                    gray = enhance_photo(gray)
+                except ValueError:
+                    return error_response(400, "图片对比度过低，无法分离笔迹", "BLANK_IMAGE")
             try:
                 segments, ink, mask = segments_of(gray)
             except ValueError:

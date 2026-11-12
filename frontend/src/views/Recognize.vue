@@ -28,11 +28,13 @@ const multi = reactive({ enabled: false, maxDigits: 3, loading: false, result: n
 
 async function runMultiRecognition() {
   if (multi.loading) return
-  if (state.inputKind !== 'drawing') {
-    multi.error = '多位数预览目前只支持画板书写。'
-    return
-  }
-  if (!state.hasInk || state.drawing) {
+  const fromImage = state.inputKind === 'image'
+  if (fromImage) {
+    if (!state.image || !controller.selectedFile()) {
+      multi.error = '请先选择一张图片。'
+      return
+    }
+  } else if (!state.hasInk || state.drawing) {
     multi.error = '请先在画板写好数字，抬起指针后再提交。'
     return
   }
@@ -44,11 +46,11 @@ async function runMultiRecognition() {
   multi.sampleMode = null
   multi.labelText = ''
   try {
-    const image = await board.exportPng()
+    const image = fromImage ? controller.selectedFile() : await board.exportPng()
     multi.submittedImage = image
     const requestId = crypto.randomUUID()
     const response = await submitMulti(workspace.getSnapshot(), buildMultiForm(image, multi.maxDigits),
-      requestId, { inputCurrent: () => true })
+      requestId, { inputCurrent: () => true, maxDigits: multi.maxDigits, enhance: fromImage })
     const summary = multiSummary(response)
     if (!summary.valid) throw new Error('多位数接口返回了无法解析的结果')
     multi.result = { ...summary, modelVersion: response.modelVersion, requestId: response.requestId }
@@ -98,7 +100,9 @@ function submitPrimary() {
   return controller.submit()
 }
 
-const multiReady = computed(() => state.inputKind === 'drawing' && state.hasInk && !state.drawing && !multi.loading)
+const multiReady = computed(() => (state.inputKind === 'image'
+  ? Boolean(state.image) && !state.validating
+  : state.hasInk && !state.drawing) && !multi.loading)
 
 const CONSENT_KEY = 'hdr.consent.v1'
 const consentGiven = ref(localStorage.getItem(CONSENT_KEY) === '1')
@@ -252,8 +256,8 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         <button v-else @click="board?.clear()">清空画板</button>
       </div>
       <label class="consent-row multi-toggle">
-        <input type="checkbox" v-model="multi.enabled" :disabled="state.inputKind === 'image'" />
-        <span>多位数识别：先在画板上写 1–4 个间隔的数字，再点识别</span>
+        <input type="checkbox" v-model="multi.enabled" />
+        <span>多位数识别：写 1–4 个间隔的数字（画板或导入图片）</span>
         <select v-model.number="multi.maxDigits" :disabled="!multi.enabled" aria-label="最多几位">
           <option v-for="value in MAX_DIGITS_OPTIONS" :key="value" :value="value">最多 {{ value }} 位</option>
         </select>
