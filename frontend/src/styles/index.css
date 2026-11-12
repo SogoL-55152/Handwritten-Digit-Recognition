@@ -108,6 +108,11 @@ input[type='checkbox'] { width: 16px; height: 16px; min-height: 0; padding: 0; m
 .checkbox-row input[type='checkbox'] { width: 16px; height: 16px; }
 .cell-detail { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); max-width: 420px; overflow-wrap: anywhere; }
 tr.selected td { background: #f3f8ff; }
+.feedback-inline { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #dbe3ec; }
+.feedback-question { margin: 0 0 10px; font-size: 15px; }
+.feedback-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.label-grid.compact { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 8px 0; }
+.label-grid.compact button { padding: 8px 0; font-size: 15px; }
 .label-grid { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
 .label-grid button { padding: 10px 0; font-size: 16px; font-weight: 600; }
 .consent-row { flex-direction: row; align-items: center; gap: 10px; font-weight: 500; margin-top: 4px; }

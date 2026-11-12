@@ -20,44 +20,41 @@ const controller = createRecognitionController({ session: user, workspace, expor
 const state = controller.state
 const canSubmit = computed(() => (state.inputKind === 'image' || !boardError.value) && controller.canSubmit())
 
-const feedback = reactive({ label: null, consent: false, submitting: false, message: '', error: '', sentFor: null })
+const CONSENT_KEY = 'hdr.consent.v1'
+const consentGiven = ref(localStorage.getItem(CONSENT_KEY) === '1')
+function setConsent(value) {
+  consentGiven.value = Boolean(value)
+  localStorage.setItem(CONSENT_KEY, consentGiven.value ? '1' : '0')
+  if (consentGiven.value) feedbackErrors.value = {}
+}
+
+const feedback = reactive({ submitting: false, message: '', error: '', sentFor: null, wrongOpen: false })
 const feedbackErrors = ref({})
 const feedbackDone = computed(() => !state.submitted || feedback.sentFor === state.submitted.requestId)
+const predictedLabel = computed(() => (state.result && typeof state.result.digit === 'number' ? state.result.digit : null))
 
-function chooseLabel(value) {
-  if (feedbackDone.value || feedback.submitting) return
-  feedback.label = value
-  feedbackErrors.value = {}
-}
-
-function skipFeedback() {
-  if (!state.submitted) return
-  feedback.sentFor = state.submitted.requestId
-  feedback.message = ''
-  feedback.error = ''
-}
-
-async function sendFeedback() {
+/** 提交用户标注：label 必须是用户自己确认的数字，不是模型预测。 */
+async function sendFeedback(label) {
   const submitted = state.submitted
   if (!submitted || feedback.submitting || feedbackDone.value) return
-  feedbackErrors.value = validateFeedback({ label: feedback.label, consent: feedback.consent })
-  if (Object.keys(feedbackErrors.value).length) return
+  feedbackErrors.value = validateFeedback({ label, consent: consentGiven.value })
+  if (Object.keys(feedbackErrors.value).length) {
+    feedback.error = consentGiven.value ? '' : '请先在左侧勾选同意，才会保存这张图。'
+    return
+  }
   feedback.submitting = true
   feedback.error = ''
   try {
-    const snapshot = workspace.getSnapshot()
-    const form = buildFeedbackForm({
+    const response = await submitSample(workspace.getSnapshot(), buildFeedbackForm({
       image: submitted.image,
-      label: feedback.label,
+      label,
       consent: true,
       result: state.result,
       source: 'WEB'
-    })
-    const response = await submitSample(snapshot, form, { inputCurrent: () => true })
+    }), { inputCurrent: () => true })
     feedback.message = feedbackMessage(response)
     feedback.sentFor = submitted.requestId
-    feedback.label = null
-    feedback.consent = false
+    feedback.wrongOpen = false
   } catch (error) {
     feedback.error = error?.message || '提交失败，请稍后重试'
   } finally {
@@ -65,14 +62,29 @@ async function sendFeedback() {
   }
 }
 
-// 每次重新识别都重置标注状态，避免把上一张的标签带到新图上
-watch(() => state.submitted?.requestId, () => {
-  feedback.label = null
-  feedback.consent = false
+const confirmCorrect = () => {
+  if (predictedLabel.value === null) return
+  void sendFeedback(predictedLabel.value)
+}
+const pickCorrect = (value) => {
+  feedback.wrongOpen = false
+  void sendFeedback(value)
+}
+const skipFeedback = () => {
+  if (!state.submitted) return
+  feedback.sentFor = state.submitted.requestId
   feedback.message = ''
   feedback.error = ''
+}
+
+// 每次重新识别都重置标注状态，避免把上一张的标签带到新图上
+watch(() => state.submitted?.requestId, () => {
+  feedback.message = ''
+  feedback.error = ''
+  feedback.wrongOpen = false
   feedbackErrors.value = {}
 })
+
 function selectFile(event) {
   const file = event.target.files?.[0]
   event.target.value = '' // Selecting the same file again still emits change; never retain a path.
@@ -122,6 +134,10 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         <button v-if="state.inputKind === 'image'" data-testid="image-remove" :disabled="!state.image && !state.validating" @click="controller.removeImage()">移除图片</button>
         <button v-else @click="board?.clear()">清空画板</button>
       </div>
+      <label class="consent-row">
+        <input type="checkbox" :checked="consentGiven" @change="setConsent($event.target.checked)" />
+        <span>同意把识别图片与我的标注用于模型评估与改进（勾选一次后长期有效，可随时取消）</span>
+      </label>
       <p v-if="state.inputKind !== 'image'" class="muted">{{ !state.hasInk ? '画板为空，请先书写。' : state.drawing ? '书写中，请抬起指针后提交。' : '继续书写或清空会使之前的识别结果失效。' }}</p>
     </section>
     <section class="panel result-panel" aria-live="polite" :aria-busy="state.loading">
@@ -138,38 +154,40 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         <p class="muted">置信度表示本次预测的模型评分，不是线上识别准确率。</p>
       </template>
       <div v-else class="empty-state"><h3>等待你的第一个数字</h3><p>书写或选择图片后，点击识别按钮。这里仅展示服务器返回的结果，不生成示例预测。</p></div>
+      <div v-if="state.submitted && !state.loading" class="feedback-inline" aria-live="polite">
+        <template v-if="state.result">
+          <p class="feedback-question">这个 <strong>{{ state.result.digit }}</strong> 对吗？</p>
+          <div class="feedback-actions" v-if="!feedbackDone">
+            <button type="button" class="primary" :disabled="feedback.submitting" @click="confirmCorrect">✓ 对，就是 {{ state.result.digit }}</button>
+            <button type="button" :disabled="feedback.submitting" @click="feedback.wrongOpen = !feedback.wrongOpen">✗ 不对，实际是…</button>
+          </div>
+          <div v-if="feedback.wrongOpen && !feedbackDone" class="label-grid compact">
+            <button
+              v-for="value in FEEDBACK_LABELS"
+              :key="value"
+              type="button"
+              :disabled="feedback.submitting"
+              @click="pickCorrect(value)"
+            >{{ value }}</button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="feedback-question">这次没有给出结果。你实际写的是几？</p>
+          <div v-if="!feedbackDone" class="label-grid compact">
+            <button
+              v-for="value in FEEDBACK_LABELS"
+              :key="value"
+              type="button"
+              :disabled="feedback.submitting"
+              @click="pickCorrect(value)"
+            >{{ value }}</button>
+          </div>
+        </template>
+        <p v-if="feedback.message" class="notice" role="status">{{ feedback.message }}</p>
+        <p v-if="feedback.error" class="notice error" role="alert">{{ feedback.error }}</p>
+        <p v-if="!feedbackDone" class="muted"><button type="button" class="link" @click="skipFeedback">跳过这次标注</button></p>
+      </div>
       <hr /><p class="muted">{{ pilot ? '切换输入、换图、移除、重画或退出后，旧请求不会覆盖当前结果。' : '空间默认模型由服务器决定。切换空间、输入、换图、移除、重画或退出后，旧请求不会覆盖当前结果。' }}超时后再次点击属于新的识别操作。</p>
-    </section>
-    <section v-if="state.submitted && !state.loading" class="panel feedback-panel" aria-live="polite">
-      <p class="eyebrow">可选</p>
-      <h2>你写的是几？</h2>
-      <p class="muted" v-if="state.result">
-        模型认为是 <strong>{{ state.result.digit }}</strong>（置信度 {{ (state.result.confidence * 100).toFixed(1) }}%）。
-        如果不对，请点正确的数字——你的标注会帮我们改进。
-      </p>
-      <p class="muted" v-else>这次没有给出结果。如果你愿意，可以告诉我们实际写的是几，这张图会作为改进依据。</p>
-      <div class="label-grid">
-        <button
-          v-for="value in FEEDBACK_LABELS"
-          :key="value"
-          type="button"
-          :class="{ primary: feedback.label === value }"
-          :disabled="feedbackDone || feedback.submitting"
-          @click="chooseLabel(value)"
-        >{{ value }}</button>
-      </div>
-      <label class="consent-row">
-        <input id="feedback-consent" type="checkbox" v-model="feedback.consent" :disabled="feedbackDone || feedback.submitting" />
-        <span>我同意把这张图与我的标注用于模型评估与改进（不用于其他用途，可要求删除）</span>
-      </label>
-      <p v-if="feedbackErrors.label" class="field-error">{{ feedbackErrors.label }}</p>
-      <p v-if="feedbackErrors.consent" class="field-error">{{ feedbackErrors.consent }}</p>
-      <div class="actions">
-        <button type="button" class="primary" :disabled="feedbackDone || feedback.submitting || !feedback.label" @click="sendFeedback">{{ feedback.submitting ? '提交中…' : '提交标注' }}</button>
-        <button type="button" :disabled="feedback.submitting || feedbackDone" @click="skipFeedback">跳过</button>
-      </div>
-      <p v-if="feedback.message" class="notice" role="status">{{ feedback.message }}</p>
-      <p v-if="feedback.error" class="notice error" role="alert">{{ feedback.error }}</p>
     </section>
   </div>
 </template>
