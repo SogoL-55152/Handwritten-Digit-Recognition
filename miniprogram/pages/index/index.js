@@ -4,7 +4,7 @@ const {
   readSession, clearSession, verifySession, snapshot, isSessionCurrent,
   isWorkspaceCurrent, selectWorkspace, subscribe
 } = require('../../utils/session')
-const { createRequestId, validWorkspace, validateResult } = require('../../utils/recognition')
+const { createRequestId, validWorkspace, validateResult, multiQuery, validateMultiResult } = require('../../utils/recognition')
 const { chooseAlbumImage, validateImage } = require('../../utils/image-import')
 
 Page({
@@ -13,7 +13,8 @@ Page({
     pilot: false, configurationError: '',
     workspaces: [], workspaceIndex: -1, workspace: null, workspaceReady: false, spaceLoading: false,
     hasInk: false, recognizing: false, recognitionError: '', result: null,
-    inputKind: 'drawing', imagePath: '', imageInfo: null, imageBusy: false, imageError: ''
+    inputKind: 'drawing', imagePath: '', imageInfo: null, imageBusy: false, imageError: '',
+    multiEnabled: false, multiDigits: 3, multiBusy: false, multiResult: null, multiError: ''
   },
 
   async onShow() {
@@ -256,7 +257,8 @@ Page({
     this._requestIdTask = null
     if (this._upload) this._upload.abort()
     this._upload = null
-    if (this._active) this.setData({ recognizing: false, result: null, recognitionError: '' })
+    if (this._active) this.setData({ recognizing: false, result: null, recognitionError: '',
+      multiBusy: false, multiResult: null, multiError: '' })
   },
 
   async recognize() {
@@ -303,6 +305,67 @@ Page({
           error.code === 413 ? '图片过大（单图最多 5 MiB），请更换图片或重新书写。' : error.message })
     } finally {
       if (current()) { this._upload = null; this._requestIdTask = null; this.setData({ recognizing: false }) }
+    }
+  },
+
+  onMultiToggle(event) {
+    if (!this._active) return
+    const enabled = !!event.detail.value
+    this._cancelRecognition()
+    this.setData({ multiEnabled: enabled, multiResult: null, multiError: '' })
+  },
+
+  onDigitsChange(event) {
+    if (!this._active) return
+    this._cancelRecognition()
+    this.setData({ multiDigits: Number(event.detail.value) + 1, multiResult: null, multiError: '' })
+  },
+
+  async recognizeMulti() {
+    if (!this._active || !this.data.authorized || !this.data.workspaceReady ||
+        this.data.multiBusy || !getApp().globalData.verified) return
+    const kind = this.data.inputKind
+    const imported = this._image
+    const board = kind === 'drawing' ? this.selectComponent('#business-board') : null
+    const drawing = board && board.getSnapshot()
+    if (kind === 'image') {
+      if (!imported || this.data.imageBusy || !isWorkspaceCurrent(imported.scope) ||
+          imported.userId !== this.data.user.id) return
+    } else if (!drawing || !this.data.hasInk || !drawing.hasInk || !drawing.ready || drawing.drawing) return
+    const saved = snapshot()
+    const life = this._life
+    const operation = this._recognitionOperation = (this._recognitionOperation || 0) + 1
+    const current = () => this._active && life === this._life && operation === this._recognitionOperation &&
+      isWorkspaceCurrent(saved) && kind === this.data.inputKind && (kind === 'image'
+        ? imported === this._image && !this.data.imageBusy
+        : board.getSnapshot().ready && board.getSnapshot().revision === drawing.revision)
+    this.setData({ multiBusy: true, multiResult: null, multiError: '' })
+    try {
+      const image = kind === 'image' ? imported : await board.exportSnapshot()
+      if (!current() || (kind === 'drawing' && image.revision !== drawing.revision)) return
+      this._requestIdTask = createRequestId({
+        isCurrent: current,
+        fallback: () => request({
+          url: `/api/v2/workspaces/${encodeURIComponent(saved.workspaceId)}/recognitions/request-id`,
+          snapshot: saved, isCurrent: current
+        })
+      })
+      const requestId = await this._requestIdTask
+      if (!current()) return
+      this._upload = upload({
+        url: `/api/v2/workspaces/${encodeURIComponent(saved.workspaceId)}/recognitions/multi` +
+          multiQuery(this.data.multiDigits, kind === 'image'),
+        filePath: image.filePath, formData: { source: 'MINIPROGRAM' },
+        header: { 'Idempotency-Key': requestId }, snapshot: saved, isCurrent: current
+      })
+      const result = await this._upload
+      if (current()) this.setData({ multiResult: validateMultiResult(result, requestId) })
+    } catch (error) {
+      if (current() && !error.stale && !error.aborted) this.setData({ multiError:
+        error.code === 422 ? '无法可靠识别这串数字，请减少位数后重试。' :
+          error.code === 413 ? '图片过大（单图最多 5 MiB），请更换图片。' : error.message })
+    } finally {
+      if (current()) { this._upload = null; this._requestIdTask = null; this.setData({ multiBusy: false }) }
     }
   },
 

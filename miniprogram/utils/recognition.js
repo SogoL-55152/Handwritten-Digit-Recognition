@@ -112,4 +112,34 @@ function validateResult(result, requestId) {
   return { ...result, confidencePercent: (result.confidence * 100).toFixed(2) }
 }
 
-module.exports = { createRequestId, validWorkspace, validateResult }
+/** 多位数接口查询串：位数 + 图片导入时是否先做照片增强。 */
+function multiQuery(maxDigits, enhance) {
+  return `?maxDigits=${encodeURIComponent(maxDigits)}${enhance ? '&enhance=true' : ''}`
+}
+
+function validMultiDigit(item) {
+  return !!(item && Number.isInteger(item.digit) && item.digit >= 0 && item.digit <= 9 &&
+    Number.isFinite(item.confidence) && item.confidence >= 0 && item.confidence <= 1)
+}
+
+function validateMultiResult(result, requestId) {
+  if (!result || result.requestId !== requestId || typeof result.recognitionId !== 'string' || !result.recognitionId ||
+      typeof result.text !== 'string' || !/^[0-9]{1,4}$/.test(result.text) ||
+      !Array.isArray(result.digits) || result.digits.length !== result.text.length ||
+      result.digits.some((item) => !validMultiDigit(item)) || typeof result.accepted !== 'boolean' ||
+      !modelToken(result.modelId) || !modelToken(result.modelVersion) || !modelToken(result.preprocessVersion) ||
+      result.source !== 'MINIPROGRAM' ||
+      !Number.isFinite(result.processingMs) || result.processingMs < 0 ||
+      typeof result.createdAt !== 'string' || !Number.isFinite(Date.parse(result.createdAt))) {
+    throw new Error('多位数识别响应与请求或基线合同不一致，请重新操作')
+  }
+  const digits = result.digits.map((item, index) => ({
+    position: index + 1,
+    digit: item.digit,
+    confidencePercent: (item.confidence * 100).toFixed(1),
+    low: item.confidence < 0.9
+  }))
+  return { ...result, digits, lowCount: digits.filter((item) => item.low).length }
+}
+
+module.exports = { createRequestId, validWorkspace, validateResult, multiQuery, validateMultiResult }

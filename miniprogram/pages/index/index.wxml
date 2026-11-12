@@ -41,9 +41,27 @@
         <view class="error" wx:if="{{imageError}}">{{imageError}}</view>
         <view class="note">选择后仅预览，点击“识别图片”才上传。不扫描相册，不使用相机。</view>
       </view>
+      <view class="multi-row">
+        <switch checked="{{multiEnabled}}" bindchange="onMultiToggle" />
+        <picker range="{{[1,2,3,4]}}" value="{{multiDigits - 1}}" bindchange="onDigitsChange">
+          <view class="note">最多 {{multiDigits}} 位数字</view>
+        </picker>
+      </view>
+      <view class="note" wx:if="{{multiEnabled}}">先在画板写 1–4 个间隔的数字，或导入这样的图片，再点下方的多位数识别。</view>
       <button id="recognize-input" class="recognize" bindtap="recognize" loading="{{recognizing}}" disabled="{{recognizing || (inputKind === 'image' ? (!imagePath || imageBusy) : !hasInk)}}">{{recognizing ? '正在识别…' : inputKind === 'image' ? '识别图片' : '识别这个数字'}}</button>
       <view class="note">每次只识别一个数字。请使用白底黑字、清晰且适当留白的图片。</view>
       <view class="error" wx:if="{{recognitionError}}">{{recognitionError}}</view>
+      <view class="note">多位数：切分后逐字识别整串，不认连笔；结果会写入识别历史。</view>
+      <button wx:if="{{multiEnabled}}" id="recognize-multi" class="recognize" bindtap="recognizeMulti" loading="{{multiBusy}}" disabled="{{multiBusy || (inputKind === 'image' ? (!imagePath || imageBusy) : !hasInk)}}">{{multiBusy ? '正在识别…' : '识别多位数字'}}</button>
+      <view class="error" wx:if="{{multiError}}">{{multiError}}</view>
+      <view class="card result" wx:if="{{multiResult}}">
+        <view class="welcome">识别结果：{{multiResult.text}}</view>
+        <view class="digit-chips">
+          <text wx:for="{{multiResult.digits}}" wx:key="position" class="chip {{item.low ? 'low' : ''}}">{{item.position}}: {{item.digit}} ({{item.confidencePercent}}%)</text>
+        </view>
+        <view class="note" wx:if="{{multiResult.lowCount}}">有 {{multiResult.lowCount}} 位置信度低于 90%，建议重写。</view>
+        <view class="note">记录 #{{multiResult.recognitionId}} · 模型 {{multiResult.modelVersion}}</view>
+      </view>
       <view class="card result" wx:if="{{result}}">
         <view class="welcome">识别数字：{{result.digit}}</view>
         <view>置信度：{{result.confidencePercent}}%</view>

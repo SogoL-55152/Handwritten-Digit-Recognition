@@ -341,7 +341,7 @@ test('request IDs never depend on Math.random or timestamps', async (t) => {
 })
 
 test('workspace and recognition result validation retain their contract and exports', () => {
-  assert.deepEqual(Object.keys(require('../utils/recognition')).sort(), ['createRequestId', 'validWorkspace', 'validateResult'])
+  assert.deepEqual(Object.keys(require('../utils/recognition')).sort(), ['createRequestId', 'multiQuery', 'validWorkspace', 'validateMultiResult', 'validateResult'])
   const workspace = { id: '9007199254741001', name: '', role: 'OWNER', status: 'ACTIVE' }
   assert.equal(validWorkspace(workspace), true)
   assert.equal(validWorkspace({ ...workspace, role: 'VIEWER' }), false)
