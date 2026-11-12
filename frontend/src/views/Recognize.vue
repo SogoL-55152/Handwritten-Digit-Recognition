@@ -268,7 +268,6 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
         <p v-if="multi.sampleMessage" class="notice" role="status">{{ multi.sampleMessage }}</p>
       </div>
       <p v-if="multi.error" class="notice error" role="alert">{{ multi.error }}</p>
-      <div v-else class="empty-state"><h3>等待你的第一个数字</h3><p>书写或选择图片后，点击识别按钮。这里仅展示服务器返回的结果，不生成示例预测。</p></div>
       <div v-if="state.submitted && !state.loading" class="feedback-inline" aria-live="polite">
         <template v-if="state.result">
           <p class="feedback-question">这个 <strong>{{ state.result.digit }}</strong> 对吗？</p>
