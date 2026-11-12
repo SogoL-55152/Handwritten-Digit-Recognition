@@ -266,3 +266,6 @@ desktop.ini
 
 # 用户采集样本（含个人笔迹，不入仓库）
 /collected-samples/
+
+# 识别原图（用户笔迹，不入仓库）
+/recognition-images/

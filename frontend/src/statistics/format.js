@@ -86,3 +86,23 @@ export function recentRows(list) {
     }
   })
 }
+
+/** 单条识别详情：翻成可读的键值行，供弹窗展示。 */
+export function detailRows(detail) {
+  if (!detail) return []
+  const statusLabel = detail.status === 'SUCCEEDED' ? '已完成' : detail.status === 'FAILED' ? '失败' : '处理中'
+  const result = detail.resultText || (detail.digit !== null && detail.digit !== undefined ? String(detail.digit) : '—')
+  return [
+    { key: '结果', value: result },
+    { key: '状态', value: statusLabel },
+    { key: '是否可用', value: detail.accepted ? '可接受' : '不确定' },
+    { key: '置信度', value: typeof detail.confidence === 'number' ? `${(detail.confidence * 100).toFixed(1)}%` : '—' },
+    { key: '耗时', value: typeof detail.processingMs === 'number' ? `${detail.processingMs}ms` : '—' },
+    { key: '失败分类', value: detail.failureCode || '—' },
+    { key: '模型', value: detail.modelVersion || '—' },
+    { key: '预处理', value: detail.preprocessVersion || '—' },
+    { key: '来源', value: detail.source === 'WEB' ? '网页' : detail.source === 'MINIPROGRAM' ? '小程序' : (detail.source || '—') },
+    { key: '时间', value: String(detail.createdAt || '').replace('T', ' ').slice(0, 19) },
+    { key: '请求 ID', value: detail.requestId || '—' }
+  ]
+}

@@ -446,7 +446,8 @@ class IdentityWorkspaceIT {
 
     private RecognitionService recognitionService(ModelClient model) {
         return new RecognitionService(jdbc, new CatalogueService(jdbc), workspaces, model,
-                mock(RateLimiter.class), new W2Limits(3, 60), new com.fasterxml.jackson.databind.ObjectMapper());
+                mock(RateLimiter.class), new W2Limits(3, 60), new com.fasterxml.jackson.databind.ObjectMapper(),
+                new com.hdr.v2.recognition.RecognitionImageStore("target/test-recognition-images"));
     }
 
     private AuthDtos.Session register() {

@@ -32,12 +32,13 @@ public class RecognitionService {
     private final W2Limits limits;
     private final Semaphore permits=new Semaphore(2);
     private final com.fasterxml.jackson.databind.ObjectMapper mapper;
+    private final RecognitionImageStore imageStore;
 
     public RecognitionService(JdbcTemplate jdbc,CatalogueService catalogue,WorkspaceService spaces,
                               ModelClient model,RateLimiter limiter,W2Limits limits,
-                              com.fasterxml.jackson.databind.ObjectMapper mapper) {
+                              com.fasterxml.jackson.databind.ObjectMapper mapper,RecognitionImageStore imageStore) {
         this.jdbc=jdbc; this.catalogue=catalogue; this.spaces=spaces; this.model=model; this.limiter=limiter;
-        this.limits=limits; this.mapper=mapper;
+        this.limits=limits; this.mapper=mapper; this.imageStore=imageStore;
     }
     public Recognition predict(long wid,long uid,String requestId,String source,ImageValidator.Image image) {
         validateRequest(requestId,source);
@@ -52,13 +53,16 @@ public class RecognitionService {
         long id=0;
         try {
             CatalogueService.Model selected=catalogue.defaultModel(wid);
+            String stored=imageStore.save(wid,image);
             GeneratedKeyHolder keys=new GeneratedKeyHolder();
             try {
                 jdbc.update(connection->{
-                    var statement=connection.prepareStatement("INSERT INTO t_recognition_v2(workspace_id,creator_id,request_id,image_digest,source,model_id,model_version,preprocess_version) VALUES(?,?,?,?,?,?,?,?)",Statement.RETURN_GENERATED_KEYS);
+                    var statement=connection.prepareStatement("INSERT INTO t_recognition_v2(workspace_id,creator_id,request_id,image_digest,image_path,image_type,source,model_id,model_version,preprocess_version) VALUES(?,?,?,?,?,?,?,?,?,?)",Statement.RETURN_GENERATED_KEYS);
                     statement.setLong(1,wid); statement.setLong(2,uid); statement.setString(3,requestId);
-                    statement.setString(4,image.digest()); statement.setString(5,source); statement.setLong(6,Long.parseLong(selected.id()));
-                    statement.setString(7,selected.version()); statement.setString(8,selected.preprocessVersion()); return statement;
+                    statement.setString(4,image.digest()); statement.setString(5,stored);
+                    statement.setString(6,image.contentType()); statement.setString(7,source);
+                    statement.setLong(8,Long.parseLong(selected.id()));
+                    statement.setString(9,selected.version()); statement.setString(10,selected.preprocessVersion()); return statement;
                 },keys);
             } catch(DuplicateKeyException conflict) {
                 return repeat(wid,uid,existing(wid,uid,requestId).get(0),source,image.digest());
@@ -97,13 +101,16 @@ public class RecognitionService {
         long id=0;
         try {
             CatalogueService.Model selected=catalogue.defaultModel(wid);
+            String stored=imageStore.save(wid,image);
             GeneratedKeyHolder keys=new GeneratedKeyHolder();
             try {
                 jdbc.update(connection->{
-                    var statement=connection.prepareStatement("INSERT INTO t_recognition_v2(workspace_id,creator_id,request_id,image_digest,source,model_id,model_version,preprocess_version) VALUES(?,?,?,?,?,?,?,?)",Statement.RETURN_GENERATED_KEYS);
+                    var statement=connection.prepareStatement("INSERT INTO t_recognition_v2(workspace_id,creator_id,request_id,image_digest,image_path,image_type,source,model_id,model_version,preprocess_version) VALUES(?,?,?,?,?,?,?,?,?,?)",Statement.RETURN_GENERATED_KEYS);
                     statement.setLong(1,wid); statement.setLong(2,uid); statement.setString(3,requestId);
-                    statement.setString(4,image.digest()); statement.setString(5,source); statement.setLong(6,Long.parseLong(selected.id()));
-                    statement.setString(7,selected.version()); statement.setString(8,selected.preprocessVersion()); return statement;
+                    statement.setString(4,image.digest()); statement.setString(5,stored);
+                    statement.setString(6,image.contentType()); statement.setString(7,source);
+                    statement.setLong(8,Long.parseLong(selected.id()));
+                    statement.setString(9,selected.version()); statement.setString(10,selected.preprocessVersion()); return statement;
                 },keys);
             } catch(DuplicateKeyException conflict) {
                 return repeatMulti(wid,uid,existing(wid,uid,requestId).get(0),source,image.digest());
@@ -182,6 +189,39 @@ public class RecognitionService {
         if(rows.isEmpty()) throw new V2Exception(404,"识别记录不存在");
         return rows.get(0);
     }
+    /** 单条记录详情：单字与多位数共用；只允许本人查看。 */
+    public record Detail(String recognitionId,String requestId,String status,Integer digit,String resultText,
+            Boolean accepted,Double confidence,Long processingMs,String modelId,String modelVersion,
+            String preprocessVersion,String source,String failureCode,String createdAt,boolean hasImage) {}
+
+    public Detail detail(long wid,long uid,long id) {
+        spaces.requireMember(wid,uid);
+        java.util.List<Detail> rows=jdbc.query("""
+                SELECT * FROM t_recognition_v2 WHERE id=? AND workspace_id=? AND creator_id=?
+                """,(rs,i)->new Detail(rs.getString("id"),rs.getString("request_id"),rs.getString("status"),
+                rs.getObject("digit")==null?null:rs.getInt("digit"),rs.getString("result_text"),
+                rs.getInt("accepted")==1,rs.getObject("confidence")==null?null:rs.getDouble("confidence"),
+                rs.getObject("processing_ms")==null?null:rs.getLong("processing_ms"),rs.getString("model_id"),
+                rs.getString("model_version"),rs.getString("preprocess_version"),rs.getString("source"),
+                rs.getString("failure_code"),rs.getTimestamp("created_at").toInstant().toString(),
+                rs.getString("image_path")!=null),id,wid,uid);
+        if(rows.isEmpty()) throw new V2Exception(404,"识别记录不存在");
+        return rows.get(0);
+    }
+
+    /** 读取该记录的原图；旧记录没有图时返回 404。 */
+    public record StoredImage(byte[] bytes,String contentType) {}
+
+    public StoredImage image(long wid,long uid,long id) {
+        spaces.requireMember(wid,uid);
+        java.util.List<String> paths=jdbc.query("SELECT image_path FROM t_recognition_v2 WHERE id=? AND workspace_id=? AND creator_id=?",
+                (rs,i)->rs.getString(1),id,wid,uid);
+        if(paths.isEmpty()) throw new V2Exception(404,"识别记录不存在");
+        String path=paths.get(0);
+        byte[] bytes=imageStore.read(path);
+        return new StoredImage(bytes,imageStore.contentTypeOf(path).orElse("application/octet-stream"));
+    }
+
     private List<Existing> existing(long wid,long uid,String requestId) {
         return jdbc.query("SELECT id,image_digest,source,status FROM t_recognition_v2 WHERE workspace_id=? AND creator_id=? AND request_id=?",(rs,i)->new Existing(rs.getLong(1),rs.getString(2),rs.getString(3),rs.getString(4)),wid,uid,requestId);
     }

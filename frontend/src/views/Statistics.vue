@@ -1,12 +1,13 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { platformStatistics, recentPlatform, recentSpace, spaceStatistics } from '@/api/statistics.js'
 import { useUserStore } from '@/stores/user.js'
-import { dailySeries, modelRows, recentRows, summaryCards, trainingCard } from '@/statistics/format.js'
+import { dailySeries, detailRows, modelRows, recentRows, summaryCards, trainingCard } from '@/statistics/format.js'
+import { recognitionDetail, recognitionImage } from '@/api/recognitions.js'
 import { dailyOption, modelShareOption } from '@/statistics/chart.js'
 
 echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer])
@@ -18,6 +19,41 @@ const loading = ref(false)
 const errorMessage = ref('')
 const stats = ref(null)
 const recent = ref([])
+
+const detail = reactive({ open: false, id: '', loading: false, error: '', rows: [], imageUrl: '', imageError: '', requestId: '' })
+
+function releaseImage() {
+  if (detail.imageUrl) URL.revokeObjectURL(detail.imageUrl)
+  detail.imageUrl = ''
+}
+
+async function openDetail(row) {
+  releaseImage()
+  Object.assign(detail, { open: true, id: row.id, loading: true, error: '', rows: [], imageError: '', requestId: '' })
+  try {
+    const snapshot = { workspaceId: Number(user.defaultWorkspaceId || 1), session: user.getSnapshot() }
+    const data = await recognitionDetail(snapshot, row.id)
+    detail.rows = detailRows(data)
+    detail.requestId = data.requestId || ''
+    try {
+      const blob = await recognitionImage(snapshot, row.id)
+      detail.imageUrl = URL.createObjectURL(blob)
+    } catch (imageError) {
+      detail.imageError = imageError?.message || '该记录没有保存图片'
+    }
+  } catch (error) {
+    detail.error = error?.message || '详情加载失败'
+  } finally {
+    detail.loading = false
+  }
+}
+
+function closeDetail() {
+  releaseImage()
+  detail.open = false
+}
+
+onUnmounted(releaseImage)
 const dailyEl = ref(null)
 const modelsEl = ref(null)
 const dailyChart = shallowRef(null)
@@ -134,7 +170,7 @@ onBeforeUnmount(() => {
         <table>
           <thead>
             <tr>
-              <th>时间</th><th>结果</th><th>置信度</th><th>耗时</th><th>模型</th><th>来源</th>
+              <th>时间</th><th>结果</th><th>置信度</th><th>耗时</th><th>模型</th><th>来源</th><th>操作</th>
               <th v-if="scope === 'platform'">空间</th>
             </tr>
           </thead>
@@ -146,9 +182,10 @@ onBeforeUnmount(() => {
               <td>{{ row.latency }}</td>
               <td>{{ row.model }}</td>
               <td>{{ row.source }}</td>
+              <td><button type="button" class="link" :disabled="scope === 'platform'" @click="openDetail(row)">查看</button></td>
               <td v-if="scope === 'platform'">{{ row.workspace }}</td>
             </tr>
-            <tr v-if="!recent.length"><td :colspan="scope === 'platform' ? 7 : 6">还没有识别记录</td></tr>
+            <tr v-if="!recent.length"><td :colspan="scope === 'platform' ? 8 : 7">还没有识别记录</td></tr>
           </tbody>
         </table>
       </div>
@@ -174,5 +211,27 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
+
+    <div v-if="detail.open" class="detail-overlay" role="dialog" aria-modal="true" aria-label="识别详情" @click.self="closeDetail">
+      <div class="detail-card">
+        <div class="detail-head">
+          <h3>识别记录 #{{ detail.id }}</h3>
+          <button type="button" @click="closeDetail">关闭</button>
+        </div>
+        <p v-if="detail.loading" class="muted">加载中…</p>
+        <p v-else-if="detail.error" class="notice error" role="alert">{{ detail.error }}</p>
+        <template v-else>
+          <div class="detail-image">
+            <img v-if="detail.imageUrl" :src="detail.imageUrl" alt="识别原图" />
+            <p v-else class="muted">{{ detail.imageError || '该记录没有保存图片' }}</p>
+          </div>
+          <dl class="details detail-fields">
+            <template v-for="item in detail.rows" :key="item.key">
+              <dt>{{ item.key }}</dt><dd>{{ item.value }}</dd>
+            </template>
+          </dl>
+        </template>
+      </div>
+    </div>
   </div>
 </template>

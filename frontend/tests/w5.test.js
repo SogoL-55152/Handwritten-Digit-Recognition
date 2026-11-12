@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  dailySeries, formatCount, formatMs, formatRatio, modelRows, ratio, recentRows, summaryCards, trainingCard
+  dailySeries, detailRows, formatCount, formatMs, formatRatio, modelRows, ratio, recentRows, summaryCards, trainingCard
 } from '../src/statistics/format.js'
 import { dailyOption, modelShareOption, trainingCurveOption } from '../src/statistics/chart.js'
 import { createTrainingEvents } from '../src/training/events.js'
@@ -156,4 +156,20 @@ test('recent rows prefer the multi-digit string when present', () => {
   assert.equal(rows[0].outcome, '351')
   assert.equal(rows[0].multi, true)
   assert.equal(rows[0].success, true)
+})
+
+test('detail rows expose result, status and image availability', () => {
+  const rows = detailRows({
+    recognitionId: '280', requestId: 'r-1', status: 'SUCCEEDED', digit: null, resultText: '351',
+    accepted: false, confidence: null, processingMs: 90, modelId: '8', modelVersion: 'w4-task-8-a1',
+    preprocessVersion: 'adaptive-mnist-v2', source: 'WEB', failureCode: null,
+    createdAt: '2026-11-12T04:56:36Z', hasImage: true
+  })
+  const map = Object.fromEntries(rows.map((item) => [item.key, item.value]))
+  assert.equal(map['结果'], '351')
+  assert.equal(map['状态'], '已完成')
+  assert.equal(map['是否可用'], '不确定')
+  assert.equal(map['来源'], '网页')
+  assert.equal(map['置信度'], '—')
+  assert.deepEqual(detailRows(null), [])
 })

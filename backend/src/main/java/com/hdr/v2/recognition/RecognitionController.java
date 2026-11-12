@@ -58,6 +58,22 @@ public class RecognitionController {
                 source, maxDigits, images.validate(image)));
     }
 
+    @GetMapping("/{id}/detail")
+    public Result<RecognitionService.Detail> detail(@PathVariable long workspaceId,@PathVariable long id,
+            jakarta.servlet.http.HttpServletRequest request) {
+        return Result.ok(service.detail(workspaceId,V2Principal.require(request).userId(),id));
+    }
+
+    @GetMapping("/{id}/image")
+    public org.springframework.http.ResponseEntity<byte[]> image(@PathVariable long workspaceId,@PathVariable long id,
+            jakarta.servlet.http.HttpServletRequest request) {
+        RecognitionService.StoredImage stored=service.image(workspaceId,V2Principal.require(request).userId(),id);
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Cache-Control","private, max-age=300")
+                .contentType(org.springframework.http.MediaType.parseMediaType(stored.contentType()))
+                .body(stored.bytes());
+    }
+
     @GetMapping("/{id}")
     public Result<RecognitionService.Recognition> get(@PathVariable long workspaceId,@PathVariable long id,HttpServletRequest request) {
         return Result.ok(service.get(workspaceId,V2Principal.require(request).userId(),id));
