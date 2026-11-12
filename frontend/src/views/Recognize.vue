@@ -24,7 +24,7 @@ const canSubmit = computed(() => (state.inputKind === 'image' || !boardError.val
 
 const multi = reactive({ enabled: false, maxDigits: 3, loading: false, result: null, error: '' })
 
-async function submitMulti() {
+async function runMultiRecognition() {
   if (multi.loading) return
   if (state.inputKind !== 'drawing') {
     multi.error = '多位数预览目前只支持画板书写。'
@@ -53,7 +53,7 @@ async function submitMulti() {
 }
 
 function submitPrimary() {
-  if (multi.enabled) return submitMulti()
+  if (multi.enabled) return runMultiRecognition()
   return controller.submit()
 }
 
