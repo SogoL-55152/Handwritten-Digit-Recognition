@@ -11,7 +11,9 @@ export function recognize(snapshot, image, requestId, options = {}) {
   form.append('image', image, image.type === 'image/jpeg' ? 'drawing.jpeg' : 'drawing.png')
   form.append('source', 'WEB')
   // 图片导入路径先做照片增强（白底黑字 + 加粗）；画板路径不加，避免改变已有行为。
-  const query = options.enhance ? '?enhance=true' : ''
+  // 控制器传的是 inputKind（drawing/image），显式 enhance 优先，避免两边参数名不一致。
+  const enhance = options.enhance !== undefined ? options.enhance : options.inputKind === 'image'
+  const query = enhance ? '?enhance=true' : ''
   // Browser supplies the multipart boundary. No automatic POST retries.
   return request.post(`${workspacePath(snapshot.workspaceId)}/recognitions${query}`, form, {
     authSession: snapshot.session, inputCurrent: options.inputCurrent, silent: true, headers: { 'Idempotency-Key': requestId }

@@ -377,3 +377,23 @@ test('controller exposes the selected file for preprocessing preview', async () 
   controller.reset()
   assert.equal(controller.selectedFile(), null)
 })
+
+test('image input asks for photo enhancement, drawing input does not', async () => {
+  const original = request.defaults.adapter
+  const seen = []
+  try {
+    request.defaults.adapter = async (config) => {
+      seen.push(config.url)
+      return { config, status: 200, headers: {}, data: { code: 0, data: result(randomUUID()) } }
+    }
+    const file = new File(['x'], 'a.png', { type: 'image/png' })
+    await recognize({ workspaceId: 'A', session: { token: 't' } }, file, randomUUID(), { inputKind: 'image' })
+    await recognize({ workspaceId: 'A', session: { token: 't' } }, file, randomUUID(), { inputKind: 'drawing' })
+    await recognize({ workspaceId: 'A', session: { token: 't' } }, file, randomUUID(), { inputKind: 'image', enhance: false })
+  } finally {
+    request.defaults.adapter = original
+  }
+  assert.equal(seen[0], '/workspaces/A/recognitions?enhance=true')
+  assert.equal(seen[1], '/workspaces/A/recognitions')
+  assert.equal(seen[2], '/workspaces/A/recognitions')
+})
