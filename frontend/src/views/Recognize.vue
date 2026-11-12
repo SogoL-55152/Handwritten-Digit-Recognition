@@ -8,7 +8,7 @@ import { createRecognitionController } from '@/recognition/controller.js'
 import { prepareImage } from '@/recognition/image-import.js'
 import { appConfig } from '@/app-config.js'
 import { submitSample } from '@/api/collected.js'
-import { previewMulti } from '@/api/multi.js'
+import { submitMulti } from '@/api/multi.js'
 import { MAX_DIGITS_OPTIONS, buildMultiForm, multiSummary } from '@/recognition/multi.js'
 import { FEEDBACK_LABELS, buildFeedbackForm, feedbackMessage, validateFeedback } from '@/recognition/feedback.js'
 const pilot = appConfig.pilot
@@ -38,7 +38,9 @@ async function submitMulti() {
   multi.error = ''
   try {
     const image = await board.exportPng()
-    const response = await previewMulti(workspace.getSnapshot(), buildMultiForm(image, multi.maxDigits))
+    const requestId = crypto.randomUUID()
+    const response = await submitMulti(workspace.getSnapshot(), buildMultiForm(image, multi.maxDigits),
+      requestId, { inputCurrent: () => true })
     const summary = multiSummary(response)
     if (!summary.valid) throw new Error('多位数接口返回了无法解析的结果')
     multi.result = { ...summary, modelVersion: response.modelVersion, requestId: response.requestId }
@@ -173,12 +175,12 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
       </div>
       <label class="consent-row multi-toggle">
         <input type="checkbox" v-model="multi.enabled" :disabled="state.inputKind === 'image'" />
-        <span>多位数（预览）：先在画板上写 1–4 个数字，再点识别</span>
+        <span>多位数识别：先在画板上写 1–4 个间隔的数字，再点识别</span>
         <select v-model.number="multi.maxDigits" :disabled="!multi.enabled" aria-label="最多几位">
           <option v-for="value in MAX_DIGITS_OPTIONS" :key="value" :value="value">最多 {{ value }} 位</option>
         </select>
       </label>
-      <p v-if="multi.enabled" class="muted">预览功能：不写数据库、不计入统计，仅用于验证切分与整串效果。</p>
+      <p v-if="multi.enabled" class="muted">会写入识别历史；数字之间要留空隙，最多 4 位。</p>
       <label class="consent-row">
         <input type="checkbox" :checked="consentGiven" @change="setConsent($event.target.checked)" />
         <span>同意把识别图片与我的标注用于模型评估与改进（勾选一次后长期有效，可随时取消）</span>
@@ -205,7 +207,7 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
             {{ item.position }}: {{ item.digit }} · {{ item.confidence }}
           </span>
         </div>
-        <p class="muted">{{ multi.result.hint }}（模型 {{ multi.result.modelVersion }}）</p>
+        <p class="muted">{{ multi.result.hint }}（{{ multi.result.recognitionId ? "记录 #" + multi.result.recognitionId + " · " : "" }}模型 {{ multi.result.modelVersion }}）</p>
       </div>
       <p v-if="multi.error" class="notice error" role="alert">{{ multi.error }}</p>
       <div v-else class="empty-state"><h3>等待你的第一个数字</h3><p>书写或选择图片后，点击识别按钮。这里仅展示服务器返回的结果，不生成示例预测。</p></div>

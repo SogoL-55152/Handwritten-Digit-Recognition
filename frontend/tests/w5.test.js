@@ -149,3 +149,11 @@ test('recent rows translate outcome, source and failure reason', () => {
   assert.equal(rows[1].source, '小程序')
   assert.deepEqual(recentRows(null), [])
 })
+
+test('recent rows prefer the multi-digit string when present', () => {
+  const rows = recentRows([{ id: '11', createdAt: '2026-11-12T04:00:00Z', digit: null, resultText: '351',
+    accepted: false, confidence: null, processingMs: 90, modelVersion: 'w4-task-8-a1', source: 'WEB' }])
+  assert.equal(rows[0].outcome, '351')
+  assert.equal(rows[0].multi, true)
+  assert.equal(rows[0].success, true)
+})

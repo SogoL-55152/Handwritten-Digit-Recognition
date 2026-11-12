@@ -1,11 +1,11 @@
 /** 多位数预览的纯逻辑：表单构造与结果整理，便于单测。 */
 export const MAX_DIGITS_OPTIONS = [1, 2, 3, 4]
 
-export function buildMultiForm(image, maxDigits) {
+export function buildMultiForm(image, maxDigits, source = 'WEB') {
   const form = new FormData()
   const name = image && typeof image.name === 'string' && image.name ? image.name : 'drawing.png'
   form.append('image', image, name)
-  form.append('maxDigits', String(maxDigits))
+  form.append('source', source)
   return form
 }
 
@@ -22,6 +22,7 @@ export function multiSummary(response) {
   const lowCount = digits.filter((item) => item.low).length
   return {
     text: response.text,
+    recognitionId: response.recognitionId || '',
     digits,
     valid: digits.length === response.text.length,
     accepted: Boolean(response.accepted),

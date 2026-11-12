@@ -1,10 +1,11 @@
 import request from './request.js'
 
-/** 多位数预览：不写数据库、不做幂等、不计入统计，仅用于验证体验与准确率。 */
-export function previewMulti(snapshot, form, options = {}) {
-  return request.post(`/workspaces/${encodeURIComponent(snapshot.workspaceId)}/recognitions/multi-preview`, form, {
+/** 多位数识别：会写入识别历史，带幂等键；重复提交返回同一条结果。 */
+export function submitMulti(snapshot, form, requestId, options = {}) {
+  return request.post(`/workspaces/${encodeURIComponent(snapshot.workspaceId)}/recognitions/multi`, form, {
     authSession: snapshot.session,
     inputCurrent: options.inputCurrent,
-    silent: true
+    silent: true,
+    headers: { 'Idempotency-Key': requestId }
   })
 }

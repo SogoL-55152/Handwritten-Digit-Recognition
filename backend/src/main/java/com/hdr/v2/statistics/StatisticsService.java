@@ -33,9 +33,9 @@ public class StatisticsService {
     public record SpaceStatistics(long workspaceId, int days, long total, long accepted, long declined, long failed,
                                   double averageProcessingMs, List<DayPoint> daily, List<ModelUsage> models,
                                   String note) {}
-    public record RecentRecognition(String id, String status, Integer digit, Double confidence,
-                                    String failureCode, Long processingMs, String modelVersion, String source,
-                                    String createdAt, String workspaceId) {}
+    public record RecentRecognition(String id, String status, Integer digit, String resultText,
+                                    Boolean accepted, Double confidence, String failureCode, Long processingMs,
+                                    String modelVersion, String source, String createdAt, String workspaceId) {}
     public record PlatformStatistics(int days, long workspaces, long users, long total, long accepted, long declined,
                                      long failed, double averageProcessingMs, List<DayPoint> daily,
                                      List<ModelUsage> models, long trainingTotal, long trainingSucceeded,
@@ -44,6 +44,8 @@ public class StatisticsService {
     private static final RowMapper<RecentRecognition> RECENT = (rs, index) -> new RecentRecognition(
             rs.getString("id"), rs.getString("status"),
             rs.getObject("digit") == null ? null : rs.getInt("digit"),
+            rs.getString("result_text"),
+            rs.getObject("accepted") == null ? null : rs.getInt("accepted") == 1,
             rs.getObject("confidence") == null ? null : rs.getDouble("confidence"),
             rs.getString("failure_code"),
             rs.getObject("processing_ms") == null ? null : rs.getLong("processing_ms"),
@@ -51,12 +53,13 @@ public class StatisticsService {
             Instant.ofEpochMilli(rs.getTimestamp("created_at").getTime()).toString(),
             rs.getString("workspace_id"));
     private static final String RECENT_COLUMNS = """
-            SELECT id,status,digit,confidence,failure_code,processing_ms,model_version,source,created_at,workspace_id
+            SELECT id,status,digit,result_text,accepted,confidence,failure_code,processing_ms,model_version,source,
+                   created_at,workspace_id
             FROM t_recognition_v2
             """;
     private static final String TOTALS = """
             SELECT COUNT(*) AS total,
-                   COALESCE(SUM(status='SUCCEEDED'),0) AS accepted,
+                   COALESCE(SUM(status='SUCCEEDED' AND accepted=1),0) AS accepted,
                    COALESCE(SUM(failure_code='UNRECOGNIZED_INPUT'),0) AS declined,
                    COALESCE(SUM(status='FAILED' AND (failure_code IS NULL OR failure_code<>'UNRECOGNIZED_INPUT')),0) AS failed,
                    COALESCE(AVG(processing_ms),0) AS average_ms
@@ -64,13 +67,13 @@ public class StatisticsService {
             """;
     private static final String DAILY = """
             SELECT DATE(created_at) AS day, COUNT(*) AS total,
-                   COALESCE(SUM(status='SUCCEEDED'),0) AS accepted,
+                   COALESCE(SUM(status='SUCCEEDED' AND accepted=1),0) AS accepted,
                    COALESCE(SUM(failure_code='UNRECOGNIZED_INPUT'),0) AS declined,
                    COALESCE(SUM(status='FAILED' AND (failure_code IS NULL OR failure_code<>'UNRECOGNIZED_INPUT')),0) AS failed
             FROM t_recognition_v2 WHERE created_at >= NOW() - INTERVAL ? DAY
             """;
     private static final String MODEL_USAGE = """
-            SELECT model_version, COUNT(*) AS total, COALESCE(SUM(status='SUCCEEDED'),0) AS accepted
+            SELECT model_version, COUNT(*) AS total, COALESCE(SUM(status='SUCCEEDED' AND accepted=1),0) AS accepted
             FROM t_recognition_v2 WHERE created_at >= NOW() - INTERVAL ? DAY
             """;
 

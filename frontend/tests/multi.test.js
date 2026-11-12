@@ -6,11 +6,12 @@ test('multi-digit options cover 1-4', () => {
   assert.deepEqual(MAX_DIGITS_OPTIONS, [1, 2, 3, 4])
 })
 
-test('form carries the image and the digit limit', () => {
+test('form carries the image and the source (limit travels as a query param)', () => {
   const image = new File([new Uint8Array([0x89, 0x50])], 'drawing.png', { type: 'image/png' })
   const form = buildMultiForm(image, 3)
-  assert.equal(form.get('maxDigits'), '3')
+  assert.equal(form.get('source'), 'WEB')
   assert.equal(form.get('image').name, 'drawing.png')
+  assert.equal(form.get('maxDigits'), null)
 })
 
 test('summary exposes text, per-digit confidence and low-digit flags', () => {
@@ -24,6 +25,7 @@ test('summary exposes text, per-digit confidence and low-digit flags', () => {
     ]
   })
   assert.equal(summary.text, '357')
+  assert.equal(summary.recognitionId, '')
   assert.equal(summary.digits.length, 3)
   assert.equal(summary.digits[1].confidence, '62.0%')
   assert.equal(summary.digits[1].low, true)

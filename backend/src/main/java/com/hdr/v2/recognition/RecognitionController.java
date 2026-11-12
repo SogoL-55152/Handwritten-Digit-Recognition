@@ -45,6 +45,19 @@ public class RecognitionController {
         RecognitionService.validateRequest(requestId,source);
         return Result.ok(service.predict(workspaceId,user,requestId.toLowerCase(java.util.Locale.ROOT),source,images.validate(image)));
     }
+    @PostMapping(value = "/multi", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<RecognitionService.MultiResult> multi(@PathVariable long workspaceId,
+            @RequestPart("image") MultipartFile image,
+            @RequestParam(defaultValue = "3") int maxDigits,
+            @RequestParam(defaultValue = "WEB") String source,
+            @RequestHeader("Idempotency-Key") String requestId, HttpServletRequest request) {
+        long user = V2Principal.require(request).userId();
+        spaces.requireMember(workspaceId, user);
+        RecognitionService.validateRequest(requestId, source);
+        return Result.ok(service.predictMulti(workspaceId, user, requestId.toLowerCase(java.util.Locale.ROOT),
+                source, maxDigits, images.validate(image)));
+    }
+
     @GetMapping("/{id}")
     public Result<RecognitionService.Recognition> get(@PathVariable long workspaceId,@PathVariable long id,HttpServletRequest request) {
         return Result.ok(service.get(workspaceId,V2Principal.require(request).userId(),id));

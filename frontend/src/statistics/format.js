@@ -70,12 +70,14 @@ const FAILURE_LABEL = {
 /** 最近识别记录：把状态/数字/来源翻成可读文本。 */
 export function recentRows(list) {
   return (Array.isArray(list) ? list : []).map((item) => {
+    const text = typeof item.resultText === 'string' && item.resultText ? item.resultText : null
     const hasDigit = item.digit !== null && item.digit !== undefined
     return {
       id: item.id,
       time: String(item.createdAt || '').replace('T', ' ').slice(0, 19),
-      outcome: hasDigit ? String(item.digit) : (FAILURE_LABEL[item.failureCode] || '失败'),
-      success: hasDigit,
+      outcome: text || (hasDigit ? String(item.digit) : (FAILURE_LABEL[item.failureCode] || '失败')),
+      multi: Boolean(text),
+      success: hasDigit || Boolean(text),
       confidence: typeof item.confidence === 'number' ? `${(item.confidence * 100).toFixed(1)}%` : '—',
       latency: typeof item.processingMs === 'number' ? `${item.processingMs}ms` : '—',
       model: item.modelVersion || '—',
