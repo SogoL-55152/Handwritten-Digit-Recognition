@@ -102,6 +102,7 @@ export function createRecognitionController({ session, workspace, exportPng, pre
     }
   }
   return { state, drawingChanged, setInputKind, selectImage, removeImage: reset, submit, canSubmit, reset,
+    selectedFile: () => (selectedImage ? selectedImage.file : null),
     dispose() { disposed = true; offSession(); offWorkspace(); reset() }
   }
 }

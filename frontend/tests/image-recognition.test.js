@@ -359,3 +359,21 @@ test('production image template keeps canvas mounted, preview separate, and subm
   assert.match(source, /flush: 'post'/)
   assert.match(html, /识别图片/)
 })
+
+test('controller exposes the selected file for preprocessing preview', async () => {
+  const { createRecognitionController } = await import('../src/recognition/controller.js')
+  const { reactive } = await import('vue')
+  const file = new File([new Uint8Array([0x89, 0x50, 0x4E, 0x47])], 'a.png', { type: 'image/png' })
+  const prepared = { file, previewUrl: 'blob:x', mime: 'image/png', width: 320, height: 320, size: 4, dispose() {} }
+  const session = { token: 't', isAuthenticated: true, isCurrent: () => true, getSnapshot: () => ({}), subscribe: () => () => {} }
+  const workspace = { getSnapshot: () => ({ workspaceId: 1, session }), isCurrent: () => true, generation: 0, subscribe: () => () => {} }
+  const controller = createRecognitionController({
+    session, workspace, exportPng: async () => null, prepareImage: async () => prepared,
+    send: async () => null, reactive
+  })
+  controller.setInputKind('image')
+  await controller.selectImage(file)
+  assert.equal(controller.selectedFile(), file)
+  controller.reset()
+  assert.equal(controller.selectedFile(), null)
+})
