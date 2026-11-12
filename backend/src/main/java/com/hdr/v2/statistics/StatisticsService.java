@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -32,11 +33,27 @@ public class StatisticsService {
     public record SpaceStatistics(long workspaceId, int days, long total, long accepted, long declined, long failed,
                                   double averageProcessingMs, List<DayPoint> daily, List<ModelUsage> models,
                                   String note) {}
+    public record RecentRecognition(String id, String status, Integer digit, Double confidence,
+                                    String failureCode, Long processingMs, String modelVersion, String source,
+                                    String createdAt, String workspaceId) {}
     public record PlatformStatistics(int days, long workspaces, long users, long total, long accepted, long declined,
                                      long failed, double averageProcessingMs, List<DayPoint> daily,
                                      List<ModelUsage> models, long trainingTotal, long trainingSucceeded,
                                      long trainingFailed, String note) {}
 
+    private static final RowMapper<RecentRecognition> RECENT = (rs, index) -> new RecentRecognition(
+            rs.getString("id"), rs.getString("status"),
+            rs.getObject("digit") == null ? null : rs.getInt("digit"),
+            rs.getObject("confidence") == null ? null : rs.getDouble("confidence"),
+            rs.getString("failure_code"),
+            rs.getObject("processing_ms") == null ? null : rs.getLong("processing_ms"),
+            rs.getString("model_version"), rs.getString("source"),
+            Instant.ofEpochMilli(rs.getTimestamp("created_at").getTime()).toString(),
+            rs.getString("workspace_id"));
+    private static final String RECENT_COLUMNS = """
+            SELECT id,status,digit,confidence,failure_code,processing_ms,model_version,source,created_at,workspace_id
+            FROM t_recognition_v2
+            """;
     private static final String TOTALS = """
             SELECT COUNT(*) AS total,
                    COALESCE(SUM(status='SUCCEEDED'),0) AS accepted,
@@ -90,6 +107,17 @@ public class StatisticsService {
                 number(training, "succeeded"), number(training, "failed"), ACCURACY_NOTE);
     }
 
+    /** 最近识别记录：空间范围只返回本人，避免把其他成员的明细暴露给普通成员。 */
+    public List<RecentRecognition> recentForUser(long workspaceId, long userId, int limit) {
+        spaces.requireMember(workspaceId, userId);
+        return jdbc.query(RECENT_COLUMNS + " WHERE workspace_id=? AND creator_id=? ORDER BY id DESC LIMIT ?",
+                RECENT, workspaceId, userId, validatedLimit(limit));
+    }
+
+    public List<RecentRecognition> recentPlatform(int limit) {
+        return jdbc.query(RECENT_COLUMNS + " ORDER BY id DESC LIMIT ?", RECENT, validatedLimit(limit));
+    }
+
     /** 逐日补齐缺失日期，前端曲线不会因为"某天没有请求"而断开。 */
     private List<DayPoint> daily(int days, Long workspaceId) {
         List<DayPoint> rows = workspaceId == null
@@ -116,6 +144,11 @@ public class StatisticsService {
     private long count(String sql) {
         Long value = jdbc.queryForObject(sql, Long.class);
         return value == null ? 0 : value;
+    }
+
+    private static int validatedLimit(int limit) {
+        if (limit < 1 || limit > 50) throw new V2Exception(400, "limit 必须在 1..50", "VALIDATION");
+        return limit;
     }
 
     private static int validatedDays(int days) {

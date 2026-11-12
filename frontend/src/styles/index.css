@@ -103,8 +103,12 @@ caption { text-align: left; font-size: 19px; font-weight: 650; padding-bottom: 2
 th { padding: 13px 15px; background: #f5f7fa; color: #596b80; font-size: 12px; font-weight: 600; white-space: nowrap; }
 td { padding: 17px 15px; border-bottom: 1px solid #e9edf2; line-height: 1.7; }
 td, th { vertical-align: top; }
+input[type='checkbox'] { width: 16px; height: 16px; min-height: 0; padding: 0; margin: 0; flex: none; accent-color: #2459ad; }
+.checkbox-row { flex-direction: row; align-items: center; gap: 10px; font-weight: 500; }
+.checkbox-row input[type='checkbox'] { width: 16px; height: 16px; }
 .cell-detail { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); max-width: 420px; overflow-wrap: anywhere; }
 tr.selected td { background: #f3f8ff; }
+td.recent-failed { color: #87392d; }
 tr.curve-row td { background: #f7fafe; padding: 6px 12px 14px; border-bottom: 1px solid #e9edf2; }
 button.link { background: none; border: 0; padding: 0; color: #2459ad; font-size: 12px; cursor: pointer; text-decoration: underline; }
 .chart { width: 100%; min-height: 240px; }

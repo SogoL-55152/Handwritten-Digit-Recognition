@@ -28,6 +28,8 @@ from celery_app import TRAINING_QUEUE, celery_app
 LEASE_SECONDS = int(os.getenv("TRAINING_LEASE_SECONDS", "30"))
 REAPER_INTERVAL = float(os.getenv("TRAINING_REAPER_INTERVAL", "5"))
 ACTIVE_SET = "training:active"
+WORKER_HEARTBEAT = "training:worker:heartbeat"
+WORKER_HEARTBEAT_TTL = 15
 
 
 def _redis():
@@ -264,6 +266,11 @@ def _start_reaper(sender, **_):
     """只在 worker 进程里起 reaper；API 进程不承担重投职责。"""
     def loop():
         while True:
+            try:
+                # 心跳：平台状态页据此判断训练 worker 是否在线（15 秒未刷新即视为离线）。
+                _redis().set(WORKER_HEARTBEAT, "1", ex=WORKER_HEARTBEAT_TTL)
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 reap_once()
             except Exception:  # noqa: BLE001 - reaper 自身不能把 worker 拖死

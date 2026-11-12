@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  dailySeries, formatCount, formatMs, formatRatio, modelRows, ratio, summaryCards, trainingCard
+  dailySeries, formatCount, formatMs, formatRatio, modelRows, ratio, recentRows, summaryCards, trainingCard
 } from '../src/statistics/format.js'
 import { dailyOption, modelShareOption, trainingCurveOption } from '../src/statistics/chart.js'
 import { createTrainingEvents } from '../src/training/events.js'
@@ -129,4 +129,23 @@ test('events client falls back when EventSource is missing', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(statuses, ['unavailable'])
   client.close()
+})
+
+test('recent rows translate outcome, source and failure reason', () => {
+  const rows = recentRows([
+    { id: '9', createdAt: '2026-11-12T03:04:05Z', digit: 7, confidence: 0.976, processingMs: 42,
+      modelVersion: 'w2-canvas-photo-3epoch', source: 'WEB', workspaceId: '1' },
+    { id: '8', createdAt: '2026-11-12T03:00:00Z', digit: null, confidence: null, processingMs: null,
+      failureCode: 'UNRECOGNIZED_INPUT', modelVersion: 'w2-canvas-photo-3epoch', source: 'MINIPROGRAM' }
+  ])
+  assert.equal(rows[0].outcome, '7')
+  assert.equal(rows[0].success, true)
+  assert.equal(rows[0].confidence, '97.6%')
+  assert.equal(rows[0].latency, '42ms')
+  assert.equal(rows[0].source, '网页')
+  assert.equal(rows[1].outcome, '拒识')
+  assert.equal(rows[1].success, false)
+  assert.equal(rows[1].confidence, '—')
+  assert.equal(rows[1].source, '小程序')
+  assert.deepEqual(recentRows(null), [])
 })

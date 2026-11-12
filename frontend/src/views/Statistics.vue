@@ -4,9 +4,9 @@ import * as echarts from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { platformStatistics, spaceStatistics } from '@/api/statistics.js'
+import { platformStatistics, recentPlatform, recentSpace, spaceStatistics } from '@/api/statistics.js'
 import { useUserStore } from '@/stores/user.js'
-import { dailySeries, modelRows, summaryCards, trainingCard } from '@/statistics/format.js'
+import { dailySeries, modelRows, recentRows, summaryCards, trainingCard } from '@/statistics/format.js'
 import { dailyOption, modelShareOption } from '@/statistics/chart.js'
 
 echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer])
@@ -17,6 +17,7 @@ const scope = ref('space')
 const loading = ref(false)
 const errorMessage = ref('')
 const stats = ref(null)
+const recent = ref([])
 const dailyEl = ref(null)
 const modelsEl = ref(null)
 const dailyChart = shallowRef(null)
@@ -31,13 +32,21 @@ async function load() {
   try {
     const session = user.getSnapshot()
     const workspaceId = Number(user.defaultWorkspaceId || 1)
-    stats.value = scope.value === 'platform'
-      ? await platformStatistics(session, days.value)
-      : await spaceStatistics(workspaceId, session, days.value)
+    const [summary, latest] = await Promise.all([
+      scope.value === 'platform'
+        ? platformStatistics(session, days.value)
+        : spaceStatistics(workspaceId, session, days.value),
+      scope.value === 'platform'
+        ? recentPlatform(session, 8)
+        : recentSpace(workspaceId, session, 8)
+    ])
+    stats.value = summary
+    recent.value = recentRows(latest)
     render()
   } catch (failure) {
     errorMessage.value = failure?.message || '加载统计失败'
     stats.value = null
+    recent.value = []
   } finally {
     loading.value = false
   }
@@ -116,6 +125,33 @@ onBeforeUnmount(() => {
 
     <section class="panel">
       <div ref="dailyEl" class="chart" style="height: 300px"></div>
+    </section>
+
+    <section class="panel">
+      <h2>{{ scope === 'platform' ? '平台最近识别' : '我的最近识别' }}</h2>
+      <p class="muted">最近 {{ recent.length }} 条记录，按时间倒序；拒识与失败也列出来，方便对照统计口径。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th><th>结果</th><th>置信度</th><th>耗时</th><th>模型</th><th>来源</th>
+              <th v-if="scope === 'platform'">空间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in recent" :key="row.id">
+              <td>{{ row.time }}</td>
+              <td :class="{ 'recent-failed': !row.success }">{{ row.outcome }}</td>
+              <td>{{ row.confidence }}</td>
+              <td>{{ row.latency }}</td>
+              <td>{{ row.model }}</td>
+              <td>{{ row.source }}</td>
+              <td v-if="scope === 'platform'">{{ row.workspace }}</td>
+            </tr>
+            <tr v-if="!recent.length"><td :colspan="scope === 'platform' ? 7 : 6">还没有识别记录</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section v-if="stats" class="panel">

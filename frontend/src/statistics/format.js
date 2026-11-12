@@ -59,3 +59,28 @@ export function trainingCard(stats) {
     hint: `成功 ${stats.trainingSucceeded || 0} · 失败 ${stats.trainingFailed || 0}`
   }
 }
+
+const FAILURE_LABEL = {
+  UNRECOGNIZED_INPUT: '拒识',
+  INVALID_CANVAS: '图片无效',
+  CONCURRENCY_LIMIT: '并发受限',
+  MODEL_UNAVAILABLE: '模型不可用'
+}
+
+/** 最近识别记录：把状态/数字/来源翻成可读文本。 */
+export function recentRows(list) {
+  return (Array.isArray(list) ? list : []).map((item) => {
+    const hasDigit = item.digit !== null && item.digit !== undefined
+    return {
+      id: item.id,
+      time: String(item.createdAt || '').replace('T', ' ').slice(0, 19),
+      outcome: hasDigit ? String(item.digit) : (FAILURE_LABEL[item.failureCode] || '失败'),
+      success: hasDigit,
+      confidence: typeof item.confidence === 'number' ? `${(item.confidence * 100).toFixed(1)}%` : '—',
+      latency: typeof item.processingMs === 'number' ? `${item.processingMs}ms` : '—',
+      model: item.modelVersion || '—',
+      source: item.source === 'WEB' ? '网页' : item.source === 'MINIPROGRAM' ? '小程序' : (item.source || '—'),
+      workspace: item.workspaceId || ''
+    }
+  })
+}

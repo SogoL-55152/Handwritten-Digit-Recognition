@@ -58,6 +58,9 @@ def environment(args):
                 "HOST": "127.0.0.1", "PORT": "5001", "MODEL_SERVICE_URL": "http://127.0.0.1:5001",
                 "MODEL_REGISTRY_PATH": str(MODEL_WEIGHTS / "registry.json"),
                 "WEIGHTS_DIR": str(MODEL_WEIGHTS),
+    # 平台状态页要现场探测 Redis 与训练 worker，缺这两项会显示 REDIS DOWN
+    "REDIS_HOST": "127.0.0.1",
+    "REDIS_PORT": "16379",
                 "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2",
                 "HDR_LEGACY_AUTH_ENABLED": "false", "HDR_LEGACY_BOOTSTRAP_ENABLED": "false",
                 "SPRING_PROFILES_ACTIVE": "default" if args.allow_development_registration else "pilot",

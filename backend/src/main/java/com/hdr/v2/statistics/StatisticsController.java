@@ -22,6 +22,22 @@ public class StatisticsController {
         return Result.ok(statistics.forSpace(workspaceId, V2Principal.require(request).userId(), days));
     }
 
+    @GetMapping("/api/v2/workspaces/{workspaceId}/statistics/recent")
+    public Result<java.util.List<StatisticsService.RecentRecognition>> recentForSpace(
+            @PathVariable long workspaceId, @RequestParam(defaultValue = "5") int limit,
+            HttpServletRequest request) {
+        return Result.ok(statistics.recentForUser(workspaceId, V2Principal.require(request).userId(), limit));
+    }
+
+    @GetMapping("/api/v2/platform/statistics/recent")
+    public Result<java.util.List<StatisticsService.RecentRecognition>> recentPlatform(
+            @RequestParam(defaultValue = "5") int limit, HttpServletRequest request) {
+        V2Principal principal = V2Principal.require(request);
+        if (!"SUPER_ADMIN".equals(principal.platformRole()))
+            throw new V2Exception(403, "无平台运营权限", "FORBIDDEN");
+        return Result.ok(statistics.recentPlatform(limit));
+    }
+
     @GetMapping("/api/v2/platform/statistics")
     public Result<StatisticsService.PlatformStatistics> platform(@RequestParam(defaultValue = "30") int days,
                                                                  HttpServletRequest request) {

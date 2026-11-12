@@ -29,7 +29,7 @@ function logout() {
       <p class="nav-label">{{ pilot ? '基础体验版' : '工作台' }}</p>
       <nav :aria-label="pilot ? '体验版导航' : '工作台导航'"><router-link v-for="[path, label] in links" :key="path" :to="path">{{ label }}</router-link></nav>
       <div v-if="pilot" class="sidebar-foot"><strong>写一个数字，查看结果</strong><p>遇到问题请联系维护者</p><router-link to="/">公开门户</router-link></div>
-      <div v-else class="sidebar-foot"><strong>W2 · 真实识别</strong><p>训练提交与可视化尚未开放</p><router-link to="/">公开门户</router-link></div>
+      <div v-else class="sidebar-foot"><router-link to="/">公开门户</router-link></div>
     </aside>
     <div class="app-body">
       <header class="app-header">
