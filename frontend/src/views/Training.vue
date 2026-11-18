@@ -7,7 +7,9 @@ import { createTrainingEvents } from '@/training/events.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingDetail from '@/training/TrainingDetail.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
+import StepCurve from '@/training/StepCurve.vue'
 import { trainingLogs } from '@/api/training.js'
+import { isActiveTask } from '@/training/board.js'
 
 const user = useUserStore()
 const tasks = ref([])
@@ -18,6 +20,7 @@ const selectedId = ref(null)
 const logTask = ref(null)
 const logs = ref([])
 const logsError = ref('')
+let logTimer = null
 
 const board = createTrainingBoard({
   api,
@@ -71,21 +74,39 @@ const historyOf = (task) => task?.metrics?.history
 const refresh = () => loadAll()
 const selectTask = (id) => { selectedId.value = selectedId.value === id ? null : id }
 
-async function openLogs(task) {
-  logTask.value = logTask.value === task.id ? null : task.id
-  logs.value = []
-  logsError.value = ''
-  if (!logTask.value) return
+function stopLogPolling() {
+  if (logTimer) { clearInterval(logTimer); logTimer = null }
+}
+
+async function fetchLogs(taskId) {
   try {
-    const data = await trainingLogs(user.getSnapshot(), task.id)
+    const data = await trainingLogs(user.getSnapshot(), taskId)
     logs.value = Array.isArray(data?.lines) ? data.lines : []
   } catch (error) {
     logsError.value = error?.message || '日志加载失败'
   }
 }
 
+async function openLogs(task) {
+  logTask.value = logTask.value === task.id ? null : task.id
+  logs.value = []
+  logsError.value = ''
+  stopLogPolling()
+  if (!logTask.value) return
+  await fetchLogs(task.id)
+  // 训练中的任务才自动刷新；结束后停止，避免无意义轮询
+  if (isActiveTask(task)) {
+    logTimer = setInterval(async () => {
+      const current = tasks.value.find((item) => item.id === task.id)
+      if (current && isActiveTask(current)) await fetchLogs(task.id)
+      else stopLogPolling()
+    }, 3000)
+  }
+}
+
 loadAll()
 onUnmounted(() => {
+  stopLogPolling()
   board.dispose()
   events.close()
 })
@@ -133,6 +154,7 @@ onUnmounted(() => {
               <tr v-if="task.id === selectedId" class="curve-row">
                 <td colspan="6">
                   <TrainingCurve :task-id="task.id" :history="historyOf(task)" />
+                  <StepCurve v-if="task.metrics?.stepSeries?.length" :metrics="task.metrics" />
                   <TrainingDetail :task="task" />
                   <TrainingMatrix v-if="task.metrics" :metrics="task.metrics" />
                 </td>

@@ -8,6 +8,7 @@ import { listModels } from '@/api/models.js'
 import { taskDetail } from '@/training/detail.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
+import StepCurve from '@/training/StepCurve.vue'
 import NetDiagram from '@/wizard/NetDiagram.vue'
 import { ARCH_PRESETS, configHash, estimateMemory, estimateTiming, formatDuration, inferShapes, normalizeConfig, validateConfig } from '@/wizard/estimate.js'
 import { PARAM_SCHEMA, defaultConfig, isVisible } from '@/wizard/schema.js'
@@ -384,6 +385,7 @@ onBeforeUnmount(releaseImages)
       </div>
       <template v-if="selectedTask">
         <TrainingCurve :task-id="state.taskId" :history="taskHistory" :height="320" />
+        <StepCurve v-if="selectedTask?.metrics?.stepSeries?.length" :metrics="selectedTask.metrics" :height="220" />
         <div class="wizard-metrics">
           <div v-for="card in taskDetailView.cards.slice(0, 6)" :key="card.key" class="estimate-card">
             <small>{{ card.label }}</small><strong>{{ card.value }}</strong>
