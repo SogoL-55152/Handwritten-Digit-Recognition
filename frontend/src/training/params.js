@@ -75,3 +75,51 @@ export function tunedRows(rows) {
   const list = Array.isArray(rows) ? rows : []
   return { fromScratch: list.filter((row) => !row.initFrom), tuned: list.filter((row) => row.initFrom) }
 }
+
+/** 微调对比：把微调任务和它的起点模型对应的任务配对，算准确率差。 */
+export function fineTunePairs(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  const byVersion = new Map()
+  for (const row of list) {
+    if (row.modelVersion) byVersion.set(row.modelVersion, row)
+  }
+  return list
+    .filter((row) => row.initFrom)
+    .map((row) => {
+      const base = byVersion.get(row.initFrom) || null
+      const baseScore = base ? (base.canvas ?? base.mnist) : null
+      const score = row.canvas ?? row.mnist
+      return {
+        id: row.id,
+        baseVersion: row.initFrom,
+        baseId: base?.id ?? null,
+        baseScore: typeof baseScore === 'number' ? baseScore : null,
+        score: typeof score === 'number' ? score : null,
+        delta: typeof baseScore === 'number' && typeof score === 'number'
+          ? Number((score - baseScore).toFixed(1))
+          : null
+      }
+    })
+    .sort((a, b) => (b.delta ?? -999) - (a.delta ?? -999))
+}
+
+/** 两个任务的差异行：参数与结果并排。 */
+export function diffRows(a, b) {
+  if (!a || !b) return []
+  const keys = [
+    { key: 'samples', label: '样本数' },
+    { key: 'epochs', label: '轮数' },
+    { key: 'batchSize', label: 'batch' },
+    { key: 'learningRate', label: '学习率' },
+    { key: 'photoRatio', label: '照片增广' },
+    { key: 'initFrom', label: '起点' },
+    { key: 'extraSamples', label: '真实样本' },
+    { key: 'score', label: '画板准确率' }
+  ]
+  return keys.map(({ key, label }) => {
+    const left = a[key] ?? null
+    const right = b[key] ?? null
+    return { key, label, left, right, same: JSON.stringify(left) === JSON.stringify(right) }
+  })
+}
+

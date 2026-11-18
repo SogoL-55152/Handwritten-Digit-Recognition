@@ -6,7 +6,8 @@ import { taskDetail } from '@/training/detail.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
 import { pickDefaultTask, taskOptions } from '@/training/visual.js'
-import { paramRows, rankedRows, spreadOf } from '@/training/params.js'
+import { diffRows, fineTunePairs, paramRows, rankedRows, spreadOf } from '@/training/params.js'
+import ParamsParallel from '@/training/ParamsParallel.vue'
 import ParamsChart from '@/training/ParamsChart.vue'
 
 const user = useUserStore()
@@ -20,6 +21,15 @@ const rows = computed(() => paramRows(tasks.value))
 const ranked = computed(() => rankedRows(rows.value))
 const spread = computed(() => spreadOf(rows.value))
 const best = computed(() => ranked.value[0] || null)
+const pairs = computed(() => fineTunePairs(rows.value))
+const compareA = ref(null)
+const compareB = ref(null)
+const compareRows = computed(() => diffRows(
+  ranked.value.find((row) => row.id === compareA.value),
+  ranked.value.find((row) => row.id === compareB.value)
+))
+const compareHistoryA = computed(() => tasks.value.find((task) => String(task.id) === compareA.value)?.metrics?.history || [])
+const compareHistoryB = computed(() => tasks.value.find((task) => String(task.id) === compareB.value)?.metrics?.history || [])
 const selected = computed(() => tasks.value.find((task) => String(task.id) === String(selectedId.value)) || null)
 const detail = computed(() => taskDetail(selected.value))
 const history = computed(() => (selected.value?.metrics?.history) || [])
@@ -46,6 +56,8 @@ async function load() {
     if (!options.value.some((item) => item.id === selectedId.value)) {
       selectedId.value = pickDefaultTask(options.value)
     }
+    if (!compareA.value) compareA.value = ranked.value[0]?.id || null
+    if (!compareB.value) compareB.value = ranked.value[1]?.id || null
   } catch (error) {
     errorMessage.value = error?.message || '训练任务加载失败'
   } finally {
@@ -135,6 +147,53 @@ onMounted(load)
 
             <ParamsChart :rows="ranked" :height="300" />
           </template>
+        </section>
+
+        <section class="panel">
+          <div class="block-head"><h4>平行坐标</h4><span class="muted">一条线是一次训练，跨 6 个轴看参数组合</span></div>
+          <ParamsParallel :rows="ranked" :height="320" />
+        </section>
+
+        <section class="panel">
+          <div class="block-head"><h4>两次训练对比</h4><span class="muted">并排看曲线与参数差异</span></div>
+          <div class="compare-pickers">
+            <label>左 <select v-model="compareA"><option v-for="row in ranked" :key="row.id" :value="row.id">#{{ row.id }}（{{ row.score }}%）</option></select></label>
+            <label>右 <select v-model="compareB"><option v-for="row in ranked" :key="row.id" :value="row.id">#{{ row.id }}（{{ row.score }}%）</option></select></label>
+          </div>
+          <div v-if="compareA && compareB" class="compare-grid">
+            <div class="compare-col"><h4>任务 #{{ compareA }}</h4><TrainingCurve :task-id="compareA" :history="compareHistoryA" :height="220" /></div>
+            <div class="compare-col"><h4>任务 #{{ compareB }}</h4><TrainingCurve :task-id="compareB" :history="compareHistoryB" :height="220" /></div>
+          </div>
+          <div class="table-wrap" v-if="compareRows.length">
+            <table>
+              <thead><tr><th>参数</th><th>#{{ compareA }}</th><th>#{{ compareB }}</th></tr></thead>
+              <tbody>
+                <tr v-for="row in compareRows" :key="row.key" :class="{ diff: !row.same }">
+                  <td>{{ row.label }}</td><td>{{ row.left ?? '—' }}</td><td>{{ row.right ?? '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="muted">至少需要两个带准确率的任务才能对比。</p>
+        </section>
+
+        <section class="panel">
+          <div class="block-head"><h4>微调效果</h4><span class="muted">微调任务 vs 它的起点模型</span></div>
+          <p v-if="!pairs.length" class="muted">还没有微调任务（起点不为空）的记录。</p>
+          <div v-else class="rank-list">
+            <div v-for="pair in pairs" :key="pair.id" class="rank-item">
+              <span class="rank-id">#{{ pair.id }}</span>
+              <span class="bar"><i :style="{ width: Math.max(3, pair.score || 0) + '%' }"></i></span>
+              <span class="rank-score">{{ pair.score === null ? '—' : pair.score + '%' }}</span>
+              <small>
+                起点 {{ pair.baseVersion }}{{ pair.baseId ? '（任务 #' + pair.baseId + '）' : '' }}
+                · 起点准确率 {{ pair.baseScore === null ? '未知' : pair.baseScore + '%' }}
+                <span v-if="pair.delta !== null" class="delta-chip" :class="{ up: pair.delta > 0, down: pair.delta < 0 }">
+                  {{ pair.delta > 0 ? '+' : '' }}{{ pair.delta }} 个点
+                </span>
+              </small>
+            </div>
+          </div>
         </section>
 
         <section class="panel visual-matrix">
