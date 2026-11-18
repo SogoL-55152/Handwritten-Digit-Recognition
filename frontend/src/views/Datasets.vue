@@ -15,7 +15,6 @@ const state = reactive({
   versions: [], selectedVersionId: null,
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
-  importing: false, importLabel: 0, importFiles: [], importResult: null,
   folder: { busy: false, progress: '', result: null },
   svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
   sources: [], sourceOptions: [], sourceLimit: 20,
@@ -139,27 +138,6 @@ function toggleSource(versionId) {
   const index = state.sources.findIndex((item) => item.versionId === versionId)
   if (index >= 0) state.sources.splice(index, 1)
   else state.sources.push({ versionId, limit: state.sourceLimit, labels: [] })
-}
-
-function onImportFiles(event) {
-  state.importFiles = Array.from(event.target.files || [])
-}
-
-async function doImport() {
-  if (!state.selectedId || !state.importFiles.length) return
-  state.busy = true
-  state.error = ''
-  state.importResult = null
-  try {
-    state.importResult = await importSamples(snapshot(), state.selectedId, Number(state.importLabel), state.importFiles)
-    state.notice = `导入完成：成功 ${state.importResult.imported} · 重复 ${state.importResult.duplicates} · 失败 ${state.importResult.failed}`
-    state.importFiles = []
-    await loadDatasets()
-  } catch (error) {
-    state.error = error?.message || '导入失败'
-  } finally {
-    state.busy = false
-  }
 }
 
 async function importFolder(event) {
@@ -378,6 +356,7 @@ onBeforeUnmount(releaseImages)
             </div>
             <div class="row-actions">
               <span class="tag">{{ state.versions.length }} 个版本</span>
+              <button :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
               <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
             </div>
           </div>
@@ -387,30 +366,6 @@ onBeforeUnmount(releaseImages)
                     :class="{ active: version.id === state.selectedVersionId }" @click="selectVersion(version.id)">
               <strong>{{ version.version }}</strong><span>{{ version.sampleCount }} 条</span>
             </button>
-          </div>
-
-          <div class="import-panel">
-            <div class="block-head">
-            <h4>导入样本</h4>
-            <span class="muted">导入到「{{ selectedDataset.name }}」，生成版本后才会进训练</span>
-            <button class="link" :disabled="state.busy" @click="claimRecognition">把识别采集的样本归入本数据集</button>
-          </div>
-            <div class="import-row">
-              <label class="field"><span>标签</span>
-                <select v-model.number="state.importLabel">
-                  <option v-for="digit in 10" :key="digit" :value="digit - 1">{{ digit - 1 }}</option>
-                </select>
-              </label>
-              <label class="field field-wide"><span>图片（可多选）</span>
-                <input type="file" accept="image/png,image/jpeg" multiple @change="onImportFiles" />
-              </label>
-              <button class="primary" :disabled="state.busy || !state.importFiles.length" @click="doImport">
-                {{ state.busy ? '导入中…' : '导入 ' + state.importFiles.length + ' 张' }}
-              </button>
-            </div>
-            <p v-if="state.importResult" class="hint">
-              成功 {{ state.importResult.imported }} · 重复 {{ state.importResult.duplicates }} · 失败 {{ state.importResult.failed }}
-            </p>
           </div>
 
           <div class="build-panel">
