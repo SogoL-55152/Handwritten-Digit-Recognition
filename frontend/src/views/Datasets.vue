@@ -241,8 +241,6 @@ async function claimRecognition() {
 
 async function removeSample(item) {
   if (!state.selectedId || !state.selectedVersionId) return
-  const name = item.label ?? item.sampleId
-  if (!window.confirm(`从版本中删除样本「${name}」？属于本数据集的样本会同时从数据集中移除。`)) return
   state.busy = true
   state.error = ''
   try {
