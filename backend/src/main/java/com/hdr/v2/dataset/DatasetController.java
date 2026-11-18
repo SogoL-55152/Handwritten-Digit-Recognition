@@ -123,6 +123,14 @@ public class DatasetController {
         return Result.ok(datasets.stats(workspaceId, versionId));
     }
 
+    @DeleteMapping("/datasets/{datasetId}/versions/{versionId}")
+    public Result<Map<String, Object>> deleteVersion(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                     @PathVariable long versionId, HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        datasets.deleteVersion(workspaceId, user, datasetId, versionId);
+        return Result.ok(Map.of("deleted", Long.toString(versionId)));
+    }
+
     @DeleteMapping("/datasets/{datasetId}/versions/{versionId}/samples/{sampleId}")
     public Result<Map<String, Object>> removeSample(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                     @PathVariable long versionId, @PathVariable long sampleId,

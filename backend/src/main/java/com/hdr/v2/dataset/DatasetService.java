@@ -214,6 +214,25 @@ public class DatasetService {
                         rs.getString("created_at")), args.toArray());
     }
 
+    /** 删除版本：有训练任务引用时拒绝；删完刷新数据集统计。 */
+    @Transactional
+    public void deleteVersion(long workspaceId, long userId, long datasetId, long versionId) {
+        spaces.requireMember(workspaceId, userId);
+        requireDataset(workspaceId, datasetId);
+        Long owned = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_dataset_version WHERE id=? AND dataset_id=?",
+                Long.class, versionId, datasetId);
+        if (owned == null || owned == 0)
+            throw new V2Exception(404, "版本不存在", "DATASET_VERSION_NOT_FOUND");
+        Long used = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_training_task WHERE dataset_version_id=?", Long.class, versionId);
+        if (used != null && used > 0)
+            throw new V2Exception(409, "该版本有 " + used + " 个训练任务引用过，不能删除", "VERSION_IN_USE");
+        jdbc.update("DELETE FROM t_v2_dataset_sample WHERE version_id=?", versionId);
+        jdbc.update("DELETE FROM t_v2_dataset_version WHERE id=?", versionId);
+        refreshCounts(datasetId);
+    }
+
     /**
      * 从版本里删掉一条样本。
      * - 样本属于本数据集：同时从本数据集所有版本移除；没有其他版本引用时删除样本记录；

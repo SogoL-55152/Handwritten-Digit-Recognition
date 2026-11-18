@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -239,6 +239,26 @@ async function claimRecognition() {
   }
 }
 
+async function removeVersion() {
+  const version = selectedVersion.value
+  if (!version || !state.selectedId) return
+  state.busy = true
+  state.error = ''
+  try {
+    await deleteVersion(snapshot(), state.selectedId, version.id)
+    state.notice = `已删除版本 ${version.version}`
+    state.selectedVersionId = null
+    state.stats = null
+    state.samples = []
+    await selectDataset(state.selectedId)
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '删除版本失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function removeSample(item) {
   if (!state.selectedId || !state.selectedVersionId) return
   state.busy = true
@@ -390,6 +410,8 @@ onBeforeUnmount(releaseImages)
           </div>
 
           <div class="version-chips" v-if="state.versions.length">
+            <button type="button" class="danger" :disabled="state.busy || !state.selectedVersionId"
+                    title="删除当前选中的版本" @click="removeVersion">删除当前版本</button>
             <button v-for="version in state.versions" :key="version.id" type="button"
                     :class="{ active: version.id === state.selectedVersionId }" @click="selectVersion(version.id)">
               <strong>{{ version.version }}</strong><span>{{ version.sampleCount }} 条</span>
