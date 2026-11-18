@@ -18,7 +18,7 @@ const state = reactive({
   folder: { busy: false, progress: '', result: null },
   svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
-  buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '' }
+  buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
 const folderInput = ref(null)
@@ -399,12 +399,6 @@ onBeforeUnmount(releaseImages)
           <div class="build-panel">
             <div class="build-grid">
               <label class="field"><span>版本号</span><input v-model="state.buildForm.version" maxlength="16" /></label>
-              <label class="field"><span>划分方式</span>
-                <select v-model="state.buildForm.splitRule">
-                  <option value="WRITER">按书写者（推荐）</option>
-                  <option value="RANDOM">按样本随机</option>
-                </select>
-              </label>
               <label class="field"><span>验证集 %</span><input v-model.number="state.buildForm.valPercent" type="number" min="0" max="50" /></label>
               <label class="field"><span>测试集 %</span><input v-model.number="state.buildForm.testPercent" type="number" min="0" max="50" /></label>
               <label class="field"><span>只看标签</span><input v-model="state.buildForm.label" type="number" min="0" max="9" placeholder="全部" /></label>
@@ -501,7 +495,7 @@ onBeforeUnmount(releaseImages)
 
         <section v-else-if="selectedDataset" class="panel empty-hint">
           <strong>这个数据集还没有版本</strong>
-          <p class="muted">设置划分方式后点「生成版本」，样本才会进入数据集。</p>
+          <p class="muted">设置验证集/测试集比例后点「生成版本」，样本才会进入数据集。</p>
         </section>
       </div>
     </section>
