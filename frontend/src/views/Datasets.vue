@@ -214,7 +214,7 @@ async function doImportSvhn() {
     })
     state.svhn.result = result
     const summary = result.summary || {}
-    state.notice = `SVHN 导入：成功 ${summary.imported ?? '—'} · 重复 ${summary.duplicates ?? '—'} · 失败 ${summary.failed ?? '—'}`
+    state.notice = `标注导入：成功 ${summary.imported ?? '—'} · 重复 ${summary.duplicates ?? '—'} · 失败 ${summary.failed ?? '—'}`
     await loadDatasets()
   } catch (error) {
     state.error = error?.message || '导入失败'
@@ -269,7 +269,7 @@ onBeforeUnmount(releaseImages)
       <div class="row-actions">
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入数据集</button>
-        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="state.svhn.open = !state.svhn.open">导入 SVHN 包</button>
+        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="state.svhn.open = !state.svhn.open">导入标注数据集</button>
         <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
@@ -287,10 +287,10 @@ onBeforeUnmount(releaseImages)
     </section>
 
     <section v-if="state.svhn.open" class="panel svhn-panel">
-      <div class="block-head"><h4>导入 SVHN 包</h4><span class="muted">目录里要有 digitStruct.mat；每类数量控制规模</span></div>
+      <div class="block-head"><h4>导入标注数据集</h4><span class="muted">目录里需有 digitStruct.mat（每张图多个数字的框与标签）；每类数量控制规模</span></div>
       <div class="import-row">
         <label class="field field-wide"><span>解压目录</span>
-          <input v-model="state.svhn.directory" placeholder="例如 C:\\...\\train\\train" />
+          <input v-model="state.svhn.directory" placeholder="例如 C:\\...\\train\\train（含 digitStruct.mat）" />
         </label>
         <label class="field"><span>每类数量</span>
           <input v-model.number="state.svhn.perLabel" type="number" min="1" max="20000" />
