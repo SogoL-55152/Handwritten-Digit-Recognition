@@ -17,7 +17,7 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
   svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
-  sources: [], sourceOptions: [], sourceLimit: 20,
+  sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
@@ -245,8 +245,14 @@ async function build() {
   state.error = ''
   state.notice = ''
   try {
+    if (state.sourceMode === 'VERSIONS' && !state.sources.length) {
+      state.error = '请至少勾选一个样本来源，或切回「本数据集的样本」'
+      return
+    }
     const payload = buildPayload(state.buildForm)
-    if (state.sources.length) payload.sources = state.sources.map((item) => ({ versionId: item.versionId, limit: item.limit }))
+    if (state.sourceMode === 'VERSIONS') {
+      payload.sources = state.sources.map((item) => ({ versionId: item.versionId, limit: item.limit }))
+    }
     const version = await buildVersion(snapshot(), state.selectedId, payload)
     state.notice = `已生成版本 ${version.version}：${version.sampleCount} 条样本`
     await selectDataset(state.selectedId)
@@ -390,7 +396,12 @@ onBeforeUnmount(releaseImages)
             </div>
             <p class="hint">版本只包含导入到本数据集（或归入本数据集）的样本；其他数据集的样本不会混进来。版本一旦生成即为快照。</p>
             <div class="source-picker">
-              <div class="block-head"><h4>样本来源（可选）</h4><span class="muted">勾选后按来源合并；不勾选则用整个采集池</span></div>
+              <div class="block-head"><h4>样本来源</h4><span class="muted">只加入你选中的内容；选「指定版本」时至少要勾一个版本</span></div>
+              <div class="source-mode">
+                <label><input type="radio" value="SELF" v-model="state.sourceMode" /> 本数据集的样本（导入/归入到这里的）</label>
+                <label><input type="radio" value="VERSIONS" v-model="state.sourceMode" /> 指定版本合并</label>
+              </div>
+              <template v-if="state.sourceMode === 'VERSIONS'">
               <div v-for="option in state.sourceOptions" :key="option.id" class="source-row">
                 <input class="source-check" type="checkbox"
                        :checked="state.sources.some((item) => item.versionId === option.id)"
@@ -404,6 +415,8 @@ onBeforeUnmount(releaseImages)
                 <span v-else class="source-limit muted">全部</span>
               </div>
               <p v-if="!state.sourceOptions.length" class="muted">还没有其他可用版本。</p>
+              <p v-else-if="!state.sources.length" class="hint">至少勾选一个版本，否则无法生成版本。</p>
+              </template>
             </div>
           </div>
         </section>

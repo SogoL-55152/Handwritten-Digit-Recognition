@@ -460,3 +460,7 @@ button.danger:hover:not(:disabled) { background: #fdeceb; border-color: #b0483c;
 tr.best td { background: #fffaf0; font-weight: 600; }
 .log-stream { max-height: 320px; overflow: auto; margin: 0; padding: 12px; background: #0f172a; color: #d6e4ff;
   border-radius: 8px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+
+.source-mode { display: grid; gap: 6px; margin: 8px 0; font-size: 13px; }
+.source-mode label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.source-mode input[type='radio'] { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
