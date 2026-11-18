@@ -19,7 +19,7 @@ const state = reactive({
   folder: { busy: false, progress: '', result: null },
   svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
   sources: [], sourceOptions: [], sourceLimit: 20,
-  buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '' }
+  buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '', scope: 'OWN' }
 })
 const imageUrls = reactive({})
 const folderInput = ref(null)
@@ -252,6 +252,7 @@ async function build() {
   state.notice = ''
   try {
     const payload = buildPayload(state.buildForm)
+    payload.scope = state.sources.length ? undefined : state.buildForm.scope
     if (state.sources.length) payload.sources = state.sources.map((item) => ({ versionId: item.versionId, limit: item.limit }))
     const version = await buildVersion(snapshot(), state.selectedId, payload)
     state.notice = `已生成版本 ${version.version}：${version.sampleCount} 条样本`
@@ -405,10 +406,16 @@ onBeforeUnmount(releaseImages)
               </label>
               <label class="field"><span>验证集 %</span><input v-model.number="state.buildForm.valPercent" type="number" min="0" max="50" /></label>
               <label class="field"><span>测试集 %</span><input v-model.number="state.buildForm.testPercent" type="number" min="0" max="50" /></label>
+              <label class="field"><span>样本范围</span>
+                <select v-model="state.buildForm.scope">
+                  <option value="OWN">仅本数据集（推荐）</option>
+                  <option value="POOL">全部采集池</option>
+                </select>
+              </label>
               <label class="field"><span>只看标签</span><input v-model="state.buildForm.label" type="number" min="0" max="9" placeholder="全部" /></label>
               <button class="primary build-action" :disabled="state.busy" @click="build">{{ state.busy ? '生成中…' : '生成版本' }}</button>
             </div>
-            <p class="hint">按书写者划分时，同一个人的样本只会落在一个划分里，评测结果更可信。版本一旦生成即为快照。</p>
+            <p class="hint">「仅本数据集」= 本数据集导入的样本 + 识别页采集的样本，不会吸收导入到其他数据集的图片。版本一旦生成即为快照。</p>
             <div class="source-picker">
               <div class="block-head"><h4>样本来源（可选）</h4><span class="muted">勾选后按来源合并；不勾选则用整个采集池</span></div>
               <div v-for="option in state.sourceOptions" :key="option.id" class="source-row">

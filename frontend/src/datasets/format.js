@@ -29,6 +29,7 @@ export function buildPayload(form = {}) {
   }
   if (form.label !== undefined && form.label !== null && form.label !== '') payload.label = Number(form.label)
   if (form.kind) payload.kind = form.kind
+  if (form.scope) payload.scope = form.scope
   return payload
 }
 
