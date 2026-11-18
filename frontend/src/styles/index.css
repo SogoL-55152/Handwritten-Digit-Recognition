@@ -331,3 +331,23 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .matrix-head, .matrix-corner { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); }
 .matrix-cell { display: flex; align-items: center; justify-content: center; height: 30px; border-radius: 4px;
   background: #f7f9fc; font-size: 11px; color: #16324f; }
+
+/* ---------- 可视化页 ---------- */
+.visual-layout { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 980px) { .visual-layout { grid-template-columns: minmax(0, 1fr); } }
+.visual-list h3 { margin: 0 0 10px; font-size: 15px; }
+.visual-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.visual-item { display: grid; gap: 3px; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: #fbfcfe; cursor: pointer; }
+.visual-item.active { border-color: var(--primary); background: #eef4ff; }
+.visual-title { display: flex; justify-content: space-between; font-weight: 650; font-size: 14px; }
+.visual-title i { font-style: normal; font-size: 11px; color: var(--muted); font-weight: 500; }
+.visual-model { font-size: 12px; color: var(--muted); }
+.visual-metrics { display: flex; gap: 10px; font-size: 12px; color: #35506e; }
+.visual-metrics i { font-style: normal; }
+.visual-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; margin-bottom: 6px; }
+.visual-summary { display: flex; flex-wrap: wrap; gap: 18px; }
+.visual-stat { display: grid; gap: 2px; }
+.visual-stat small { color: var(--muted); font-size: 12px; }
+.visual-stat strong { font-size: 18px; }
+.visual-matrix .matrix { max-width: 720px; }

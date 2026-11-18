@@ -15,7 +15,8 @@ echarts.use([LineChart, GridComponent, LegendComponent, TitleComponent, TooltipC
 
 const props = defineProps({
   taskId: { type: [String, Number], default: '' },
-  history: { type: Array, default: () => [] }
+  history: { type: Array, default: () => [] },
+  height: { type: Number, default: 320 }
 })
 
 const host = ref(null)
@@ -62,7 +63,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div ref="host" class="chart" style="height: 320px"></div>
+    <div ref="host" class="chart" :style="{ height: height + 'px' }"></div>
     <p v-if="failed" class="muted" style="text-align: center">图表无法初始化（容器尺寸为 0），请刷新重试。</p>
     <p v-else-if="!history || !history.length" class="muted" style="text-align: center; margin: 0">
       该任务还没有逐轮指标。
