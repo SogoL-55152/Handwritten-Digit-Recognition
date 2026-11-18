@@ -214,6 +214,66 @@ public class DatasetService {
                         rs.getString("created_at")), args.toArray());
     }
 
+    /**
+     * 从版本里删掉一条样本。
+     * - 样本属于本数据集：同时从本数据集所有版本移除；没有其他版本引用时删除样本记录；
+     * - 样本属于其他数据集（合并进来的）：只从当前版本移除，不动来源数据集；
+     * - 无归属（识别采集）：只从当前版本移除。
+     */
+    @Transactional
+    public void removeSample(long workspaceId, long userId, long datasetId, long versionId, long sampleId) {
+        spaces.requireMember(workspaceId, userId);
+        requireDataset(workspaceId, datasetId);
+        Long ownedVersion = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_dataset_version WHERE id=? AND dataset_id=?", Long.class, versionId, datasetId);
+        if (ownedVersion == null || ownedVersion == 0)
+            throw new V2Exception(404, "版本不属于该数据集", "DATASET_VERSION_NOT_FOUND");
+        Long inVersion = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_dataset_sample WHERE version_id=? AND sample_id=?",
+                Long.class, versionId, sampleId);
+        if (inVersion == null || inVersion == 0)
+            throw new V2Exception(404, "样本不在该版本中", "SAMPLE_NOT_FOUND");
+
+        jdbc.update("DELETE FROM t_v2_dataset_sample WHERE version_id=? AND sample_id=?", versionId, sampleId);
+
+        Long owner = jdbc.queryForObject(
+                "SELECT source_dataset_id FROM t_collected_sample WHERE id=?", Long.class, sampleId);
+        if (owner != null && owner.longValue() == datasetId) {
+            jdbc.update("""
+                    DELETE FROM t_v2_dataset_sample WHERE sample_id=? AND version_id IN
+                        (SELECT id FROM t_v2_dataset_version WHERE dataset_id=?)
+                    """, sampleId, datasetId);
+            Long refs = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM t_v2_dataset_sample WHERE sample_id=?", Long.class, sampleId);
+            if (refs == null || refs == 0) jdbc.update("DELETE FROM t_collected_sample WHERE id=?", sampleId);
+            else jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL WHERE id=?", sampleId);
+        }
+        // 合并进来的样本：只从当前版本移除，采集池记录保持不动（它属于别的数据集）
+
+        refreshCounts(datasetId);
+        refreshVersion(versionId);
+    }
+
+    private void refreshVersion(long versionId) {
+        Long samples = jdbc.queryForObject("SELECT COUNT(*) FROM t_v2_dataset_sample WHERE version_id=?",
+                Long.class, versionId);
+        Long writers = jdbc.queryForObject("SELECT COUNT(DISTINCT writer_key) FROM t_v2_dataset_sample WHERE version_id=?",
+                Long.class, versionId);
+        jdbc.update("UPDATE t_v2_dataset_version SET sample_count=?, writer_count=? WHERE id=?",
+                samples == null ? 0 : samples, writers == null ? 0 : writers, versionId);
+    }
+
+    private void refreshCounts(long datasetId) {
+        jdbc.update("""
+                UPDATE t_v2_dataset d SET
+                    train_samples=(SELECT COUNT(*) FROM t_v2_dataset_sample s JOIN t_v2_dataset_version v ON v.id=s.version_id
+                                   WHERE v.dataset_id=d.id AND s.split='TRAIN'),
+                    test_samples=(SELECT COUNT(*) FROM t_v2_dataset_sample s JOIN t_v2_dataset_version v ON v.id=s.version_id
+                                  WHERE v.dataset_id=d.id AND s.split='TEST')
+                WHERE d.id=?
+                """, datasetId);
+    }
+
     public int count(long versionId) {
         Integer total = jdbc.queryForObject("SELECT COUNT(*) FROM t_v2_dataset_sample WHERE version_id=?",
                 Integer.class, versionId);

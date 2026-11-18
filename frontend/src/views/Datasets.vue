@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -239,6 +239,24 @@ async function claimRecognition() {
   }
 }
 
+async function removeSample(item) {
+  if (!state.selectedId || !state.selectedVersionId) return
+  const name = item.label ?? item.sampleId
+  if (!window.confirm(`从版本中删除样本「${name}」？属于本数据集的样本会同时从数据集中移除。`)) return
+  state.busy = true
+  state.error = ''
+  try {
+    await removeVersionSample(snapshot(), state.selectedId, state.selectedVersionId, item.sampleId)
+    state.notice = '样本已删除'
+    await loadVersionData()
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '删除样本失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
@@ -465,6 +483,8 @@ onBeforeUnmount(releaseImages)
                   <img v-if="imageUrls[item.id]" :src="imageUrls[item.id]" :alt="'样本 ' + item.label" />
                   <span v-else class="sample-placeholder">无图</span>
                   <span class="split-badge" :class="splitClass(item.split)">{{ item.split }}</span>
+                  <button class="sample-delete" type="button" :disabled="state.busy"
+                          title="从版本中删除该样本" @click.stop="removeSample(item)">×</button>
                 </div>
                 <figcaption>
                   <strong>{{ item.label }}</strong>

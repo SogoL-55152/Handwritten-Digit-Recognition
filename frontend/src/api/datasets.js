@@ -73,3 +73,7 @@ export const deleteDataset = (snapshot, datasetId) =>
 export const claimSamples = (snapshot, datasetId) =>
   request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/claim-samples`, {},
     { authSession: snapshot.session, silent: true })
+
+export const removeVersionSample = (snapshot, datasetId, versionId, sampleId) =>
+  request.delete(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/versions/${encodeURIComponent(versionId)}/samples/${encodeURIComponent(sampleId)}`,
+    { authSession: snapshot.session, silent: true })
