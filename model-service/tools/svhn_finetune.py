@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
 
 from models.cnn import ARCHITECTURE, DigitCNN  # noqa: E402
 from services.inference_preprocess import InvalidImage, canvas_input  # noqa: E402
+from services.multidigit import segments_of  # noqa: E402
 from tools.svhn_eval import read_labels  # noqa: E402
 from train_canvas_aug import read_idx, read_labels as read_idx_labels  # noqa: E402
 
@@ -51,34 +52,61 @@ def load_model(checkpoint_path: Path):
     return model
 
 
-def crop_digits(labels: dict[str, dict], images: Path, limit: int, padding: float = 0.10):
-    """按框裁出单字，返回 [(normalized 28×28, label)]；最多 limit 个。"""
+def _crop(array, box, padding: float):
+    left, top, right, bottom = box
+    pad_x = max(0, int(round((right - left) * padding)))
+    pad_y = max(0, int(round((bottom - top) * padding)))
+    crop = array[max(0, top - pad_y):min(array.shape[0], bottom + pad_y),
+                 max(0, left - pad_x):min(array.shape[1], right + pad_x)]
+    return crop if crop.size else None
+
+
+def _segments(crop) -> int:
+    """裁图里前景有几段；切分失败（全黑/全白）返回 0。"""
+    try:
+        segments, _, _ = segments_of(crop)
+        return len(segments)
+    except ValueError:
+        return 0
+
+
+def crop_digits(labels: dict[str, dict], images: Path, limit: int, padding: float = 0.08):
+    """按框裁单字；裁完必须只剩一段前景，否则缩边距重裁，再不行就跳过。
+
+    返回 (samples, stats)：samples 是 [(normalized 28×28, label)]，stats 记录跳过原因。
+    """
     samples = []
+    stats = {"seen": 0, "kept": 0, "multiSegment": 0, "blank": 0}
     for name, item in labels.items():
         path = images / name
         if not path.is_file():
             continue
         try:
-            gray = Image.open(path).convert("L")
+            array = np.asarray(Image.open(path).convert("L"))
         except OSError:
             continue
-        array = np.asarray(gray)
         for box, digit in zip(item["boxes"], [int(ch) for ch in item["text"]]):
-            left, top, right, bottom = box
-            pad_x = max(1, int(round((right - left) * padding)))
-            pad_y = max(1, int(round((bottom - top) * padding)))
-            crop = array[max(0, top - pad_y):min(array.shape[0], bottom + pad_y),
-                         max(0, left - pad_x):min(array.shape[1], right + pad_x)]
-            if crop.size == 0:
+            stats["seen"] += 1
+            crop = _crop(array, box, padding)
+            if crop is None:
+                stats["blank"] += 1
                 continue
+            # 关键校验：加了边距后如果出现第二段，说明把邻居裁进来了
+            if _segments(crop) != 1:
+                crop = _crop(array, box, 0.0)
+                if crop is None or _segments(crop) != 1:
+                    stats["multiSegment"] += 1
+                    continue
             try:
                 normalized = canvas_input(crop)
             except InvalidImage:
+                stats["blank"] += 1
                 continue
             samples.append((normalized[0], digit))
+            stats["kept"] += 1
             if len(samples) >= limit:
-                return samples
-    return samples
+                return samples, stats
+    return samples, stats
 
 
 def mnist_samples(data_dir: Path, count: int, seed: int):
@@ -142,12 +170,13 @@ def main() -> int:
     train_labels = read_labels(args.train_labels)
     print(f"训练图 {len(train_labels)} 张，目标单字 {args.digits} 个", flush=True)
     started = time.perf_counter()
-    train_digits = crop_digits(train_labels, args.train_images, args.digits)
-    print(f"裁出单字 {len(train_digits)} 个（{time.perf_counter() - started:.1f}s）", flush=True)
+    train_digits, train_stats = crop_digits(train_labels, args.train_images, args.digits)
+    print(f"裁出单字 {len(train_digits)} 个（{time.perf_counter() - started:.1f}s），"
+          f"跳过多段 {train_stats['multiSegment']} 个、空白 {train_stats['blank']} 个", flush=True)
 
     test_labels = read_labels(args.test_labels)
-    test_digits = crop_digits(test_labels, args.test_images, args.eval_digits, padding=0.02)
-    print(f"测试单字 {len(test_digits)} 个", flush=True)
+    test_digits, test_stats = crop_digits(test_labels, args.test_images, args.eval_digits, padding=0.02)
+    print(f"测试单字 {len(test_digits)} 个（多段跳过 {test_stats['multiSegment']}）", flush=True)
 
     model = load_model(checkpoint)
     before_svhn = evaluate_digits(model, test_digits)
