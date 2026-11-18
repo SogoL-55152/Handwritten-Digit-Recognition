@@ -29,7 +29,7 @@ import java.util.Map;
 public class TrainingService {
     public record CreateRequest(Integer epochs, Integer samples, Integer batchSize, Double learningRate,
                                 Long seed, Double photoRatio, Boolean useEmnist, String initFrom,
-                                Long datasetVersionId) {}
+                                Long datasetVersionId, Boolean earlyStop, Integer patience) {}
     public record TaskView(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
@@ -259,6 +259,8 @@ public class TrainingService {
                 || request.photoRatio() < 0 || request.photoRatio() > 1)
             throw new V2Exception(400, "photoRatio 必须在 0..1", "VALIDATION");
         if (request.useEmnist() == null) throw new V2Exception(400, "useEmnist 必须是布尔值", "VALIDATION");
+        if (request.patience() != null && (request.patience() < 1 || request.patience() > 10))
+            throw new V2Exception(400, "patience 必须在 1..10", "VALIDATION");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("epochs", epochs);
         params.put("samples", samples);
@@ -267,6 +269,8 @@ public class TrainingService {
         params.put("seed", request.seed());
         params.put("photoRatio", request.photoRatio());
         params.put("useEmnist", request.useEmnist());
+        params.put("earlyStop", request.earlyStop() != null && request.earlyStop());
+        params.put("patience", request.patience() == null ? 3 : request.patience());
         return params;
     }
 

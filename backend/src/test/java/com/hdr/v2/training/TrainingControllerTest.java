@@ -30,7 +30,7 @@ class TrainingControllerTest {
 
     @BeforeEach
     void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new TrainingController(service, events))
+        mvc = MockMvcBuilders.standaloneSetup(new TrainingController(service, events, mock(org.springframework.data.redis.core.StringRedisTemplate.class)))
                 .setControllerAdvice(new V2ExceptionHandler())
                 .addInterceptors(new V2AuthInterceptor(auth)).build();
     }

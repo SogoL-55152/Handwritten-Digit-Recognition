@@ -131,7 +131,21 @@ public class ModelClient {
         try {
             var body = Map.of("taskId", taskId, "params", params);
             JsonNode data = client.post().uri("/internal/v2/training").header("X-HDR-Internal-Token", internalToken)
-                    .contentType(MediaType.APPLICATION_JSON).body(body).exchange((request, response) -> read(response));
+                    .contentType(MediaType.APPLICATION_JSON).body(body).exchange((request, response) -> {
+                        int status = response.getStatusCode().value();
+                        if (status == 400) {
+                            byte[] bytes = response.getBody().readNBytes(65537);
+                            String message = "训练参数未通过模型服务校验";
+                            try {
+                                JsonNode root = mapper.readTree(bytes);
+                                if (root != null && root.hasNonNull("message")) message = root.get("message").asText();
+                            } catch (IOException ignored) {
+                                // 保持通用文案
+                            }
+                            throw new V2Exception(400, message, "TRAINING_VALIDATION");
+                        }
+                        return read(response);
+                    });
             String celeryTaskId = data.path("celeryTaskId").asText("");
             if (celeryTaskId.isBlank() || celeryTaskId.length() > 64) throw invalidResponse();
             return celeryTaskId;

@@ -14,6 +14,9 @@ const detail = computed(() => taskDetail(props.task))
       </div>
     </div>
 
+    <p v-if="detail.earlyStopped" class="hint-banner">
+      ⏹ 早停触发：计划 {{ detail.plannedEpochs ?? '—' }} 轮，实际训练 {{ detail.rows.length }} 轮（验证指标连续无提升）
+    </p>
     <p class="muted">
       训练集：内置样本 {{ detail.composition.rendered ?? '—' }} 条
       <template v-if="detail.composition.extraSamples"> ＋ 数据集版本 {{ detail.composition.extraSamples }} 条</template>

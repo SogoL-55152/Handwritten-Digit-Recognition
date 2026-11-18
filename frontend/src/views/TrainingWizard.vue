@@ -152,7 +152,9 @@ async function submitTraining() {
       photoRatio: Number(config.photoRatio),
       useEmnist: false,
       initFrom: config.initFrom || null,
-      datasetVersionId: config.datasetVersionId || null
+      datasetVersionId: config.datasetVersionId || null,
+      earlyStop: Boolean(config.earlyStop),
+      patience: Number(config.patience) || 3
     }
     const created = await createTask(state.datasetId, payload, user.getSnapshot())
     state.taskId = created.id

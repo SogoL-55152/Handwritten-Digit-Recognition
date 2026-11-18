@@ -249,7 +249,8 @@ def load_extra_inputs(directory: Path):
 
 def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | None,
         threads: int | None = None, emnist_zip: Path | None = None,
-        on_epoch: "callable | None" = None, extra_dir: Path | None = None) -> dict:
+        on_epoch: "callable | None" = None, extra_dir: Path | None = None,
+        early_stop: bool = False, patience: int = 3) -> dict:
     """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
@@ -310,6 +311,8 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
     labels = torch.from_numpy(train_labels.astype(np.int64))
     history = []
     step_series = []
+    early_stopped = False
+    stalls = 0
     last_grad_norm = 0.0
     best_epoch, best_score = None, -1.0
     for epoch in range(config.epochs):
@@ -351,7 +354,14 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         if metrics["canvas_simulated"] > best_score:
             best_score = metrics["canvas_simulated"]
             best_epoch = metrics["epoch"]
+            stalls = 0
+        else:
+            stalls += 1
         history.append(metrics)
+        if early_stop and stalls >= patience:
+            early_stopped = True
+            print(json.dumps({"earlyStop": True, "epoch": metrics["epoch"], "bestEpoch": best_epoch}), flush=True)
+            break
         print(json.dumps(metrics), flush=True)
         if on_epoch is not None:
             try:
@@ -375,6 +385,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
     metrics = {
         "recipe": "production canvas_input geometry + canvas & photo augmentation",
         "config": {"epochs": config.epochs, "samples": config.samples, "batch": config.batch,
+                   "earlyStop": early_stop, "patience": patience,
                    "learning_rate": config.learning_rate, "seed": config.seed,
                    "photo_ratio": config.photo_ratio,
                    "emnist": str(emnist_zip) if emnist_zip else None,
@@ -383,6 +394,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         "samples_unusable": int(skipped),
         "extra_samples": extra_count,
         "bestEpoch": best_epoch,
+        "earlyStopped": early_stopped,
         "stepSeries": step_series,
         "before": before,
         "after": {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),

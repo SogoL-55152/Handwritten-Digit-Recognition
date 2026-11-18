@@ -36,6 +36,8 @@ export function taskDetail(task) {
     durations,
     maxDuration,
     bestEpoch: typeof metrics.bestEpoch === 'number' ? metrics.bestEpoch : null,
+    earlyStopped: Boolean(metrics.earlyStopped),
+    plannedEpochs: typeof task?.epochs === 'number' ? task.epochs : null,
     composition: {
       extraSamples: Number(metrics.extra_samples || 0),
       rendered: typeof metrics.samples_rendered === 'number' ? metrics.samples_rendered : null,
