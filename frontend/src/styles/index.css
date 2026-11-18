@@ -228,3 +228,33 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .origin-trained { background: #eaf2ff; border-color: #cadcf7; color: #2459ad; }
 .origin-fine-tuned { background: #f2edff; border-color: #ddd2f7; color: #5a3ba8; }
 .origin-imported { background: #f5f6f8; border-color: #e2e5ea; color: #5a6675; }
+
+.dataset-layout { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 960px) { .dataset-layout { grid-template-columns: minmax(0, 1fr); } }
+.dataset-list h3 { margin: 0 0 10px; }
+.dataset-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.dataset-item { display: grid; gap: 2px; width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: #fbfcfe; cursor: pointer; }
+.dataset-item.active { border-color: var(--primary); background: #eef4ff; }
+.dataset-item small { color: var(--muted); font-size: 12px; }
+.create-row, .build-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 12px 0; }
+.create-row input { min-width: 180px; }
+.build-row label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.build-row input, .build-row select { min-width: 90px; }
+.version-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.version-tabs button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; }
+.version-tabs button.active { border-color: var(--primary); background: #eef4ff; color: var(--primary); }
+.split-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.label-bars { display: grid; gap: 6px; margin: 10px 0 16px; }
+.label-bar { display: grid; grid-template-columns: 32px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; }
+.label-bar .bar { display: block; height: 10px; background: #eef2f7; border-radius: 6px; overflow: hidden; }
+.label-bar .bar i { display: block; height: 100%; background: var(--primary); }
+.label-count { color: var(--muted); }
+.sample-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sample-toolbar h3 { margin: 0; }
+.sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; margin-top: 10px; }
+.sample-card { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fff; }
+.sample-card img { width: 100%; height: 84px; object-fit: contain; background: #f6f9fd; border-radius: 6px; }
+.sample-placeholder { height: 84px; display: flex; align-items: center; justify-content: center; background: #f6f9fd; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.sample-card figcaption { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; }
+.sample-card figcaption small { color: var(--muted); }

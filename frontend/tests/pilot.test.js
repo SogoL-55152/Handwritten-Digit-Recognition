@@ -106,7 +106,7 @@ test('development production routes, redirects and SUPER_ADMIN views retain W2 b
     assert.equal(router.currentRoute.value.path, path)
   }
   assert.equal(safeRedirect('/assets', (target) => router.resolve(target)), '/assets')
-  assert.deepEqual(navigationLinks({ superAdmin: true }).map(([path]) => path), ['/home', '/recognize', '/assets', '/usage', '/training', '/statistics', '/models', '/platform'])
+  assert.deepEqual(navigationLinks({ superAdmin: true }).map(([path]) => path), ['/home', '/recognize', '/assets', '/datasets', '/usage', '/training', '/statistics', '/models', '/platform'])
 })
 
 test('registration and new passwords reject the exact contract whitespace set without trimming', () => {
