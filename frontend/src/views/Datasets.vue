@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
@@ -50,6 +50,7 @@ async function loadImages(items) {
 }
 
 async function loadDatasets() {
+  if (!workspace.active?.id) return  // 空间还没核验完，等 watch 触发
   state.loading = true
   state.error = ''
   try {
@@ -269,7 +270,11 @@ function applyFilters() {
   void loadVersionData()
 }
 
-onMounted(loadDatasets)
+// 刷新后 workspace 是异步核验的：等它拿到 active 再请求，避免 workspaceId=0
+watch(() => workspace.active?.id, (id) => {
+  if (id) void loadDatasets()
+}, { immediate: true })
+
 onBeforeUnmount(releaseImages)
 </script>
 
@@ -325,6 +330,7 @@ onBeforeUnmount(releaseImages)
       {{ state.folder.result.hint }}（成功 {{ state.folder.result.imported }} · 重复 {{ state.folder.result.duplicates }}
       · 失败 {{ state.folder.result.failed }}<template v-if="state.folder.result.ignored"> · 跳过非图片 {{ state.folder.result.ignored }}</template><template v-if="state.folder.result.noLabel"> · 无标签目录 {{ state.folder.result.noLabel }}</template>）
     </p>
+    <p v-if="!workspace.active?.id" class="notice" role="status">正在核验空间…</p>
     <p v-if="state.error" class="notice error" role="alert">{{ state.error }}</p>
     <p v-if="state.notice" class="notice" role="status">{{ state.notice }}</p>
 

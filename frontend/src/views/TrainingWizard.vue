@@ -78,6 +78,7 @@ function releaseImages() {
 }
 
 async function loadDatasets() {
+  if (!workspace.active?.id) return
   state.loading = true
   state.error = ''
   try {
@@ -212,8 +213,11 @@ function back() {
   step.value = Math.max(1, step.value - 1)
 }
 
+watch(() => workspace.active?.id, (id) => {
+  if (id) void loadDatasets()
+}, { immediate: true })
+
 onMounted(async () => {
-  await loadDatasets()
   await loadModels()
   await loadTasks()
 })
