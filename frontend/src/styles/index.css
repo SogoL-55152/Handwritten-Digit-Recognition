@@ -453,3 +453,6 @@ tr.diff td { background: #fdf6e8; }
 .source-limit { width: 100%; text-align: right; }
 
 .svhn-panel { margin-top: 12px; }
+
+button.danger { border-color: #d98b82; color: #a5342a; background: #fff; }
+button.danger:hover:not(:disabled) { background: #fdeceb; border-color: #b0483c; }

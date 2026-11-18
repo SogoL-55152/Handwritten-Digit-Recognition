@@ -64,3 +64,7 @@ export const allVersions = (snapshot) =>
 export const importSvhn = (snapshot, datasetId, body) =>
   request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-svhn`, body,
     { authSession: snapshot.session, silent: true })
+
+export const deleteDataset = (snapshot, datasetId) =>
+  request.delete(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}`,
+    { authSession: snapshot.session, silent: true })

@@ -112,6 +112,35 @@ public class DatasetService {
         return version(workspaceId, id);
     }
 
+    /**
+     * 删除数据集：连同版本与版本内样本归属一起删。
+     * 采集池里的图片不删（它们可能被别的数据集版本引用），只解除这个数据集的归属。
+     * 有训练任务引用过其中版本时拒绝删除，避免历史任务指向不存在的版本。
+     */
+    @Transactional
+    public void deleteDataset(long workspaceId, long userId, long datasetId) {
+        spaces.requireMember(workspaceId, userId);
+        List<Map<String, Object>> found = jdbc.queryForList(
+                "SELECT scope, workspace_id FROM t_v2_dataset WHERE id=?", datasetId);
+        if (found.isEmpty()) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        if ("PUBLIC".equals(found.get(0).get("scope")))
+            throw new V2Exception(409, "公共数据集不能删除", "DATASET_PUBLIC");
+        if (!String.valueOf(workspaceId).equals(String.valueOf(found.get(0).get("workspace_id"))))
+            throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        Long used = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_v2_training_task
+                WHERE dataset_version_id IN (SELECT id FROM t_v2_dataset_version WHERE dataset_id=?)
+                """, Long.class, datasetId);
+        if (used != null && used > 0)
+            throw new V2Exception(409, "该数据集有 " + used + " 个训练任务引用过，不能删除", "DATASET_IN_USE");
+        jdbc.update("""
+                DELETE FROM t_v2_dataset_sample WHERE version_id IN
+                    (SELECT id FROM t_v2_dataset_version WHERE dataset_id=?)
+                """, datasetId);
+        jdbc.update("DELETE FROM t_v2_dataset_version WHERE dataset_id=?", datasetId);
+        jdbc.update("DELETE FROM t_v2_dataset WHERE id=?", datasetId);
+    }
+
     public List<Version> versions(long workspaceId, long userId, long datasetId) {
         spaces.requireMember(workspaceId, userId);
         requireDataset(workspaceId, datasetId);

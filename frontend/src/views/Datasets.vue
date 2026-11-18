@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, createDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -223,6 +223,28 @@ async function doImportSvhn() {
   }
 }
 
+async function removeDataset() {
+  const dataset = selectedDataset.value
+  if (!dataset) return
+  if (!window.confirm(`确定删除数据集「${dataset.name}」？版本与样本归属会一起删除，采集池里的图片不受影响。`)) return
+  state.busy = true
+  state.error = ''
+  try {
+    await deleteDataset(snapshot(), dataset.id)
+    state.notice = `已删除数据集「${dataset.name}」`
+    state.selectedId = null
+    state.versions = []
+    state.stats = null
+    state.samples = []
+    releaseImages()
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '删除失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
@@ -339,7 +361,10 @@ onBeforeUnmount(releaseImages)
               <h3>{{ selectedDataset.name }}</h3>
               <p class="muted">{{ selectedDataset.description || '无描述' }} · 范围 {{ selectedDataset.scope }}</p>
             </div>
-            <span class="tag">{{ state.versions.length }} 个版本</span>
+            <div class="row-actions">
+              <span class="tag">{{ state.versions.length }} 个版本</span>
+              <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
+            </div>
           </div>
 
           <div class="version-chips" v-if="state.versions.length">

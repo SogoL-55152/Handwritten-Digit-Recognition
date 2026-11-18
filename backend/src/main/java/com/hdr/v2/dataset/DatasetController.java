@@ -87,6 +87,14 @@ public class DatasetController {
         return Result.ok(datasets.allVersions(workspaceId, user, Math.min(200, Math.max(1, limit))));
     }
 
+    @DeleteMapping("/datasets/{datasetId}")
+    public Result<Map<String, Object>> deleteDataset(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                     HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        datasets.deleteDataset(workspaceId, user, datasetId);
+        return Result.ok(Map.of("deleted", Long.toString(datasetId)));
+    }
+
     @GetMapping("/datasets/{datasetId}/versions")
     public Result<List<DatasetService.Version>> versions(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                          HttpServletRequest request) {
