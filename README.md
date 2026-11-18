@@ -57,26 +57,117 @@ npm --prefix miniprogram test
 
 ## 启动应用
 
-以下说明适用于最新 `develop`。各模块可分别启动；W1 尚未接通手写图片识别链路。
+> 2026-11-18 更新。以下是本机（Windows）实测可用的启动方式；换机器只需替换路径和私有环境文件。
 
-### Docker 骨架
+### 1. 前置依赖
 
-```bash
-cp .env.example .env
-docker compose up -d --build
+| 依赖 | 本机路径示例 | 用途 |
+|---|---|---|
+| JDK 17 | `D:\Temp\hdr-w1-jdk-runtime\jdk-17.0.2` | 运行后端 |
+| Maven 3.9 | `D:\Temp\hdr-tools\apache-maven-3.9.9` | 构建后端 |
+| MySQL 8.0.40 | `D:\Temp\hdr-w2-mysql-runtime\mysql-8.0.40-winx64` | 业务库（数据目录 `D:\Temp\hdr-w2-mysql-state-20261103\data`） |
+| Redis | `D:\Temp\hdr-w4-redis\bin\redis-server.exe` | 训练队列与状态 |
+| Python venv | `D:\Temp\hdr-w4-venv` | 已装 torch / flask / celery / waitress |
+| Node 22 | `D:\Temp\hdr-w1-node-runtime\node-v22.23.4-win-x64` | 前端构建与测试 |
+| 私有环境文件 | `D:\Temp\hdr-w2-mysql-state-20261103\environment.json` | 数据库、JWT、内部令牌；**不入仓库** |
+
+后端 jar 需要先构建：
+
+```powershell
+cd backend
+$env:JAVA_HOME = "D:\Temp\hdr-w1-jdk-runtime\jdk-17.0.2"
+D:\Temp\hdr-tools\apache-maven-3.9.9\bin\mvn.cmd -o -B package -DskipTests
 ```
 
-这会配置 MySQL、Redis、Flask、Spring Boot、Vue 五个服务；不会启动训练 worker 或把离线 CNN 接成识别接口。本次未验证 Docker 部署。
+前端需要已安装依赖（`frontend/node_modules` 已存在时可直接启动）。
 
-### 分别启动
+### 2. 启动顺序
 
-1. 准备 MySQL 8，按后端 README 配置数据库连接。
-2. Flask：在 `model-service/` 安装 `requirements.txt` 后运行 `python app.py`，健康地址为 `http://localhost:5001/api/v1/health`。
-3. 后端：在 `backend/` 运行 `mvn spring-boot:run`，监听 8080；API 文档见 `http://localhost:8080/doc.html`。
-4. 前端：在 `frontend/` 使用 Node 22，运行 `npm install`、`npm run dev`，访问 `http://localhost:5173`。
-5. 微信开发者工具导入 `miniprogram/`，通过登录页的 W1 画板入口或启动路径 `pages/drawing-prototype/drawing-prototype` 独立体验原型，不需要后端或模型。
+```
+Redis(16379) → MySQL(13316) → 模型服务(5001) → 后端(8080) → 前端(5173) → 训练 worker（可选）
+```
 
-后端初始开发账号及环境配置见后端 README；仅用于本地开发，不应直接用于公开部署。
+### 3. 一条命令段（PowerShell，项目根目录执行）
+
+```powershell
+cd C:\Users\毛守坤\Desktop\Handwritten-Digit-Recognition
+
+# 读私有环境（数据库、JWT、内部令牌、Redis 地址）
+$envFile = "D:/Temp/hdr-w2-mysql-state-20261103/environment.json"
+(Get-Content $envFile -Raw | ConvertFrom-Json).PSObject.Properties |
+  ForEach-Object { Set-Item -Path "env:$($_.Name)" -Value $_.Value }
+$env:SPRING_PROFILES_ACTIVE = "default"; $env:HDR_PILOT_ENABLED = "false"
+$env:MODEL_SERVICE_URL = "http://127.0.0.1:5001"
+$env:MODEL_REGISTRY_PATH = "$PWD\model-service\weights\registry.json"
+$env:WEIGHTS_DIR = "$PWD\model-service\weights"
+$env:REDIS_URL = "redis://127.0.0.1:16379/0"; $env:REDIS_HOST = "127.0.0.1"; $env:REDIS_PORT = "16379"
+$env:HDR_COLLECTED_DIR = "$PWD\collected-samples"
+$env:HDR_RECOGNITION_DIR = "$PWD\recognition-images"
+$env:HDR_TRAINING_DATA_DIR = "$PWD\training-data"
+$env:TRAINING_CALLBACK_URL = "http://127.0.0.1:8080"
+
+Start-Process "D:\Temp\hdr-w4-redis\bin\redis-server.exe" -ArgumentList "--port","16379","--bind","127.0.0.1"
+Start-Process "D:\Temp\hdr-w2-mysql-runtime\mysql-8.0.40-winx64\bin\mysqld.exe" -ArgumentList `
+  "--no-defaults","--basedir=D:\Temp\hdr-w2-mysql-runtime\mysql-8.0.40-winx64",`
+  "--datadir=D:\Temp\hdr-w2-mysql-state-20261103\data","--bind-address=127.0.0.1","--port=13316",`
+  "--mysqlx=OFF","--default-time-zone=+00:00","--console"
+Start-Sleep -Seconds 10
+
+Start-Process "D:\Temp\hdr-w4-venv\Scripts\python.exe" -ArgumentList "-I","model-service/serve.py"
+Start-Sleep -Seconds 8
+
+Start-Process "D:\Temp\hdr-w1-jdk-runtime\jdk-17.0.2\bin\java.exe" -ArgumentList `
+  "-jar","backend\target\hdr-backend-0.1.0-SNAPSHOT.jar"
+
+Start-Process "D:\Temp\hdr-w1-node-runtime\node-v22.23.4-win-x64\node.exe" -ArgumentList `
+  "frontend/node_modules/vite/bin/vite.js","frontend","--host","127.0.0.1","--port","5173","--strictPort"
+
+# 训练功能需要；不训练可以不起
+Start-Process "D:\Temp\hdr-w4-venv\Scripts\python.exe" -ArgumentList `
+  "-m","celery","-A","celery_app:celery_app","worker","--pool=solo","-Q","training","--loglevel=INFO" `
+  -WorkingDirectory "$PWD\model-service"
+```
+
+> 首次启动后端会自动跑 Flyway 迁移到最新版本（当前 V17），不需要手动建表。
+
+### 4. 确认启动成功
+
+```powershell
+D:\Temp\hdr-w4-venv\Scripts\python.exe -I scripts/local-demo.py check `
+  --env-file D:/Temp/hdr-w2-mysql-state-20261103/environment.json
+```
+
+全部为 `true` 且 `verifiedModels` ≥ 1 即正常（本机当前为 18 个模型）。也可以直接看页面：
+
+- 前端：<http://127.0.0.1:5173>
+- 模型服务健康：<http://127.0.0.1:5001/api/v1/health>
+- 后端存活：<http://127.0.0.1:8080/api/health>
+
+本机开发账号：`admin` / `HdrAdmin2026!`（**仅本地使用，不可用于公开部署**）。
+
+### 5. 停止服务
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
+  Where-Object { $_.CommandLine -like '*hdr-backend*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like '*model-service*' -or $_.CommandLine -like '*celery*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Get-Process mysqld, redis-server -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+### 6. 常见问题
+
+| 现象 | 原因与处理 |
+|---|---|
+| 打包报 `Unable to rename ...hdr-backend-...jar` | 后端进程还在占用 jar：先停后端再 `mvn package` |
+| 模型服务报 `cannot import name 'serve' from waitress` 或 `No module named 'torch'` | venv 的 `.py` 文件被清理（本机 `D:\Temp` 清理过）：重建 venv 后重装 `requirements*.txt`，并确认 `D:\Temp\hdr-w4-venv` 指向可用的环境 |
+| 端口被占用 | 13316 / 16379 / 8080 / 5001 / 5173 任一被占都会启动失败；先结束旧进程 |
+| MySQL 起不来 | 数据目录必须是已初始化的（含 `auto.cnf`）；本机为 `D:\Temp\hdr-w2-mysql-state-20261103\data` |
+| 页面能开但识别 502/503 | 模型服务没起或注册表摘要校验失败：检查 5001 健康与 `weights/registry.json` |
+| 训练任务一直排队 | 训练 worker 没起，或 Redis 不可用：看 `D:\Temp\hdr-run\worker.out.log` |
+
+Docker Compose 骨架（`docker compose up -d --build`）**尚未验证**，交付以此本机流程为准。
 
 ## 文档与协作
 
