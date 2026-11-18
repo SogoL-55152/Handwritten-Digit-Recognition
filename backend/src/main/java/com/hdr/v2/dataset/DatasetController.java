@@ -69,6 +69,12 @@ public class DatasetController {
         return Result.ok(imports.importFiles(workspaceId, user, datasetId, label, files == null ? List.of() : files));
     }
 
+    @GetMapping("/import-sources")
+    public Result<List<Map<String, Object>>> importSources(@PathVariable long workspaceId, HttpServletRequest request) {
+        authorize(workspaceId, request);
+        return Result.ok(svhn.sources());
+    }
+
     @PostMapping("/datasets/{datasetId}/import-svhn")
     public Result<Map<String, Object>> importSvhn(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                   @RequestBody(required = false) ImportSvhnCommand command,
