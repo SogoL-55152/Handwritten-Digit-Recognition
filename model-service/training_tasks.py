@@ -121,6 +121,59 @@ def _resolve_init(version):
     raise ValueError("初始化模型未在服务端注册表中登记")
 
 
+class _RedisLog:
+    """把训练脚本的 stdout 同时写到 Redis（training:log:<id> 环形缓冲）。"""
+
+    def __init__(self, task_id: str, limit: int = 2000):
+        import redis
+
+        self.task_id = task_id
+        self.limit = limit
+        self.buffer = ""
+        try:
+            self.client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://127.0.0.1:16379/0"))
+        except Exception:  # noqa: BLE001 - 没有 Redis 时只丢日志，不影响训练
+            self.client = None
+
+    def write(self, text: str) -> None:
+        self.buffer += text
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            self._push(line)
+
+    def flush(self) -> None:
+        if self.buffer:
+            self._push(self.buffer)
+            self.buffer = ""
+
+    def _push(self, line: str) -> None:
+        if self.client is None:
+            return
+        try:
+            key = f"training:log:{self.task_id}"
+            self.client.lpush(key, line[:500])
+            self.client.ltrim(key, 0, self.limit - 1)
+            self.client.expire(key, 7 * 24 * 3600)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class _Tee:
+    """同时写到原始 stdout 和 Redis。"""
+
+    def __init__(self, primary, sink):
+        self.primary = primary
+        self.sink = sink
+
+    def write(self, text):
+        self.primary.write(text)
+        self.sink.write(text)
+
+    def flush(self):
+        self.primary.flush()
+        self.sink.flush()
+
+
 def train_one(task_id, attempt, params):
     epochs = int(params["epochs"])
     samples = int(params["samples"])
@@ -136,10 +189,16 @@ def train_one(task_id, attempt, params):
         notify(task_id, {"state": "RUNNING", "attempt": attempt, "metrics": epoch_metrics})
 
     extra_dir = Path(params["dataDir"]) if params.get("dataDir") else None
-    metrics = run(config, data_root(), attempt_dir, init=_resolve_init(params.get("initFrom")),
-                  threads=int(os.getenv("TRAINING_THREADS", "2")),
-                  emnist_zip=emnist_zip() if params.get("useEmnist") else None,
-                  on_epoch=report_epoch, extra_dir=extra_dir)
+    import contextlib
+    import sys
+
+    log_sink = _RedisLog(task_id)
+    with contextlib.redirect_stdout(_Tee(sys.stdout, log_sink)):
+        metrics = run(config, data_root(), attempt_dir, init=_resolve_init(params.get("initFrom")),
+                      threads=int(os.getenv("TRAINING_THREADS", "2")),
+                      emnist_zip=emnist_zip() if params.get("useEmnist") else None,
+                      on_epoch=report_epoch, extra_dir=extra_dir)
+    log_sink.flush()
     stable = root / "checkpoint.pt"
     shutil.copyfile(attempt_dir / "checkpoint.pt", stable)
     sha256, size_bytes = _digest(stable)

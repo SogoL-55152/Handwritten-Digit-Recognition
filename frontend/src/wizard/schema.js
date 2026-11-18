@@ -69,6 +69,24 @@ export const PARAM_SCHEMA = [
         help: '最重要的参数：太大会发散，太小几乎不更新。Adam 常用 1e-3，SGD 常用 1e-2。'
       },
       {
+        key: 'samples',
+        label: '样本数',
+        widget: 'slider',
+        min: 1000,
+        max: 60000,
+        step: 1000,
+        help: '参与训练的样本数量；数据版本会额外并入真实样本。'
+      },
+      {
+        key: 'photoRatio',
+        label: '照片增广',
+        widget: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        help: '每轮有多少比例样本做照片风格模拟，提升拍照场景鲁棒性。'
+      },
+      {
         key: 'batchSize',
         label: '批大小',
         widget: 'segmented',
@@ -107,6 +125,13 @@ export const PARAM_SCHEMA = [
     title: '运行环境',
     items: [
       {
+        key: 'initFrom',
+        label: '微调起点',
+        widget: 'select',
+        help: '从已有模型继续训练通常更稳；选“从零训练”则不用起点权重。',
+        options: { from: 'models' }
+      },
+      {
         key: 'device',
         label: '设备',
         widget: 'select',
@@ -144,6 +169,9 @@ export function defaultConfig() {
     optimizer: 'adam',
     momentum: 0.9,
     learningRate: 1e-3,
+    samples: 10000,
+    photoRatio: 0.5,
+    initFrom: null,
     batchSize: 64,
     epochs: 10,
     earlyStop: true,

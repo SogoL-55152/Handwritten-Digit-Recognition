@@ -10,3 +10,6 @@ export const createTask = (datasetId, payload, authSession) =>
 
 export const eventsTicket = (authSession) =>
   request.post('/admin/training/tasks/events/ticket', {}, { authSession, silent: true })
+
+export const trainingLogs = (authSession, taskId) =>
+  request.get(`${base}/${encodeURIComponent(taskId)}/logs`, { authSession, silent: true })

@@ -18,10 +18,13 @@ public class TrainingController {
     private static final int MAX_LIMIT = 50;
     private final TrainingService service;
     private final TrainingEventBus events;
+    private final org.springframework.data.redis.core.StringRedisTemplate redis;
 
-    public TrainingController(TrainingService service, TrainingEventBus events) {
+    public TrainingController(TrainingService service, TrainingEventBus events,
+                              org.springframework.data.redis.core.StringRedisTemplate redis) {
         this.service = service;
         this.events = events;
+        this.redis = redis;
     }
 
     @GetMapping
@@ -63,6 +66,20 @@ public class TrainingController {
     @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@RequestParam(required = false) String ticket) {
         return events.subscribe(events.consumeTicket(ticket));
+    }
+
+    /** 训练日志：worker 写入 Redis 环形缓冲（training:log:<id>），最多 2000 行。 */
+    @GetMapping("/{id}/logs")
+    public Result<Map<String, Object>> logs(@PathVariable long id, HttpServletRequest request) {
+        requireOperator(request);
+        service.view(id);
+        List<String> lines;
+        try {
+            lines = redis.opsForList().range("training:log:" + id, 0, -1);
+        } catch (RuntimeException error) {
+            lines = List.of();
+        }
+        return Result.ok(Map.of("lines", lines == null ? List.of() : lines));
     }
 
     private void requireOperator(HttpServletRequest request) {

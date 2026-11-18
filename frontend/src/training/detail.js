@@ -18,9 +18,13 @@ export function taskDetail(task) {
   const rows = history.map((item) => ({
     epoch: item.epoch,
     loss: typeof item.loss === 'number' ? item.loss : null,
+    trainAcc: percent(item.trainAcc),
     mnist: percent(item.raw_mnist),
     canvas: percent(item.canvas_simulated),
     photo: percent(item.photo_simulated),
+    lr: typeof item.lr === 'number' ? item.lr : null,
+    tps: typeof item.tps === 'number' ? item.tps : null,
+    gradNorm: typeof item.gradNorm === 'number' ? item.gradNorm : null,
     durationMs: typeof item.durationMs === 'number' ? item.durationMs : null
   }))
   const durations = rows.map((row) => row.durationMs || 0)
@@ -31,6 +35,7 @@ export function taskDetail(task) {
     rows,
     durations,
     maxDuration,
+    bestEpoch: typeof metrics.bestEpoch === 'number' ? metrics.bestEpoch : null,
     composition: {
       extraSamples: Number(metrics.extra_samples || 0),
       rendered: typeof metrics.samples_rendered === 'number' ? metrics.samples_rendered : null,

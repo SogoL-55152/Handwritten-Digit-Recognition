@@ -17,7 +17,7 @@ export function createRoutes({ pilot = false } = {}) {
         { path: '/training', component: () => import('../views/Training.vue'), meta: { title: '训练任务' } },
         { path: '/statistics', component: () => import('../views/Statistics.vue'), meta: { title: '统计' } },
         { path: '/visual', component: () => import('../views/Visualization.vue'), meta: { title: '可视化' } },
-        { path: '/wizard', component: () => import('../views/TrainingWizard.vue'), meta: { title: '参数可视化' } },
+        { path: '/wizard', component: () => import('../views/TrainingWizard.vue'), meta: { title: '参数可视化', superAdmin: true } },
         { path: '/models', component: () => import('../views/Models.vue'), meta: { title: '模型管理', superAdmin: true } },
         { path: '/platform', component: () => import('../views/Platform.vue'), meta: { title: '平台运行状态', superAdmin: true } }
       ]
@@ -30,7 +30,7 @@ export function navigationLinks({ pilot = false, superAdmin = false } = {}) {
   if (pilot) return [['/recognize', '画板'], ['/account', '账号'], ['/help', '帮助'], ['/privacy', '隐私说明']]
   return [
     ['/home', '工作空间'], ['/recognize', '手写识别'], ['/assets', '公共资产'], ['/datasets', '数据集'],
-    ['/usage', '我的用量'], ['/training', '训练任务'], ['/statistics', '统计'], ['/visual', '可视化'], ['/wizard', '参数可视化'],
-    ...(superAdmin ? [['/models', '模型管理'], ['/platform', '平台运行状态']] : [])
+    ['/usage', '我的用量'], ['/training', '训练任务'], ['/statistics', '统计'], ['/visual', '可视化'],
+    ...(superAdmin ? [['/wizard', '参数可视化'], ['/models', '模型管理'], ['/platform', '平台运行状态']] : [])
   ]
 }

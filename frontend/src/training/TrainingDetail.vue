@@ -34,14 +34,18 @@ const detail = computed(() => taskDetail(props.task))
 
       <div class="table-wrap">
         <table>
-          <thead><tr><th>轮次</th><th>损失</th><th>MNIST</th><th>画板模拟</th><th>照片模拟</th><th>耗时</th></tr></thead>
+          <thead><tr><th>轮次</th><th>损失</th><th>训练集</th><th>MNIST</th><th>画板</th><th>照片</th><th>lr</th><th>吞吐</th><th>梯度</th><th>耗时</th></tr></thead>
           <tbody>
-            <tr v-for="row in detail.rows" :key="row.epoch">
-              <td>{{ row.epoch }}</td>
+            <tr v-for="row in detail.rows" :key="row.epoch" :class="{ best: detail.bestEpoch === row.epoch }">
+              <td>{{ row.epoch }}<template v-if="detail.bestEpoch === row.epoch"> ★</template></td>
               <td>{{ row.loss === null ? '—' : row.loss }}</td>
+              <td>{{ row.trainAcc === null ? '—' : row.trainAcc + '%' }}</td>
               <td>{{ row.mnist === null ? '—' : row.mnist + '%' }}</td>
               <td>{{ row.canvas === null ? '—' : row.canvas + '%' }}</td>
               <td>{{ row.photo === null ? '—' : row.photo + '%' }}</td>
+              <td>{{ row.lr === null ? '—' : row.lr.toExponential(1) }}</td>
+              <td>{{ row.tps === null ? '—' : row.tps + '/s' }}</td>
+              <td>{{ row.gradNorm === null ? '—' : row.gradNorm }}</td>
               <td>{{ row.durationMs === null ? '—' : row.durationMs + ' ms' }}</td>
             </tr>
           </tbody>

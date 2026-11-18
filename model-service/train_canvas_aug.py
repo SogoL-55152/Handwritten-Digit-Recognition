@@ -309,6 +309,9 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
     loss_fn = torch.nn.CrossEntropyLoss()
     labels = torch.from_numpy(train_labels.astype(np.int64))
     history = []
+    step_series = []
+    last_grad_norm = 0.0
+    best_epoch, best_score = None, -1.0
     for epoch in range(config.epochs):
         epoch_started = time.perf_counter()
         model.train()
@@ -319,17 +322,35 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
             optimizer.zero_grad()
             loss = loss_fn(model(torch.from_numpy(train_inputs[index.numpy()])), labels[index])
             loss.backward()
+            with torch.no_grad():
+                squared = sum(float(parameter.grad.norm(2)) ** 2
+                              for parameter in model.parameters() if parameter.grad is not None)
+                last_grad_norm = squared ** 0.5
             optimizer.step()
             total += float(loss) * len(index)
             seen += len(index)
+            if len(step_series) < 500 and seen % max(config.batch, 640) < config.batch:
+                step_series.append({"step": seen, "epoch": epoch + 1,
+                                    "loss": round(float(loss), 5),
+                                    "lr": float(optimizer.param_groups[0]["lr"])})
+        elapsed = max(0.001, time.perf_counter() - epoch_started)
+        # 训练集准确率取一小段（最多 1000 个）算，避免每轮额外跑全量
+        train_probe = min(1000, len(train_inputs))
         metrics = {"epoch": epoch + 1, "loss": round(total / seen, 5),
-                   "durationMs": int(round((time.perf_counter() - epoch_started) * 1000)),
+                   "durationMs": int(round(elapsed * 1000)),
+                   "lr": float(optimizer.param_groups[0]["lr"]),
+                   "gradNorm": round(last_grad_norm, 4),
+                   "tps": round(seen / elapsed, 1),
+                   "trainAcc": accuracy(model, torch, train_inputs[:train_probe], train_labels[:train_probe]),
                    "raw_mnist": accuracy(model, torch, raw_test, test_labels),
                    "canvas_simulated": accuracy(model, torch, canvas_test, test_labels),
                    "photo_simulated": accuracy(model, torch, photo_test, test_labels)}
         if emnist_test is not None:
             emnist_inputs, _ = build_inputs(emnist_test[0], np.random.default_rng(config.seed + 3), 0.0)
             metrics["emnist_canvas_simulated_1000"] = accuracy(model, torch, emnist_inputs, emnist_test[1])
+        if metrics["canvas_simulated"] > best_score:
+            best_score = metrics["canvas_simulated"]
+            best_epoch = metrics["epoch"]
         history.append(metrics)
         print(json.dumps(metrics), flush=True)
         if on_epoch is not None:
@@ -361,6 +382,8 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         "samples_rendered": int(len(train_inputs) - skipped),
         "samples_unusable": int(skipped),
         "extra_samples": extra_count,
+        "bestEpoch": best_epoch,
+        "stepSeries": step_series,
         "before": before,
         "after": {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),
                   "canvas_simulated_1000": accuracy(model, torch, canvas_test, test_labels),

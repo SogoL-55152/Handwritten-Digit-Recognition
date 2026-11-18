@@ -456,3 +456,7 @@ tr.diff td { background: #fdf6e8; }
 
 button.danger { border-color: #d98b82; color: #a5342a; background: #fff; }
 button.danger:hover:not(:disabled) { background: #fdeceb; border-color: #b0483c; }
+
+tr.best td { background: #fffaf0; font-weight: 600; }
+.log-stream { max-height: 320px; overflow: auto; margin: 0; padding: 12px; background: #0f172a; color: #d6e4ff;
+  border-radius: 8px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }

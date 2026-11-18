@@ -3,7 +3,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import { listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
-import { listTasks } from '@/api/training.js'
+import { createTask, listTasks } from '@/api/training.js'
+import { listModels } from '@/api/models.js'
 import { taskDetail } from '@/training/detail.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
@@ -19,7 +20,8 @@ const step = ref(1)
 const config = reactive({ ...defaultConfig(), layers: JSON.parse(JSON.stringify(ARCH_PRESETS[1].layers)) })
 const state = reactive({
   datasets: [], versions: [], stats: null, samples: [], total: 0,
-  tasks: [], taskId: null, hash: '', loading: false, error: '', notice: ''
+  tasks: [], taskId: null, hash: '', loading: false, error: '', notice: '',
+  datasetId: null, models: [], submitting: false
 })
 const imageUrls = reactive({})
 const errors = ref([])
@@ -119,6 +121,50 @@ async function selectVersion(versionId) {
   }
 }
 
+async function loadModels() {
+  try {
+    state.models = await listModels(user.getSnapshot())
+  } catch (error) {
+    state.models = []
+  }
+}
+
+function selectDatasetValue(value) {
+  state.datasetId = value ? Number(value) : null
+  void loadVersions(state.datasetId)
+}
+
+async function submitTraining() {
+  if (state.submitting) return
+  state.error = ''
+  state.notice = ''
+  if (!state.datasetId) { state.error = '请先在第①步选择一个数据集'; return }
+  if (blocking.value) { state.error = '参数校验未通过，请先修正'; return }
+  state.submitting = true
+  try {
+    const payload = {
+      epochs: Number(config.epochs),
+      samples: Number(config.samples),
+      batchSize: Number(config.batchSize),
+      learningRate: Number(config.learningRate),
+      seed: Number(config.seed),
+      photoRatio: Number(config.photoRatio),
+      useEmnist: false,
+      initFrom: config.initFrom || null,
+      datasetVersionId: config.datasetVersionId || null
+    }
+    const created = await createTask(state.datasetId, payload, user.getSnapshot())
+    state.taskId = created.id
+    state.notice = `已提交训练任务 #${created.id}，切换到第③步查看进度`
+    await loadTasks()
+    step.value = 3
+  } catch (error) {
+    state.error = error?.message || '提交训练任务失败'
+  } finally {
+    state.submitting = false
+  }
+}
+
 async function loadTasks() {
   try {
     state.tasks = await listTasks(user.getSnapshot(), 20)
@@ -165,6 +211,7 @@ function back() {
 
 onMounted(async () => {
   await loadDatasets()
+  await loadModels()
   await loadTasks()
 })
 onBeforeUnmount(releaseImages)
@@ -195,7 +242,7 @@ onBeforeUnmount(releaseImages)
       <div class="panel">
         <h3>选择数据</h3>
         <label class="field-row-line">数据集
-          <select @change="loadVersions($event.target.value)">
+          <select @change="selectDatasetValue($event.target.value)">
             <option :value="''">不使用版本（仅内置 MNIST）</option>
             <option v-for="item in state.datasets" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
@@ -248,6 +295,12 @@ onBeforeUnmount(releaseImages)
                 <template v-else-if="item.options?.from === 'datasetVersions'">
                   <option :value="null">不使用版本</option>
                   <option v-for="version in state.versions" :key="version.id" :value="version.id">{{ version.version }}</option>
+                </template>
+                <template v-else-if="item.options?.from === 'models'">
+                  <option :value="null">从零训练</option>
+                  <option v-for="model in state.models" :key="model.version" :value="model.version">
+                    {{ model.version }}{{ model.status === 'ACTIVE' ? '（生效中）' : '' }}
+                  </option>
                 </template>
                 <template v-else>
                   <option v-for="option in item.options" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -381,7 +434,10 @@ onBeforeUnmount(releaseImages)
     <div class="wizard-footer panel">
       <button :disabled="step === 1" @click="back">上一步</button>
       <span class="muted">config_hash {{ state.hash }}</span>
-      <button v-if="step < STEPS.length" class="primary" :disabled="step === 2 && blocking" @click="next">下一步</button>
+      <button v-if="step === 2" class="primary" :disabled="state.submitting || blocking || !state.datasetId" @click="submitTraining">
+        {{ state.submitting ? '提交中…' : '开始训练' }}
+      </button>
+      <button v-if="step < STEPS.length" :disabled="step === 2 && blocking" @click="next">下一步</button>
       <button v-else class="primary" @click="step = 1">回到第一步</button>
     </div>
   </div>
