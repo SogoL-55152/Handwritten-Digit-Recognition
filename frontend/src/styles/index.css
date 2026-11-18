@@ -351,3 +351,15 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .visual-stat small { color: var(--muted); font-size: 12px; }
 .visual-stat strong { font-size: 18px; }
 .visual-matrix .matrix { max-width: 720px; }
+
+/* ---------- 参数与结果 ---------- */
+.rank-list { display: grid; gap: 8px; }
+.rank-item { display: grid; grid-template-columns: 44px 1fr 56px; gap: 10px; align-items: center; font-size: 13px; }
+.rank-item small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.rank-item .bar { display: block; height: 10px; background: #eef2f7; border-radius: 6px; overflow: hidden; }
+.rank-item .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fb8ea, #2f6fd0); }
+.rank-item.best .bar i { background: linear-gradient(90deg, #f0c46a, #d08a2f); }
+.rank-id { font-weight: 650; }
+.rank-score { text-align: right; color: var(--muted); }
+.spread-hint { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.spread-chip { padding: 2px 10px; border-radius: 999px; background: #f2f5f9; color: #44586f; font-size: 12px; }

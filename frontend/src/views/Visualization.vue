@@ -6,6 +6,8 @@ import { taskDetail } from '@/training/detail.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
 import { pickDefaultTask, taskOptions } from '@/training/visual.js'
+import { paramRows, rankedRows, spreadOf } from '@/training/params.js'
+import ParamsChart from '@/training/ParamsChart.vue'
 
 const user = useUserStore()
 const loading = ref(false)
@@ -14,6 +16,10 @@ const tasks = ref([])
 const selectedId = ref(null)
 
 const options = computed(() => taskOptions(tasks.value))
+const rows = computed(() => paramRows(tasks.value))
+const ranked = computed(() => rankedRows(rows.value))
+const spread = computed(() => spreadOf(rows.value))
+const best = computed(() => ranked.value[0] || null)
 const selected = computed(() => tasks.value.find((task) => String(task.id) === String(selectedId.value)) || null)
 const detail = computed(() => taskDetail(selected.value))
 const history = computed(() => (selected.value?.metrics?.history) || [])
@@ -105,6 +111,30 @@ onMounted(load)
             </div>
           </div>
           <p v-else class="muted">该任务没有逐轮指标。</p>
+        </section>
+
+        <section class="panel">
+          <div class="block-head">
+            <h4>参数与结果</h4>
+            <span class="muted">同一批任务里，参数变了多少、结果差多少</span>
+          </div>
+          <p v-if="!ranked.length" class="muted">还没有带准确率的历史任务，训练完成后这里会给出对照。</p>
+          <template v-else>
+            <div class="rank-list">
+              <div v-for="row in ranked.slice(0, 6)" :key="row.id" class="rank-item" :class="{ best: best && row.id === best.id }">
+                <span class="rank-id">#{{ row.id }}</span>
+                <span class="bar"><i :style="{ width: Math.max(3, row.score) + '%' }"></i></span>
+                <span class="rank-score">{{ row.score }}%</span>
+                <small>样本 {{ row.samples }} · {{ row.epochs }} 轮 · lr {{ row.learningRate }}<template v-if="row.initFrom"> · 微调自 {{ row.initFrom }}</template></small>
+              </div>
+            </div>
+
+            <div class="spread-hint">
+              <span v-for="(value, key) in spread" :key="key" class="spread-chip">{{ key }} 有 {{ value }} 种取值</span>
+            </div>
+
+            <ParamsChart :rows="ranked" :height="300" />
+          </template>
         </section>
 
         <section class="panel visual-matrix">
