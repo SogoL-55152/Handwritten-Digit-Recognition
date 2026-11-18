@@ -272,3 +272,7 @@ desktop.ini
 
 # 训练用的数据集导出目录（可再生成，不入仓库）
 /training-data/
+
+# 门牌数据集（263MB，本地评估用，不入仓库）
+/test.tar.gz
+/hdr-scene/
