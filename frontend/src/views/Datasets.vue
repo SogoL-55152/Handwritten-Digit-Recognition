@@ -387,14 +387,16 @@ onBeforeUnmount(releaseImages)
             <div class="source-picker">
               <div class="block-head"><h4>样本来源（可选）</h4><span class="muted">勾选后按来源合并；不勾选则用整个采集池</span></div>
               <div v-for="option in state.sourceOptions" :key="option.id" class="source-row">
-                <label>
-                  <input type="checkbox" :checked="state.sources.some((item) => item.versionId === option.id)"
-                         @change="toggleSource(option.id)" />
+                <input class="source-check" type="checkbox"
+                       :checked="state.sources.some((item) => item.versionId === option.id)"
+                       @change="toggleSource(option.id)" />
+                <label class="source-label" @click="toggleSource(option.id)">
                   {{ option.dataset_name }} · {{ option.version }}（{{ option.sample_count }} 条）
                 </label>
-                <input v-if="state.sources.some((item) => item.versionId === option.id)" type="number" min="1"
-                       :value="state.sources.find((item) => item.versionId === option.id)?.limit"
+                <input v-if="state.sources.some((item) => item.versionId === option.id)" class="source-limit"
+                       type="number" min="1" :value="state.sources.find((item) => item.versionId === option.id)?.limit"
                        @change="state.sources.find((item) => item.versionId === option.id).limit = Number($event.target.value)" />
+                <span v-else class="source-limit muted">全部</span>
               </div>
               <p v-if="!state.sourceOptions.length" class="muted">还没有其他可用版本。</p>
             </div>

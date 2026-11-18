@@ -248,13 +248,13 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .list-head h3 { margin: 0; font-size: 15px; }
 .count-pill { min-width: 24px; padding: 1px 8px; border-radius: 999px; background: #eef4ff; color: var(--primary); font-size: 12px; text-align: center; }
 .dataset-list ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
-.dataset-item { display: grid; gap: 4px; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line);
+.dataset-item { display: grid; justify-items: start; justify-content: start; gap: 4px; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line);
   border-radius: 12px; background: #fbfcfe; cursor: pointer; transition: border-color .15s, background .15s; }
 .dataset-item:hover { border-color: #c3d5ea; }
 .dataset-item.active { border-color: var(--primary); background: #eef4ff; box-shadow: inset 3px 0 0 var(--primary); }
 .dataset-name { font-weight: 650; }
-.dataset-desc { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dataset-meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); }
+.dataset-desc { font-size: 12px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.dataset-meta { display: flex; gap: 10px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .dataset-meta i { font-style: normal; }
 .dataset-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .dataset-head h3 { margin: 0 0 4px; }
@@ -445,7 +445,11 @@ tr.diff td { background: #fdf6e8; }
 .import-row .field { min-width: 120px; }
 .import-row input[type='file'] { min-height: 38px; padding: 6px; }
 .source-picker { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
-.source-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; padding: 4px 0; }
-.source-row input[type='number'] { width: 90px; }
+.source-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 96px; align-items: center; gap: 10px;
+  font-size: 13px; padding: 6px 0; border-bottom: 1px dashed #eef1f5; }
+.source-row:last-of-type { border-bottom: 0; }
+.source-check { width: 16px; height: 16px; margin: 0; }
+.source-label { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.source-limit { width: 100%; text-align: right; }
 
 .svhn-panel { margin-top: 12px; }
