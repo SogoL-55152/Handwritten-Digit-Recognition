@@ -276,3 +276,7 @@ desktop.ini
 # 门牌数据集（263MB，本地评估用，不入仓库）
 /test.tar.gz
 /hdr-scene/
+
+# SVHN 解压目录（33k+13k 张图，不入仓库）
+/train/
+/test/
