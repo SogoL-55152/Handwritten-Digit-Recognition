@@ -129,6 +129,15 @@ def login(api: str, username: str, password: str):
     return data['token'], data['defaultWorkspaceId']
 
 
+def resolve_auth(api: str, args):
+    """优先用调用方给的 token（后端用，免密）；否则用账号密码登录。"""
+    if args.token:
+        if not args.workspace:
+            raise SystemExit('--token 必须与 --workspace 一起使用')
+        return args.token, str(args.workspace)
+    return login(api, args.username, args.password)
+
+
 def ensure_dataset(api: str, token: str, workspace: int, dataset_id: int | None, name: str | None):
     import requests
     headers = {'Authorization': f'Bearer {token}'}
@@ -173,6 +182,8 @@ def main() -> int:
     parser.add_argument('--username', default='admin')
     parser.add_argument('--password', default='HdrAdmin2026!')
     parser.add_argument('--dataset-id', type=int, default=None)
+    parser.add_argument('--token', default=None, help='调用方已有的访问令牌（免登录，配合 --workspace）')
+    parser.add_argument('--workspace', default=None, help='工作空间 id（配合 --token）')
     parser.add_argument('--dataset-name', default=None)
     parser.add_argument('--dry-run', action='store_true', help='只裁剪与校验，不写库')
     parser.add_argument('--limit-images', type=int, default=None)
@@ -195,7 +206,7 @@ def main() -> int:
         print(json.dumps({'dryRun': True, 'total': total, 'stats': dict(stats)}, ensure_ascii=False))
         return 0
 
-    token, workspace = login(args.api, args.username, args.password)
+    token, workspace = resolve_auth(args.api, args)
     dataset_id = ensure_dataset(args.api, token, workspace, args.dataset_id, args.dataset_name)
     print(f'目标数据集 {dataset_id}（工作空间 {workspace}）', flush=True)
 

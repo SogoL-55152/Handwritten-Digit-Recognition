@@ -55,6 +55,12 @@ hdr:
     registration-code: ${PILOT_REGISTRATION_CODE:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  import:
+    # 按钮触发 SVHN 导入：后端拉起脚本；目录必须位于 root 之下
+    python: ${HDR_IMPORT_PYTHON:D:/Temp/hdr-w4-venv/Scripts/python.exe}
+    script: ${HDR_IMPORT_SCRIPT:model-service/tools/svhn_import.py}
+    root: ${HDR_IMPORT_ROOT:.}
+    timeout-seconds: ${HDR_IMPORT_TIMEOUT_SECONDS:900}
   legacy:
     auth-enabled: ${HDR_LEGACY_AUTH_ENABLED:false}
     bootstrap-enabled: ${HDR_LEGACY_BOOTSTRAP_ENABLED:false}

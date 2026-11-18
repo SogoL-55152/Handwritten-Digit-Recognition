@@ -447,3 +447,5 @@ tr.diff td { background: #fdf6e8; }
 .source-picker { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .source-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; padding: 4px 0; }
 .source-row input[type='number'] { width: 90px; }
+
+.svhn-panel { margin-top: 12px; }

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, createDataset, importSamples, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, createDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -17,6 +17,7 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   importing: false, importLabel: 0, importFiles: [], importResult: null,
   folder: { busy: false, progress: '', result: null },
+  svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
   sources: [], sourceOptions: [], sourceLimit: 20,
   buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
@@ -200,6 +201,28 @@ async function importFolder(event) {
   }
 }
 
+async function doImportSvhn() {
+  if (!state.selectedId || !state.svhn.directory.trim()) return
+  state.svhn.busy = true
+  state.error = ''
+  state.notice = ''
+  state.svhn.result = null
+  try {
+    const result = await importSvhn(snapshot(), state.selectedId, {
+      directory: state.svhn.directory.trim(),
+      perLabel: Number(state.svhn.perLabel)
+    })
+    state.svhn.result = result
+    const summary = result.summary || {}
+    state.notice = `SVHN 导入：成功 ${summary.imported ?? '—'} · 重复 ${summary.duplicates ?? '—'} · 失败 ${summary.failed ?? '—'}`
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '导入失败'
+  } finally {
+    state.svhn.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
@@ -246,6 +269,7 @@ onBeforeUnmount(releaseImages)
       <div class="row-actions">
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入数据集</button>
+        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="state.svhn.open = !state.svhn.open">导入 SVHN 包</button>
         <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
@@ -262,6 +286,25 @@ onBeforeUnmount(releaseImages)
       </div>
     </section>
 
+    <section v-if="state.svhn.open" class="panel svhn-panel">
+      <div class="block-head"><h4>导入 SVHN 包</h4><span class="muted">目录里要有 digitStruct.mat；每类数量控制规模</span></div>
+      <div class="import-row">
+        <label class="field field-wide"><span>解压目录</span>
+          <input v-model="state.svhn.directory" placeholder="例如 C:\\...\\train\\train" />
+        </label>
+        <label class="field"><span>每类数量</span>
+          <input v-model.number="state.svhn.perLabel" type="number" min="1" max="20000" />
+        </label>
+        <button class="primary" :disabled="state.svhn.busy || !state.selectedId || !state.svhn.directory.trim()" @click="doImportSvhn">
+          {{ state.svhn.busy ? '导入中…' : '开始导入' }}
+        </button>
+      </div>
+      <p v-if="state.svhn.busy" class="hint">正在按框裁字并分批导入，规模大时可能需要几十秒，请不要关闭页面。</p>
+      <p v-if="state.svhn.result" class="hint">
+        退出码 {{ state.svhn.result.exitCode }} · 耗时 {{ state.svhn.result.seconds }}s
+        <template v-if="state.svhn.result.summary"> · 成功 {{ state.svhn.result.summary.imported }} · 重复 {{ state.svhn.result.summary.duplicates }} · 失败 {{ state.svhn.result.summary.failed }}</template>
+      </p>
+    </section>
     <p v-if="state.folder.busy" class="notice" role="status">正在导入：{{ state.folder.progress || '准备中…' }}</p>
     <p v-if="state.folder.result" class="notice" role="status">
       {{ state.folder.result.hint }}（成功 {{ state.folder.result.imported }} · 重复 {{ state.folder.result.duplicates }}

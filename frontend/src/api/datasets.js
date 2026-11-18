@@ -59,3 +59,8 @@ export function importSamples(snapshot, datasetId, label, files) {
 /** 跨数据集列出可用版本，用于「样本来源」勾选。 */
 export const allVersions = (snapshot) =>
   request.get(`${base(snapshot)}/dataset-versions`, { authSession: snapshot.session, silent: true })
+
+/** 后端拉起导入脚本：按 digitStruct.mat 的框裁字并导入（目录需在服务端允许的根目录下）。 */
+export const importSvhn = (snapshot, datasetId, body) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-svhn`, body,
+    { authSession: snapshot.session, silent: true })
