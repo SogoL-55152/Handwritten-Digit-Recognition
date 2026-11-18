@@ -176,7 +176,7 @@ public class TrainingService {
     /** 用 W3 的登记接口把关：摘要必须与注册表一致，落库为 INACTIVE，激活仍是管理员动作。 */
     private void registerArtifact(TaskRow row, String version) {
         try {
-            models.register(new ModelAdminService.RegisterCommand(row.externalId(), version));
+            models.register(new ModelAdminService.RegisterCommand(row.externalId(), version, null, null, null, null));
         } catch (V2Exception conflict) {
             // 训练成功但登记被拒（例如已存在同名版本）不能算训练失败，如实标注。
             jdbc.update("UPDATE t_v2_training_task SET error_category='MODEL_REGISTER_FAILED', error_message=? WHERE id=?",

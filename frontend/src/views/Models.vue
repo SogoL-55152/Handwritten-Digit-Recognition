@@ -72,6 +72,9 @@ refresh()
                 {{ model.externalId }}<small class="cell-detail">版本 {{ model.version }}</small>
                 <span class="origin-badge" :class="'origin-' + originOf(model).tone">{{ originOf(model).label }}</span>
                 <small class="cell-detail">{{ provenanceDetail(model) }}</small>
+                <small v-if="model.accuracy !== null && model.accuracy !== undefined" class="cell-detail">
+                  准确率 {{ (model.accuracy * 100).toFixed(2) }}%<template v-if="model.accuracyDataset"> · {{ model.accuracyDataset }}</template>
+                </small>
                 <small class="cell-detail">预处理 {{ model.preprocessVersion }}</small>
                 <small class="cell-detail">{{ summarize(model).registryLabel }}</small>
               </td>

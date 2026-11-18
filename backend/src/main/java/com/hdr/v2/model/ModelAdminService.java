@@ -22,7 +22,11 @@ public class ModelAdminService {
                             Double accuracy,String accuracyDataset,String sha256,Long sizeBytes,String artifact,
                             String origin,Long taskId,String initFrom,String trainedAt,
                             boolean inRegistry,boolean verified,String registryReason) {}
-    public record RegisterCommand(String externalId,String version) {}
+    public record RegisterCommand(String externalId,String version,String origin,String initFrom,
+                                  Double accuracy,String accuracyDataset) {
+        /** 兼容只给 externalId/version 的老调用：来源按训练任务回溯。 */
+        public RegisterCommand(String externalId, String version) { this(externalId, version, null, null, null, null); }
+    }
     private final JdbcTemplate jdbc;
     private final ModelClient client;
     public ModelAdminService(JdbcTemplate jdbc,ModelClient client) { this.jdbc=jdbc; this.client=client; }
@@ -55,12 +59,13 @@ public class ModelAdminService {
                 .filter(item->externalId.equals(item.modelId())&&version.equals(item.modelVersion()))
                 .findFirst().orElseThrow(()->new V2Exception(400,"模型服务注册表中没有该模型文件","MODEL_NOT_REGISTERED"));
         if(!entry.verified()) throw new V2Exception(409,"模型文件未通过摘要校验，不能注册","MODEL_UNVERIFIED");
-        Provenance provenance=provenanceOf(version);
+        Provenance provenance=requestedProvenance(command,version);
         jdbc.update("""
                 INSERT INTO t_v2_model(name,version,scope,external_id,accuracy,accuracy_dataset,preprocess_version,
                     description,status,sha256,size_bytes,artifact,origin,task_id,init_from,trained_at)
-                VALUES(?,?,'PUBLIC',?,NULL,NULL,?,?,'INACTIVE',?,?,?,?,?,?,?)
-                """,externalId+" "+version,version,externalId,entry.preprocessVersion(),
+                VALUES(?,?,'PUBLIC',?,?,?,?,?,'INACTIVE',?,?,?,?,?,?,?)
+                """,externalId+" "+version,version,externalId,provenance.accuracy(),
+                provenance.accuracyDataset(),entry.preprocessVersion(),
                 provenance.description(),entry.sha256(),entry.sizeBytes(),entry.artifact(),
                 provenance.origin(),provenance.taskId(),provenance.initFrom(),provenance.trainedAt());
         Long id=jdbc.queryForObject("SELECT id FROM t_v2_model WHERE scope='PUBLIC' AND external_id=? AND version=?",
@@ -103,7 +108,40 @@ public class ModelAdminService {
     }
 
     /** 按模型版本回溯训练任务，得到来源；找不到任务就是手工导入。 */
-    private record Provenance(String origin,Long taskId,String initFrom,java.sql.Timestamp trainedAt,String description) {}
+    private record Provenance(String origin,Long taskId,String initFrom,java.sql.Timestamp trainedAt,String description,
+                             Double accuracy,String accuracyDataset) {
+        Provenance(String origin, Long taskId, String initFrom, java.sql.Timestamp trainedAt, String description) {
+            this(origin, taskId, initFrom, trainedAt, description, null, null);
+        }
+    }
+
+    /** 调用方可以显式声明来源（手工微调/导入）；否则按历史任务推断。 */
+    private Provenance requestedProvenance(RegisterCommand command, String version) {
+        String origin = command == null || command.origin() == null ? null : command.origin().trim().toUpperCase();
+        if (origin == null || origin.isEmpty()) return provenanceOf(version);
+        if (!java.util.Set.of("BUILTIN", "TRAINED", "FINE_TUNED", "IMPORTED").contains(origin))
+            throw new V2Exception(400, "origin 只能是 BUILTIN/TRAINED/FINE_TUNED/IMPORTED", "VALIDATION");
+        String initFrom = command.initFrom() == null ? null : command.initFrom().trim();
+        if (initFrom != null && !initFrom.isEmpty()) {
+            Long found = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM t_v2_model WHERE scope='PUBLIC' AND version=?", Long.class, initFrom);
+            if (found == null || found == 0)
+                throw new V2Exception(400, "initFrom 必须是已登记的模型版本", "MODEL_NOT_FOUND");
+        } else {
+            initFrom = null;
+        }
+        Double accuracy = command.accuracy();
+        if (accuracy != null && (!Double.isFinite(accuracy) || accuracy < 0 || accuracy > 1))
+            throw new V2Exception(400, "accuracy 必须在 0..1", "VALIDATION");
+        String dataset = command.accuracyDataset() == null ? null : command.accuracyDataset().trim();
+        if (dataset != null && dataset.length() > 120)
+            throw new V2Exception(400, "accuracyDataset 最多 120 字", "VALIDATION");
+        Provenance base = provenanceOf(version);
+        String description = "FINE_TUNED".equals(origin) && initFrom != null
+                ? "手工微调：" + initFrom + " → " + version : base.description();
+        return new Provenance(origin, base.taskId(), initFrom, base.trainedAt(), description,
+                accuracy, dataset == null || dataset.isEmpty() ? null : dataset);
+    }
 
     private Provenance provenanceOf(String version) {
         List<Provenance> found=jdbc.query("""
