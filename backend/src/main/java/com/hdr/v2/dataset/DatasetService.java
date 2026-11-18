@@ -29,7 +29,7 @@ public class DatasetService {
     /** 来源：从已有版本挑样本（用于合并/追加）。sources 为空时退回“整池筛选”。 */
     public record Source(Long versionId, List<Integer> labels, Integer limit) {}
     public record BuildCommand(String version, String splitRule, Integer valPercent, Integer testPercent,
-                               Integer label, String kind, List<Source> sources, String scope) {}
+                               Integer label, String kind, List<Source> sources) {}
 
     private final JdbcTemplate jdbc;
     private final WorkspaceService spaces;
@@ -235,23 +235,14 @@ public class DatasetService {
     private List<Map<String, Object>> selectSamples(long workspaceId, long datasetId, BuildCommand command) {
         if (command.sources() != null && !command.sources().isEmpty())
             return selectFromSources(workspaceId, command);
-        // OWN（默认）：本项目导入的样本 + 识别采集的样本；POOL：整个采集池（旧行为）
-        boolean wholePool = "POOL".equalsIgnoreCase(command.scope());
-        String sql = wholePool
-                ? """
+
+        // 数据集拥有样本：只取导入/归入到本数据集的样本
+        List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id, creator_id, label, label_text, sample_kind FROM t_collected_sample
-                WHERE workspace_id=? AND consent=1 AND (label IS NOT NULL OR label_text IS NOT NULL)
+                WHERE workspace_id=? AND consent=1 AND source_dataset_id=?
+                  AND (label IS NOT NULL OR label_text IS NOT NULL)
                 ORDER BY id
-                """
-                : """
-                SELECT id, creator_id, label, label_text, sample_kind FROM t_collected_sample
-                WHERE workspace_id=? AND consent=1 AND (label IS NOT NULL OR label_text IS NOT NULL)
-                  AND source_dataset_id=?
-                ORDER BY id
-                """;
-        List<Map<String, Object>> rows = wholePool
-                ? jdbc.queryForList(sql, workspaceId)
-                : jdbc.queryForList(sql, workspaceId, datasetId);
+                """, workspaceId, datasetId);
         List<Map<String, Object>> selected = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             if (command.label() != null) {
