@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import { allVersions, buildVersion, createDataset, importSamples, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
+import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
 const user = useUserStore()
 const workspace = useWorkspaceStore()
@@ -15,10 +16,12 @@ const state = reactive({
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
   importing: false, importLabel: 0, importFiles: [], importResult: null,
+  folder: { busy: false, progress: '', result: null },
   sources: [], sourceOptions: [], sourceLimit: 20,
   buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
+const folderInput = ref(null)
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 const selectedDataset = computed(() => state.datasets.find((item) => item.id === state.selectedId) || null)
@@ -158,6 +161,45 @@ async function doImport() {
   }
 }
 
+async function importFolder(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  if (!files.length || !state.selectedId) return
+  const { groups, ignored, noLabel } = groupByFolder(files)
+  const labels = Object.keys(groups).filter((digit) => groups[digit].length).map(Number).sort((a, b) => a - b)
+  if (!labels.length) {
+    state.error = '没有找到按 0–9 命名的子目录（例如 0/xxx.png）'
+    return
+  }
+  state.busy = true
+  state.error = ''
+  state.notice = ''
+  state.folder = { busy: true, progress: '', result: null }
+  const results = []
+  try {
+    for (let index = 0; index < labels.length; index += 1) {
+      const digit = labels[index]
+      const batches = batchOf(groups[digit], 20)
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        state.folder.progress = progressText({
+          label: digit, labelIndex: index + 1, labelCount: labels.length,
+          batchIndex: batchIndex + 1, batchCount: batches.length
+        })
+        results.push(await importSamples(snapshot(), state.selectedId, digit, batches[batchIndex]))
+      }
+    }
+    const summary = importSummary(results)
+    state.folder = { busy: false, progress: '', result: { ...summary, ignored, noLabel, labels: labels.length } }
+    state.notice = `目录导入：成功 ${summary.imported} · 重复 ${summary.duplicates} · 失败 ${summary.failed}`
+    await loadDatasets()
+  } catch (error) {
+    state.folder = { busy: false, progress: '', result: null }
+    state.error = error?.message || '目录导入失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
@@ -203,6 +245,8 @@ onBeforeUnmount(releaseImages)
       </div>
       <div class="row-actions">
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
+        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入数据集</button>
+        <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
     </header>
@@ -218,6 +262,11 @@ onBeforeUnmount(releaseImages)
       </div>
     </section>
 
+    <p v-if="state.folder.busy" class="notice" role="status">正在导入：{{ state.folder.progress || '准备中…' }}</p>
+    <p v-if="state.folder.result" class="notice" role="status">
+      {{ state.folder.result.hint }}（成功 {{ state.folder.result.imported }} · 重复 {{ state.folder.result.duplicates }}
+      · 失败 {{ state.folder.result.failed }}<template v-if="state.folder.result.ignored"> · 跳过非图片 {{ state.folder.result.ignored }}</template><template v-if="state.folder.result.noLabel"> · 无标签目录 {{ state.folder.result.noLabel }}</template>）
+    </p>
     <p v-if="state.error" class="notice error" role="alert">{{ state.error }}</p>
     <p v-if="state.notice" class="notice" role="status">{{ state.notice }}</p>
 
@@ -258,7 +307,7 @@ onBeforeUnmount(releaseImages)
           </div>
 
           <div class="import-panel">
-            <div class="block-head"><h4>导入样本</h4><span class="muted">外部图片按标签导入采集池，再生成版本才会进训练</span></div>
+            <div class="block-head"><h4>导入样本</h4><span class="muted">外部图片按标签导入采集池，再生成版本才会进训练；批量导入用顶部「导入数据集」</span></div>
             <div class="import-row">
               <label class="field"><span>标签</span>
                 <select v-model.number="state.importLabel">
