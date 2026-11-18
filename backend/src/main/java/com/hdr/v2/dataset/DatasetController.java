@@ -87,6 +87,13 @@ public class DatasetController {
         return Result.ok(datasets.allVersions(workspaceId, user, Math.min(200, Math.max(1, limit))));
     }
 
+    @PostMapping("/datasets/{datasetId}/claim-samples")
+    public Result<Map<String, Object>> claimSamples(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                    HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(Map.of("claimed", datasets.claimRecognition(workspaceId, user, datasetId)));
+    }
+
     @DeleteMapping("/datasets/{datasetId}")
     public Result<Map<String, Object>> deleteDataset(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                      HttpServletRequest request) {

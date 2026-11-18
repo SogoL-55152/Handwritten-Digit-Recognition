@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -245,6 +245,21 @@ async function removeDataset() {
   }
 }
 
+async function claimRecognition() {
+  if (!state.selectedId) return
+  state.busy = true
+  state.error = ''
+  try {
+    const result = await claimSamples(snapshot(), state.selectedId)
+    state.notice = `已把 ${result.claimed} 条识别采集样本归入本数据集`
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '归入失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
@@ -376,7 +391,11 @@ onBeforeUnmount(releaseImages)
           </div>
 
           <div class="import-panel">
-            <div class="block-head"><h4>导入样本</h4><span class="muted">外部图片按标签导入采集池，再生成版本才会进训练；批量导入用顶部「导入数据集」</span></div>
+            <div class="block-head">
+            <h4>导入样本</h4>
+            <span class="muted">导入到「{{ selectedDataset.name }}」，生成版本后才会进训练</span>
+            <button class="link" :disabled="state.busy" @click="claimRecognition">把识别采集的样本归入本数据集</button>
+          </div>
             <div class="import-row">
               <label class="field"><span>标签</span>
                 <select v-model.number="state.importLabel">
@@ -409,13 +428,13 @@ onBeforeUnmount(releaseImages)
               <label class="field"><span>样本范围</span>
                 <select v-model="state.buildForm.scope">
                   <option value="OWN">仅本数据集（推荐）</option>
-                  <option value="POOL">全部采集池</option>
+                  <option value="POOL">全部采集池（兼容旧行为）</option>
                 </select>
               </label>
               <label class="field"><span>只看标签</span><input v-model="state.buildForm.label" type="number" min="0" max="9" placeholder="全部" /></label>
               <button class="primary build-action" :disabled="state.busy" @click="build">{{ state.busy ? '生成中…' : '生成版本' }}</button>
             </div>
-            <p class="hint">「仅本数据集」= 本数据集导入的样本 + 识别页采集的样本，不会吸收导入到其他数据集的图片。版本一旦生成即为快照。</p>
+            <p class="hint">「仅本数据集」= 只包含导入到本数据集或归入本数据集的样本；其他数据集的样本不会混进来。版本一旦生成即为快照。</p>
             <div class="source-picker">
               <div class="block-head"><h4>样本来源（可选）</h4><span class="muted">勾选后按来源合并；不勾选则用整个采集池</span></div>
               <div v-for="option in state.sourceOptions" :key="option.id" class="source-row">

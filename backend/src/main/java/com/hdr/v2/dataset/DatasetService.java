@@ -112,6 +112,18 @@ public class DatasetService {
         return version(workspaceId, id);
     }
 
+    /** 把"识别页采集"的样本（没有归属）归入本数据集，返回归入数量。 */
+    @Transactional
+    public int claimRecognition(long workspaceId, long userId, long datasetId) {
+        spaces.requireMember(workspaceId, userId);
+        requireDataset(workspaceId, datasetId);
+        return jdbc.update("""
+                UPDATE t_collected_sample SET source_dataset_id=?
+                WHERE workspace_id=? AND source_dataset_id IS NULL AND consent=1
+                  AND (label IS NOT NULL OR label_text IS NOT NULL)
+                """, datasetId, workspaceId);
+    }
+
     /**
      * 删除数据集：连同版本与版本内样本归属一起删。
      * 采集池里的图片不删（它们可能被别的数据集版本引用），只解除这个数据集的归属。
@@ -234,7 +246,7 @@ public class DatasetService {
                 : """
                 SELECT id, creator_id, label, label_text, sample_kind FROM t_collected_sample
                 WHERE workspace_id=? AND consent=1 AND (label IS NOT NULL OR label_text IS NOT NULL)
-                  AND (source_dataset_id IS NULL OR source_dataset_id=?)
+                  AND source_dataset_id=?
                 ORDER BY id
                 """;
         List<Map<String, Object>> rows = wholePool

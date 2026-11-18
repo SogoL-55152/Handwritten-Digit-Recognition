@@ -69,3 +69,7 @@ export const deleteDataset = (snapshot, datasetId) =>
   request.delete(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}`,
     { authSession: snapshot.session, silent: true })
 
+/** 把识别页采集的样本归入本数据集（之后版本只取本数据集的样本）。 */
+export const claimSamples = (snapshot, datasetId) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/claim-samples`, {},
+    { authSession: snapshot.session, silent: true })
