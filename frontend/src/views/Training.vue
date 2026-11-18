@@ -8,6 +8,7 @@ import { validateTraining, validateDataset, toCreatePayload } from '@/training/v
 import { createTrainingBoard, isActiveTask, summarizeTask } from '@/training/board.js'
 import { createTrainingEvents } from '@/training/events.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
+import TrainingDetail from '@/training/TrainingDetail.vue'
 
 const user = useUserStore()
 const form = reactive({
@@ -214,6 +215,7 @@ onUnmounted(() => {
               <tr v-if="task.id === selectedId" class="curve-row">
                 <td colspan="6">
                   <TrainingCurve :task-id="task.id" :history="historyOf(task)" />
+                  <TrainingDetail :task="task" />
                 </td>
               </tr>
             </template>

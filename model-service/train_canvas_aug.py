@@ -26,6 +26,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 import sys
+import time
 import zipfile
 
 import numpy as np
@@ -284,6 +285,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
     labels = torch.from_numpy(train_labels.astype(np.int64))
     history = []
     for epoch in range(config.epochs):
+        epoch_started = time.perf_counter()
         model.train()
         order = torch.randperm(len(train_inputs))
         total, seen = 0.0, 0
@@ -296,6 +298,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
             total += float(loss) * len(index)
             seen += len(index)
         metrics = {"epoch": epoch + 1, "loss": round(total / seen, 5),
+                   "durationMs": int(round((time.perf_counter() - epoch_started) * 1000)),
                    "raw_mnist": accuracy(model, torch, raw_test, test_labels),
                    "canvas_simulated": accuracy(model, torch, canvas_test, test_labels),
                    "photo_simulated": accuracy(model, torch, photo_test, test_labels)}

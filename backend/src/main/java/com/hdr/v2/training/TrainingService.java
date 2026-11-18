@@ -34,7 +34,7 @@ public class TrainingService {
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String queuedAt, String startedAt,
-                           String finishedAt, JsonNode metrics) {}
+                           String finishedAt, String datasetVersionId, JsonNode metrics) {}
     private static final List<String> STATES = List.of("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED");
     private final JdbcTemplate jdbc;
     private final ModelClient client;
@@ -238,7 +238,8 @@ public class TrainingService {
         return new TaskView(row.id(), row.status(), row.attempt(), row.celeryTaskId(), row.epochs(), row.samples(),
                 row.batchSize(), row.learningRate(), row.seed(), row.photoRatio(), row.useEmnist(),
                 row.initFrom(), row.targetModelId(), row.modelVersion(), row.artifact(), row.sha256(), row.sizeBytes(),
-                row.errorCategory(), row.errorMessage(), row.queuedAt(), row.startedAt(), row.finishedAt(), metrics);
+                row.errorCategory(), row.errorMessage(), row.queuedAt(), row.startedAt(), row.finishedAt(),
+                row.datasetVersionId(), metrics);
     }
 
     private static Map<String, Object> validated(CreateRequest request) {
@@ -321,7 +322,7 @@ public class TrainingService {
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String metrics, String queuedAt,
-                           String startedAt, String finishedAt) {
+                           String startedAt, String finishedAt, String datasetVersionId) {
         String externalId() { return "mnist-cnn-w1"; }
     }
 
@@ -338,6 +339,7 @@ public class TrainingService {
                 rs.getString("error_category"), rs.getString("error_message"), rs.getString("metrics"),
                 Instant.ofEpochMilli(rs.getTimestamp("queued_at").getTime()).toString(),
                 started == null ? null : Instant.ofEpochMilli(started.getTime()).toString(),
-                finished == null ? null : Instant.ofEpochMilli(finished.getTime()).toString());
+                finished == null ? null : Instant.ofEpochMilli(finished.getTime()).toString(),
+                rs.getString("dataset_version_id"));
     }
 }

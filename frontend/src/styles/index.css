@@ -305,3 +305,16 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .empty-hint { display: grid; gap: 6px; }
 .empty-hint strong { font-size: 15px; }
 .empty-hint p { margin: 0; }
+
+/* ---------- 训练详情 ---------- */
+.training-detail { display: grid; gap: 16px; padding: 4px 2px 10px; }
+.param-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.param-card { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+.param-card small { color: var(--muted); font-size: 12px; }
+.param-card strong { font-size: 15px; font-weight: 650; word-break: break-all; }
+.duration-bars { display: grid; gap: 6px; }
+.duration-bar { display: grid; grid-template-columns: 64px 1fr 86px; align-items: center; gap: 10px; font-size: 13px; }
+.duration-bar .bar { display: block; height: 10px; background: #eef2f7; border-radius: 6px; overflow: hidden; }
+.duration-bar .bar i { display: block; height: 100%; background: linear-gradient(90deg, #6ea8e8, #2f6fd0); border-radius: 6px; }
+.duration-value { color: var(--muted); text-align: right; }
+.duration-label { color: var(--muted); }
