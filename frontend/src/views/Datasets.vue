@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, createDataset, deleteDataset, importSamples, importSources, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, createDataset, deleteDataset, importSamples, importSvhn, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -17,7 +17,7 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   importing: false, importLabel: 0, importFiles: [], importResult: null,
   folder: { busy: false, progress: '', result: null },
-  svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null, options: [], manual: false },
+  svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
   sources: [], sourceOptions: [], sourceLimit: 20,
   buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '', scope: 'OWN' }
 })
@@ -201,20 +201,6 @@ async function importFolder(event) {
   }
 }
 
-async function loadImportSources() {
-  try {
-    state.svhn.options = await importSources(snapshot())
-    if (!state.svhn.directory && state.svhn.options.length) state.svhn.directory = state.svhn.options[0].path
-  } catch (error) {
-    state.svhn.options = []
-  }
-}
-
-async function toggleSvhn() {
-  state.svhn.open = !state.svhn.open
-  if (state.svhn.open && !state.svhn.options.length) await loadImportSources()
-}
-
 async function doImportSvhn() {
   if (!state.selectedId || !state.svhn.directory.trim()) return
   state.svhn.busy = true
@@ -306,7 +292,7 @@ onBeforeUnmount(releaseImages)
       <div class="row-actions">
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入数据集</button>
-        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="toggleSvhn">导入标注数据集</button>
+        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="state.svhn.open = !state.svhn.open">导入标注数据集</button>
         <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
@@ -326,16 +312,8 @@ onBeforeUnmount(releaseImages)
     <section v-if="state.svhn.open" class="panel svhn-panel">
       <div class="block-head"><h4>导入标注数据集</h4><span class="muted">目录里需有 digitStruct.mat（每张图多个数字的框与标签）；每类数量控制规模</span></div>
       <div class="import-row">
-        <label class="field field-wide" v-if="!state.svhn.manual"><span>选择目录（含 digitStruct.mat）</span>
-          <select v-model="state.svhn.directory">
-            <option v-for="option in state.svhn.options" :key="option.path" :value="option.path">{{ option.name }}</option>
-            <option v-if="!state.svhn.options.length" :value="''">未发现可用目录</option>
-          </select>
-          <small class="muted" @click="state.svhn.manual = true" style="cursor:pointer">手动输入路径…</small>
-        </label>
-        <label class="field field-wide" v-else><span>解压目录</span>
+        <label class="field field-wide"><span>解压目录</span>
           <input v-model="state.svhn.directory" placeholder="例如 C:\\...\\train\\train（含 digitStruct.mat）" />
-          <small class="muted" @click="state.svhn.manual = false" style="cursor:pointer">从列表选择…</small>
         </label>
         <label class="field"><span>每类数量</span>
           <input v-model.number="state.svhn.perLabel" type="number" min="1" max="20000" />

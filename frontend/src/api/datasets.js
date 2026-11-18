@@ -69,6 +69,3 @@ export const deleteDataset = (snapshot, datasetId) =>
   request.delete(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}`,
     { authSession: snapshot.session, silent: true })
 
-/** 服务端允许导入的目录（含 digitStruct.mat），用于下拉选择。 */
-export const importSources = (snapshot) =>
-  request.get(`${base(snapshot)}/import-sources`, { authSession: snapshot.session, silent: true })

@@ -55,30 +55,6 @@ public class SvhnImportService {
         this.timeoutSeconds = timeoutSeconds;
     }
 
-    /** 列出允许根目录下含 digitStruct.mat 的目录（最多 3 层），供页面下拉选择。 */
-    public java.util.List<Map<String, Object>> sources() {
-        java.util.List<Map<String, Object>> found = new ArrayList<>();
-        if (!Files.isDirectory(root)) return found;
-        int maxDepth = 3;
-        try (var stream = Files.walk(root, maxDepth)) {
-            stream.filter(Files::isDirectory)
-                    .filter(path -> !path.getFileName().toString().startsWith("."))
-                    .filter(path -> !path.toString().contains("node_modules"))
-                    .filter(path -> !path.toString().contains("collected-samples"))
-                    .filter(path -> Files.isRegularFile(path.resolve("digitStruct.mat")))
-                    .limit(100)
-                    .forEach(path -> {
-                        Map<String, Object> row = new LinkedHashMap<>();
-                        row.put("path", path.toString());
-                        row.put("name", root.relativize(path).toString().replace('\\', '/'));
-                        found.add(row);
-                    });
-        } catch (IOException error) {
-            LOG.warn("Scanning import sources failed ({})", error.getClass().getSimpleName());
-        }
-        return found;
-    }
-
     public Map<String, Object> importSvhn(long workspaceId, long userId, long datasetId,
                                           String directory, Integer perLabel, String authorization) {
         spaces.requireMember(workspaceId, userId);
