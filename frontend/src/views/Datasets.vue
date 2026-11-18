@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { buildVersion, createDataset, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, createDataset, importSamples, listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 
 const user = useUserStore()
@@ -14,6 +14,8 @@ const state = reactive({
   versions: [], selectedVersionId: null,
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
+  importing: false, importLabel: 0, importFiles: [], importResult: null,
+  sources: [], sourceOptions: [], sourceLimit: 20,
   buildForm: { version: 'v1', splitRule: 'WRITER', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
@@ -66,6 +68,7 @@ async function selectDataset(id) {
   releaseImages()
   try {
     state.versions = await listVersions(snapshot(), id)
+    await loadSourceOptions()
     state.buildForm.version = nextVersion(state.versions)
     if (state.versions.length) await selectVersion(state.versions[0].id)
   } catch (error) {
@@ -120,13 +123,50 @@ async function create() {
   }
 }
 
+async function loadSourceOptions() {
+  try {
+    state.sourceOptions = await allVersions(snapshot())
+  } catch (error) {
+    state.sourceOptions = []
+  }
+}
+
+function toggleSource(versionId) {
+  const index = state.sources.findIndex((item) => item.versionId === versionId)
+  if (index >= 0) state.sources.splice(index, 1)
+  else state.sources.push({ versionId, limit: state.sourceLimit, labels: [] })
+}
+
+function onImportFiles(event) {
+  state.importFiles = Array.from(event.target.files || [])
+}
+
+async function doImport() {
+  if (!state.selectedId || !state.importFiles.length) return
+  state.busy = true
+  state.error = ''
+  state.importResult = null
+  try {
+    state.importResult = await importSamples(snapshot(), state.selectedId, Number(state.importLabel), state.importFiles)
+    state.notice = `导入完成：成功 ${state.importResult.imported} · 重复 ${state.importResult.duplicates} · 失败 ${state.importResult.failed}`
+    state.importFiles = []
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '导入失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
   state.error = ''
   state.notice = ''
   try {
-    const version = await buildVersion(snapshot(), state.selectedId, buildPayload(state.buildForm))
+    const payload = buildPayload(state.buildForm)
+    if (state.sources.length) payload.sources = state.sources.map((item) => ({ versionId: item.versionId, limit: item.limit }))
+    const version = await buildVersion(snapshot(), state.selectedId, payload)
     state.notice = `已生成版本 ${version.version}：${version.sampleCount} 条样本`
     await selectDataset(state.selectedId)
     await selectVersion(version.id)
@@ -217,6 +257,26 @@ onBeforeUnmount(releaseImages)
             </button>
           </div>
 
+          <div class="import-panel">
+            <div class="block-head"><h4>导入样本</h4><span class="muted">外部图片按标签导入采集池，再生成版本才会进训练</span></div>
+            <div class="import-row">
+              <label class="field"><span>标签</span>
+                <select v-model.number="state.importLabel">
+                  <option v-for="digit in 10" :key="digit" :value="digit - 1">{{ digit - 1 }}</option>
+                </select>
+              </label>
+              <label class="field field-wide"><span>图片（可多选）</span>
+                <input type="file" accept="image/png,image/jpeg" multiple @change="onImportFiles" />
+              </label>
+              <button class="primary" :disabled="state.busy || !state.importFiles.length" @click="doImport">
+                {{ state.busy ? '导入中…' : '导入 ' + state.importFiles.length + ' 张' }}
+              </button>
+            </div>
+            <p v-if="state.importResult" class="hint">
+              成功 {{ state.importResult.imported }} · 重复 {{ state.importResult.duplicates }} · 失败 {{ state.importResult.failed }}
+            </p>
+          </div>
+
           <div class="build-panel">
             <div class="build-grid">
               <label class="field"><span>版本号</span><input v-model="state.buildForm.version" maxlength="16" /></label>
@@ -232,6 +292,20 @@ onBeforeUnmount(releaseImages)
               <button class="primary build-action" :disabled="state.busy" @click="build">{{ state.busy ? '生成中…' : '生成版本' }}</button>
             </div>
             <p class="hint">按书写者划分时，同一个人的样本只会落在一个划分里，评测结果更可信。版本一旦生成即为快照。</p>
+            <div class="source-picker">
+              <div class="block-head"><h4>样本来源（可选）</h4><span class="muted">勾选后按来源合并；不勾选则用整个采集池</span></div>
+              <div v-for="option in state.sourceOptions" :key="option.id" class="source-row">
+                <label>
+                  <input type="checkbox" :checked="state.sources.some((item) => item.versionId === option.id)"
+                         @change="toggleSource(option.id)" />
+                  {{ option.dataset_name }} · {{ option.version }}（{{ option.sample_count }} 条）
+                </label>
+                <input v-if="state.sources.some((item) => item.versionId === option.id)" type="number" min="1"
+                       :value="state.sources.find((item) => item.versionId === option.id)?.limit"
+                       @change="state.sources.find((item) => item.versionId === option.id).limit = Number($event.target.value)" />
+              </div>
+              <p v-if="!state.sourceOptions.length" class="muted">还没有其他可用版本。</p>
+            </div>
           </div>
         </section>
 

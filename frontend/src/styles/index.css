@@ -438,3 +438,12 @@ tr.diff td { background: #fdf6e8; }
 .json-preview { max-height: 180px; overflow: auto; margin: 0; padding: 10px; background: #f6f8fb; border-radius: 8px;
   font-size: 11px; line-height: 1.5; }
 .wizard-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* ---------- 导入与来源 ---------- */
+.import-panel { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.import-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.import-row .field { min-width: 120px; }
+.import-row input[type='file'] { min-height: 38px; padding: 6px; }
+.source-picker { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.source-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; padding: 4px 0; }
+.source-row input[type='number'] { width: 90px; }

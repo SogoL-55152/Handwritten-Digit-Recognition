@@ -26,8 +26,10 @@ public class DatasetService {
                           int sampleCount, int writerCount, int valPercent, int testPercent, String createdAt) {}
     public record Sample(String id, String sampleId, String split, String label, String kind,
                          String writer, String createdAt) {}
+    /** 来源：从已有版本挑样本（用于合并/追加）。sources 为空时退回“整池筛选”。 */
+    public record Source(Long versionId, List<Integer> labels, Integer limit) {}
     public record BuildCommand(String version, String splitRule, Integer valPercent, Integer testPercent,
-                               Integer label, String kind) {}
+                               Integer label, String kind, List<Source> sources) {}
 
     private final JdbcTemplate jdbc;
     private final WorkspaceService spaces;
@@ -177,7 +179,20 @@ public class DatasetService {
 
     // ---------- 内部 ----------
 
+
+    /** 跨数据集列出当前工作空间的版本，供“样本来源”勾选。 */
+    public List<Map<String, Object>> allVersions(long workspaceId, long userId, int limit) {
+        spaces.requireMember(workspaceId, userId);
+        return jdbc.queryForList(
+                "SELECT v.id, v.dataset_id, d.name AS dataset_name, v.version, v.status, v.sample_count, "
+                + "v.writer_count, v.split_rule, v.created_at "
+                + "FROM t_v2_dataset_version v JOIN t_v2_dataset d ON d.id=v.dataset_id "
+                + "WHERE d.workspace_id=? AND v.status='READY' ORDER BY v.id DESC LIMIT ?",
+                workspaceId, limit);
+    }
+
     private List<Map<String, Object>> selectSamples(long workspaceId, BuildCommand command) {
+        if (command.sources() != null && !command.sources().isEmpty()) return selectFromSources(workspaceId, command);
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id, creator_id, label, label_text, sample_kind FROM t_collected_sample
                 WHERE workspace_id=? AND consent=1 AND (label IS NOT NULL OR label_text IS NOT NULL)
@@ -194,6 +209,39 @@ public class DatasetService {
             selected.add(row);
         }
         return selected;
+    }
+
+    /** 从指定版本收集样本：跨来源按 sample_id 去重，标签与数量在各自来源上生效。 */
+    private List<Map<String, Object>> selectFromSources(long workspaceId, BuildCommand command) {
+        Map<Long, Map<String, Object>> unique = new LinkedHashMap<>();
+        for (Source source : command.sources()) {
+            if (source == null || source.versionId() == null) continue;
+            Long owned = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM t_v2_dataset_version v JOIN t_v2_dataset d ON d.id=v.dataset_id
+                    WHERE v.id=? AND d.workspace_id=?
+                    """, Long.class, source.versionId(), workspaceId);
+            if (owned == null || owned == 0)
+                throw new V2Exception(404, "样本来源版本不存在", "DATASET_VERSION_NOT_FOUND");
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                    SELECT c.id, c.creator_id, c.label, c.label_text, c.sample_kind
+                    FROM t_v2_dataset_sample s JOIN t_collected_sample c ON c.id=s.sample_id
+                    WHERE s.version_id=? ORDER BY s.id
+                    """, source.versionId());
+            int taken = 0;
+            int limit = source.limit() == null || source.limit() <= 0 ? Integer.MAX_VALUE : source.limit();
+            for (Map<String, Object> row : rows) {
+                if (taken >= limit) break;
+                if (source.labels() != null && !source.labels().isEmpty()) {
+                    Object label = row.get("label");
+                    if (label == null || !source.labels().contains(((Number) label).intValue())) continue;
+                }
+                long id = ((Number) row.get("id")).longValue();
+                if (unique.containsKey(id)) continue;
+                unique.put(id, row);
+                taken += 1;
+            }
+        }
+        return new ArrayList<>(unique.values());
     }
 
     private long insertVersion(long datasetId, String version, String splitRule, int val, int test, long userId) {

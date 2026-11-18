@@ -46,3 +46,16 @@ export async function sampleImage(snapshot, versionId, sampleId) {
   error.status = response.status
   throw error
 }
+
+/** 导入外部图片：一次一个标签，后端按图片摘要去重。 */
+export function importSamples(snapshot, datasetId, label, files) {
+  const form = new FormData()
+  form.append('label', String(label))
+  for (const file of files) form.append('files', file, file.name)
+  return request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import`, form,
+    { authSession: snapshot.session, silent: true })
+}
+
+/** 跨数据集列出可用版本，用于「样本来源」勾选。 */
+export const allVersions = (snapshot) =>
+  request.get(`${base(snapshot)}/dataset-versions`, { authSession: snapshot.session, silent: true })

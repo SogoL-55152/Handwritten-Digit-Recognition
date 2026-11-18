@@ -7,6 +7,8 @@ import com.hdr.v2.workspace.WorkspaceService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import java.util.ArrayList;
 
 import java.util.List;
 import java.util.Map;
@@ -16,10 +18,12 @@ import java.util.Map;
 @RequestMapping("/api/v2/workspaces/{workspaceId}")
 public class DatasetController {
     private final DatasetService datasets;
+    private final DatasetImportService imports;
     private final WorkspaceService spaces;
 
-    public DatasetController(DatasetService datasets, WorkspaceService spaces) {
+    public DatasetController(DatasetService datasets, DatasetImportService imports, WorkspaceService spaces) {
         this.datasets = datasets;
+        this.imports = imports;
         this.spaces = spaces;
     }
 
@@ -48,6 +52,24 @@ public class DatasetController {
         long user = authorize(workspaceId, request);
         if (command == null) throw new V2Exception(400, "缺少版本参数", "VALIDATION");
         return Result.ok(datasets.createVersion(workspaceId, user, datasetId, command));
+    }
+
+    @PostMapping(value = "/datasets/{datasetId}/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<DatasetImportService.Result> importSamples(@PathVariable long workspaceId,
+                                                             @PathVariable long datasetId,
+                                                             @RequestParam("label") Integer label,
+                                                             @RequestParam(value = "files", required = false) List<MultipartFile> files,
+                                                             HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(imports.importFiles(workspaceId, user, datasetId, label, files == null ? List.of() : files));
+    }
+
+    @GetMapping("/dataset-versions")
+    public Result<List<Map<String, Object>>> allVersions(@PathVariable long workspaceId,
+                                                         @RequestParam(value = "limit", defaultValue = "50") int limit,
+                                                         HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(datasets.allVersions(workspaceId, user, Math.min(200, Math.max(1, limit))));
     }
 
     @GetMapping("/datasets/{datasetId}/versions")
