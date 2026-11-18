@@ -40,6 +40,20 @@ public class CollectedSampleService {
         this.root = Paths.get(directory).toAbsolutePath().normalize();
     }
 
+    /** 读取采集样本原图（artifact_path 是相对根目录的路径，校验不逃逸）。 */
+    public byte[] readArtifact(String relativePath) {
+        if (relativePath == null || relativePath.isBlank())
+            throw new V2Exception(404, "样本没有保存图片", "IMAGE_NOT_FOUND");
+        Path target = root.resolve(relativePath).normalize();
+        if (!target.startsWith(root) || !Files.isRegularFile(target))
+            throw new V2Exception(404, "样本没有保存图片", "IMAGE_NOT_FOUND");
+        try {
+            return Files.readAllBytes(target);
+        } catch (IOException error) {
+            throw new V2Exception(503, "样本图片读取失败", "STORAGE_UNAVAILABLE");
+        }
+    }
+
     public Saved save(long workspaceId, long userId, Integer label, String labelText, boolean consent,
                       ImageValidator.Image image, Integer predictedDigit, String predictedText, Double confidence,
                       String modelVersion, Long recognitionId, String source) {
