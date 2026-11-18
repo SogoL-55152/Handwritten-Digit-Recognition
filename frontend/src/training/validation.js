@@ -47,6 +47,7 @@ export function toCreatePayload(form) {
     seed: form.seed,
     photoRatio: form.photoRatio,
     useEmnist: form.useEmnist,
-    initFrom: form.initFrom ?? null
+    initFrom: form.initFrom ?? null,
+    datasetVersionId: form.datasetVersionId ?? null
   }
 }

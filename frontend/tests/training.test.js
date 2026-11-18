@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { validateTraining, validateDataset, toCreatePayload } from '../src/training/validation.js'
 import { createTrainingBoard, isActiveTask, sortTasks, summarizeTask } from '../src/training/board.js'
 
-const VALID = { epochs: 1, samples: 1000, batchSize: 64, learningRate: 0.001, seed: 7, photoRatio: 0.5, useEmnist: false, initFrom: null }
+const VALID = { epochs: 1, samples: 1000, batchSize: 64, learningRate: 0.001, seed: 7, photoRatio: 0.5, useEmnist: false, initFrom: null, datasetVersionId: null }
 
 function task(overrides = {}) {
   return {
@@ -35,7 +35,7 @@ function fakeApi(overrides = {}) {
 test('payload only contains the fields the server contract accepts', () => {
   assert.deepEqual(toCreatePayload({ ...VALID, datasetId: 1, extra: 'ignored' }), VALID)
   assert.deepEqual(Object.keys(toCreatePayload(VALID)).sort(),
-    ['batchSize', 'epochs', 'initFrom', 'learningRate', 'photoRatio', 'samples', 'seed', 'useEmnist'])
+    ['batchSize', 'datasetVersionId', 'epochs', 'initFrom', 'learningRate', 'photoRatio', 'samples', 'seed', 'useEmnist'])
 })
 
 test('dataset id must be a positive integer', () => {

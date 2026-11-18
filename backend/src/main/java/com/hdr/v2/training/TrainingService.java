@@ -28,7 +28,8 @@ import java.util.Map;
 @Service
 public class TrainingService {
     public record CreateRequest(Integer epochs, Integer samples, Integer batchSize, Double learningRate,
-                                Long seed, Double photoRatio, Boolean useEmnist, String initFrom) {}
+                                Long seed, Double photoRatio, Boolean useEmnist, String initFrom,
+                                Long datasetVersionId) {}
     public record TaskView(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
@@ -41,11 +42,13 @@ public class TrainingService {
     private final CatalogueService catalogue;
     private final ObjectMapper mapper;
     private final TrainingEventBus events;
+    private final TrainingDataExporter exporter;
 
     public TrainingService(JdbcTemplate jdbc, ModelClient client, ModelAdminService models,
-                           CatalogueService catalogue, ObjectMapper mapper, TrainingEventBus events) {
+                           CatalogueService catalogue, ObjectMapper mapper, TrainingEventBus events,
+                           TrainingDataExporter exporter) {
         this.jdbc = jdbc; this.client = client; this.models = models; this.catalogue = catalogue;
-        this.mapper = mapper; this.events = events;
+        this.mapper = mapper; this.events = events; this.exporter = exporter;
     }
 
     @Transactional
@@ -56,25 +59,41 @@ public class TrainingService {
         Long datasets = jdbc.queryForObject("SELECT COUNT(*) FROM t_v2_dataset WHERE id=? AND status='ACTIVE'",
                 Long.class, datasetId);
         if (datasets == null || datasets == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        Long versionId = request.datasetVersionId();
+        String dataDir = null;
+        if (versionId != null) {
+            Long found = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM t_v2_dataset_version WHERE id=? AND dataset_id=? AND status='READY'",
+                    Long.class, versionId, datasetId);
+            if (found == null || found == 0)
+                throw new V2Exception(400, "数据集版本不存在或尚未就绪", "DATASET_VERSION_NOT_FOUND");
+            dataDir = exporter.export(versionId).directory();
+        }
+        params.put("datasetVersionId", versionId);
+        params.put("dataDir", dataDir);
+        final Long boundVersion = versionId;
+        final String boundDir = dataDir;
         CatalogueService.Model target = catalogue.activeModel();
         GeneratedKeyHolder key = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
-                    INSERT INTO t_v2_training_task(creator_id,dataset_id,target_model_id,status,epochs,samples,
-                        batch_size,learning_rate,seed,photo_ratio,use_emnist,init_from)
-                    VALUES(?,?,?,'QUEUED',?,?,?,?,?,?,?,?)
+                    INSERT INTO t_v2_training_task(creator_id,dataset_id,dataset_version_id,data_dir,target_model_id,
+                        status,epochs,samples,batch_size,learning_rate,seed,photo_ratio,use_emnist,init_from)
+                    VALUES(?,?,?,?,?,'QUEUED',?,?,?,?,?,?,?,?)
                     """, Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, creatorId);
             statement.setLong(2, datasetId);
-            statement.setLong(3, Long.parseLong(target.id()));
-            statement.setInt(4, (Integer) params.get("epochs"));
-            statement.setInt(5, (Integer) params.get("samples"));
-            statement.setInt(6, (Integer) params.get("batchSize"));
-            statement.setDouble(7, ((Number) params.get("learningRate")).doubleValue());
-            statement.setLong(8, (Long) params.get("seed"));
-            statement.setDouble(9, ((Number) params.get("photoRatio")).doubleValue());
-            statement.setBoolean(10, (Boolean) params.get("useEmnist"));
-            if (initFrom == null) statement.setNull(11, java.sql.Types.VARCHAR); else statement.setString(11, initFrom);
+            if (boundVersion == null) statement.setNull(3, java.sql.Types.BIGINT); else statement.setLong(3, boundVersion);
+            if (boundDir == null) statement.setNull(4, java.sql.Types.VARCHAR); else statement.setString(4, boundDir);
+            statement.setLong(5, Long.parseLong(target.id()));
+            statement.setInt(6, (Integer) params.get("epochs"));
+            statement.setInt(7, (Integer) params.get("samples"));
+            statement.setInt(8, (Integer) params.get("batchSize"));
+            statement.setDouble(9, ((Number) params.get("learningRate")).doubleValue());
+            statement.setLong(10, (Long) params.get("seed"));
+            statement.setDouble(11, ((Number) params.get("photoRatio")).doubleValue());
+            statement.setBoolean(12, (Boolean) params.get("useEmnist"));
+            if (initFrom == null) statement.setNull(13, java.sql.Types.VARCHAR); else statement.setString(13, initFrom);
             return statement;
         }, key);
         Number generated = key.getKey();

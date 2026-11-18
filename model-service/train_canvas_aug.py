@@ -199,9 +199,31 @@ def accuracy(model, torch, inputs: np.ndarray, labels: np.ndarray) -> float:
     return round(correct / len(labels), 4)
 
 
+def load_extra_inputs(directory: Path):
+    """读取数据集版本导出的 PNG（文件名形如 7_123.png），返回 (图像, 标签)。"""
+    from PIL import Image
+
+    from services.inference_preprocess import canvas_input
+
+    inputs, labels = [], []
+    for path in sorted(directory.glob("*.png")):
+        label = path.name.split("_")[0]
+        if not label.isdigit() or len(label) != 1:
+            continue
+        try:
+            normalized = canvas_input(np.asarray(Image.open(path).convert("L")))
+        except Exception:
+            continue
+        inputs.append(normalized[0])
+        labels.append(int(label))
+    if not inputs:
+        return np.empty((0, 28, 28), dtype=np.float32), np.empty((0,), dtype=np.int64)
+    return np.stack(inputs).astype(np.float32)[:, None, :, :], np.asarray(labels, dtype=np.int64)
+
+
 def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | None,
         threads: int | None = None, emnist_zip: Path | None = None,
-        on_epoch: "callable | None" = None) -> dict:
+        on_epoch: "callable | None" = None, extra_dir: Path | None = None) -> dict:
     """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
@@ -235,6 +257,14 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         emnist_test = read_emnist_digits(emnist_zip, "test", 1000)
 
     train_inputs, skipped = build_inputs(train_images, rng, config.photo_ratio)
+    extra_count = 0
+    if extra_dir is not None:
+        # 数据集版本里的样本已是真实画板/照片，接近线上输入，不再叠加照片模拟
+        extra_inputs, extra_labels = load_extra_inputs(Path(extra_dir))
+        if len(extra_inputs):
+            train_inputs = np.concatenate([train_inputs, extra_inputs])
+            train_labels = np.concatenate([train_labels, extra_labels])
+            extra_count = int(len(extra_inputs))
     canvas_test, _ = build_inputs(test_images, np.random.default_rng(config.seed + 1), 0.0)
     photo_test, _ = build_inputs(test_images, np.random.default_rng(config.seed + 2), 1.0)
     raw_test = raw_inputs(test_images)
@@ -302,6 +332,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
                    "initialized_from": str(init) if init else None},
         "samples_rendered": int(len(train_inputs) - skipped),
         "samples_unusable": int(skipped),
+        "extra_samples": extra_count,
         "before": before,
         "after": {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),
                   "canvas_simulated_1000": accuracy(model, torch, canvas_test, test_labels),

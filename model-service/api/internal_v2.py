@@ -112,7 +112,7 @@ def _validate_form(allow_args=()):
 
 
 TRAINING_FIELDS = {"epochs", "samples", "batchSize", "learningRate", "seed", "photoRatio",
-                   "useEmnist", "initFrom"}
+                   "useEmnist", "initFrom", "datasetVersionId", "dataDir"}
 MAX_TASK_ID = 19
 
 
@@ -138,6 +138,16 @@ def _validate_training_params(params):
         return "photoRatio 必须在 0..1"
     if not isinstance(params["useEmnist"], bool):
         return "useEmnist 必须是布尔值"
+    version = params["datasetVersionId"]
+    if version is not None and (isinstance(version, bool) or not isinstance(version, int) or version < 1):
+        return "datasetVersionId 必须是正整数或 null"
+    data_dir = params["dataDir"]
+    if data_dir is not None:
+        if not isinstance(data_dir, str) or not data_dir or len(data_dir) > 512:
+            return "dataDir 必须是有效目录路径或 null"
+        from pathlib import Path
+        if not Path(data_dir).is_dir():
+            return "dataDir 指向的目录不存在"
     init_from = params["initFrom"]
     if init_from is not None and (not isinstance(init_from, str) or not TOKEN_PATTERN.fullmatch(init_from)):
         return "initFrom 必须是已注册的模型版本或 null"

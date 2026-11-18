@@ -2,6 +2,7 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import * as api from '@/api/training.js'
 import { listModels } from '@/api/models.js'
+import { listVersions } from '@/api/datasets.js'
 import { useUserStore } from '@/stores/user.js'
 import { validateTraining, validateDataset, toCreatePayload } from '@/training/validation.js'
 import { createTrainingBoard, isActiveTask, summarizeTask } from '@/training/board.js'
@@ -11,8 +12,10 @@ import TrainingCurve from '@/training/TrainingCurve.vue'
 const user = useUserStore()
 const form = reactive({
   datasetId: 1, epochs: 3, samples: 10000, batchSize: 64,
-  learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false, initFrom: null
+  learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false, initFrom: null, datasetVersionId: null
 })
+const versions = ref([])
+const versionsError = ref('')
 const datasets = ref([])
 const models = ref([])
 const tasks = ref([])
@@ -23,6 +26,26 @@ const notice = ref('')
 const errorMessage = ref('')
 const liveStatus = ref('connecting')
 const selectedId = ref(null)
+
+async function loadVersions(datasetId) {
+  versionsError.value = ''
+  versions.value = []
+  form.datasetVersionId = null
+  if (!datasetId) return
+  try {
+    const dataset = datasets.value.find((item) => Number(item.id) === Number(datasetId))
+    const workspaceId = Number(dataset?.workspaceId || 0)
+    if (!workspaceId) return
+    const list = await listVersions({ workspaceId, session: user.getSnapshot() }, datasetId)
+    versions.value = Array.isArray(list) ? list : []
+    const ready = versions.value.find((item) => item.status === 'READY' && item.sampleCount > 0)
+    if (ready) form.datasetVersionId = ready.id
+  } catch (error) {
+    versionsError.value = error?.message || '版本加载失败'
+  }
+}
+
+watch(() => form.datasetId, (id) => { void loadVersions(id) }, { immediate: true })
 
 const board = createTrainingBoard({
   api,
@@ -126,6 +149,16 @@ onUnmounted(() => {
           </select>
           <small v-if="errors.datasetId" class="field-error">{{ errors.datasetId }}</small>
           <small v-else class="muted">仅元数据，本页不上传数据</small>
+        </label>
+        <label>数据版本
+          <select v-model="form.datasetVersionId" name="datasetVersionId">
+            <option :value="null">不使用版本（仅内置 MNIST）</option>
+            <option v-for="version in versions" :key="version.id" :value="version.id">
+              {{ version.version }} · {{ version.sampleCount }} 条（{{ version.splitRule }}）
+            </option>
+          </select>
+          <small v-if="versionsError" class="field-error">{{ versionsError }}</small>
+          <small v-else class="muted">选中后，该版本的训练集样本会并入训练（只导出 TRAIN 划分）</small>
         </label>
         <label>epoch<input v-model.number="form.epochs" name="epochs" type="number" min="1" max="5" step="1" /><small v-if="errors.epochs" class="field-error">{{ errors.epochs }}</small></label>
         <label>样本数<input v-model.number="form.samples" name="samples" type="number" min="1000" max="60000" step="1000" /><small v-if="errors.samples" class="field-error">{{ errors.samples }}</small><small v-else class="muted">1 万样本 3 轮约 1 分钟</small></label>
