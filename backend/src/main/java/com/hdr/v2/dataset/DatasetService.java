@@ -149,6 +149,20 @@ public class DatasetService {
                 DELETE FROM t_v2_dataset_sample WHERE version_id IN
                     (SELECT id FROM t_v2_dataset_version WHERE dataset_id=?)
                 """, datasetId);
+        // 归入的识别采集样本：恢复成"无归属"，可以再归入别的数据集
+        jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL "
+                + "WHERE source_dataset_id=? AND source<>'IMPORT'", datasetId);
+        // 导入的样本：没被其他数据集版本引用就删掉记录；被引用则只解除归属
+        for (Long sampleId : jdbc.queryForList(
+                "SELECT id FROM t_collected_sample WHERE source_dataset_id=? AND source='IMPORT'",
+                Long.class, datasetId)) {
+            Long refs = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM t_v2_dataset_sample s JOIN t_v2_dataset_version v ON v.id=s.version_id
+                    WHERE s.sample_id=? AND v.dataset_id<>?
+                    """, Long.class, sampleId, datasetId);
+            if (refs == null || refs == 0) jdbc.update("DELETE FROM t_collected_sample WHERE id=?", sampleId);
+            else jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL WHERE id=?", sampleId);
+        }
         jdbc.update("DELETE FROM t_v2_dataset_version WHERE dataset_id=?", datasetId);
         jdbc.update("DELETE FROM t_v2_dataset WHERE id=?", datasetId);
     }
