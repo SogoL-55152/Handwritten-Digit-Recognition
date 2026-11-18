@@ -269,3 +269,6 @@ desktop.ini
 
 # 识别原图（用户笔迹，不入仓库）
 /recognition-images/
+
+# 训练用的数据集导出目录（可再生成，不入仓库）
+/training-data/
