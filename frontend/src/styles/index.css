@@ -318,3 +318,16 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .duration-bar .bar i { display: block; height: 100%; background: linear-gradient(90deg, #6ea8e8, #2f6fd0); border-radius: 6px; }
 .duration-value { color: var(--muted); text-align: right; }
 .duration-label { color: var(--muted); }
+
+/* ---------- 每类准确率与混淆矩阵 ---------- */
+.matrix-block { display: grid; gap: 10px; padding-top: 6px; }
+.class-bars { display: grid; gap: 6px; }
+.class-bar { display: grid; grid-template-columns: 24px 1fr 60px; align-items: center; gap: 10px; font-size: 13px; }
+.class-bar .bar { display: block; height: 9px; background: #eef2f7; border-radius: 6px; overflow: hidden; }
+.class-bar .bar i { display: block; height: 100%; background: linear-gradient(90deg, #6ea8e8, #2f6fd0); }
+.class-name { font-weight: 650; text-align: center; }
+.class-value { color: var(--muted); text-align: right; }
+.matrix { display: grid; grid-template-columns: 48px repeat(10, minmax(0, 1fr)); gap: 2px; max-width: 520px; }
+.matrix-head, .matrix-corner { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); }
+.matrix-cell { display: flex; align-items: center; justify-content: center; height: 30px; border-radius: 4px;
+  background: #f7f9fc; font-size: 11px; color: #16324f; }

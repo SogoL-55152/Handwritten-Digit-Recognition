@@ -9,6 +9,7 @@ import { createTrainingBoard, isActiveTask, summarizeTask } from '@/training/boa
 import { createTrainingEvents } from '@/training/events.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingDetail from '@/training/TrainingDetail.vue'
+import TrainingMatrix from '@/training/TrainingMatrix.vue'
 
 const user = useUserStore()
 const form = reactive({
@@ -216,6 +217,7 @@ onUnmounted(() => {
                 <td colspan="6">
                   <TrainingCurve :task-id="task.id" :history="historyOf(task)" />
                   <TrainingDetail :task="task" />
+                  <TrainingMatrix v-if="task.metrics" :metrics="task.metrics" />
                 </td>
               </tr>
             </template>

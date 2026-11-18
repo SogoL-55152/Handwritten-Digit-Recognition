@@ -190,6 +190,31 @@ def read_emnist_digits(archive: Path, split: str, limit: int | None = None) -> t
     return grayscale[:limit], labels[8:][:limit]
 
 
+def detailed_metrics(model, torch, inputs: np.ndarray, labels: np.ndarray) -> dict:
+    """每类准确率与 10×10 混淆矩阵：行=真实标签，列=预测标签。"""
+    model.eval()
+    confusion = [[0] * 10 for _ in range(10)]
+    with torch.inference_mode():
+        for start in range(0, len(inputs), 512):
+            batch = torch.from_numpy(inputs[start:start + 512])
+            predicted = model(batch).argmax(dim=1).numpy()
+            for truth, guess in zip(labels[start:start + 512], predicted):
+                if 0 <= int(truth) < 10 and 0 <= int(guess) < 10:
+                    confusion[int(truth)][int(guess)] += 1
+    per_class = []
+    for label in range(10):
+        row = confusion[label]
+        total = sum(row)
+        correct = row[label]
+        per_class.append({"label": label, "correct": correct, "total": total,
+                          "accuracy": round(correct / total, 4) if total else None})
+    worst = sorted([item for item in per_class if item["total"]],
+                   key=lambda item: item["accuracy"])[:3]
+    return {"perClass": per_class,
+            "confusion": confusion,
+            "worst": [{"label": item["label"], "accuracy": item["accuracy"]} for item in worst]}
+
+
 def accuracy(model, torch, inputs: np.ndarray, labels: np.ndarray) -> float:
     model.eval()
     correct = 0
@@ -340,6 +365,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         "after": {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),
                   "canvas_simulated_1000": accuracy(model, torch, canvas_test, test_labels),
                   "photo_simulated_1000": accuracy(model, torch, photo_test, test_labels)},
+        "detailed_canvas": detailed_metrics(model, torch, canvas_test, test_labels),
         "history": history,
         "limitations": [
             "canvas/photo simulated sets share the generator family with training; they are optimistic.",
