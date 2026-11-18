@@ -472,3 +472,23 @@ tr.best td { background: #fffaf0; font-weight: 600; }
   font-size: 14px; line-height: 1; opacity: 0; transition: opacity .15s; }
 .sample-card:hover .sample-delete { opacity: 1; }
 .sample-delete:hover:not(:disabled) { background: #fdeceb; border-color: #b0483c; }
+
+/* ---------- 参数可视化 P0 ---------- */
+.template-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.template-bar button { padding: 4px 12px; min-height: 30px; font-size: 12px; border-radius: 999px; }
+.group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; }
+.group-head small { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.readonly-badge { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #eef2f7; color: #6b7f95;
+  font-size: 11px; font-weight: 500; }
+.memory-split { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.layer-table { display: grid; gap: 6px; }
+.layer-table-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 110px; gap: 8px; align-items: center; font-size: 12px; }
+.layer-table-name { color: #33475e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.layer-table-row .bar { display: block; height: 8px; background: #eef2f7; border-radius: 5px; overflow: hidden; }
+.layer-table-row .bar i { display: block; height: 100%; background: linear-gradient(90deg, #8fb8ea, #2f6fd0); }
+.layer-table-value { text-align: right; color: var(--muted); }
+.lr-preview { width: 100%; height: 60px; display: block; margin: 6px 0; }
+
+.log-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.log-toolbar select { width: 120px; }
+.log-toolbar input { width: 200px; }

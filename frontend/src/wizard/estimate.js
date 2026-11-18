@@ -109,7 +109,7 @@ export function inferShapes(layers, input = INPUT_SHAPE) {
     }
     totalParams += params
     activations += shape.h * shape.w * shape.c
-    rows.push({ index: index + 1, label, type: layer.type, params, shape, layer })
+    rows.push({ index: index + 1, label, type: layer.type, params, shape, layer, inputChannels: c })
     h = shape.h
     w = shape.w
     c = shape.c
@@ -220,4 +220,87 @@ export function normalizeConfig(config) {
     amp: Boolean(config.amp),
     datasetVersionId: config.datasetVersionId ?? null
   }
+}
+
+/** FLOPs 粗估：conv 2·k²·Cin·Cout·H·W，linear 2·Cin·Cout。 */
+export function estimateFlops(shapes) {
+  let total = 0
+  for (const row of shapes?.rows || []) {
+    if (row.type === 'conv') {
+      const k = Number(row.layer?.kernel) || 1
+      total += 2 * k * k * (row.inputChannels || 1) * row.shape.c * row.shape.h * row.shape.w
+    } else if (row.type === 'linear') {
+      total += 2 * (row.inputChannels || 1) * row.shape.c
+    }
+  }
+  return total
+}
+
+/** 显存四项拆分（GB）：权重 / 梯度 / 优化器状态 / 激活。 */
+export function memoryBreakdown(totalParams, activationsPerSample, batch = 64, amp = false) {
+  const bytes = 4
+  const scale = amp ? 0.6 : 1
+  const weights = totalParams * bytes * scale
+  const grads = totalParams * bytes * scale
+  const optimizer = totalParams * bytes * 2 * scale
+  const activations = Math.max(0, activationsPerSample) * Math.max(1, batch) * bytes * 1.3 * scale
+  return {
+    weightsGb: weights / 1024 ** 3,
+    gradsGb: grads / 1024 ** 3,
+    optimizerGb: optimizer / 1024 ** 3,
+    activationsGb: activations / 1024 ** 3,
+    totalGb: (weights + grads + optimizer + activations) / 1024 ** 3
+  }
+}
+
+/** 历史任务反推 ms/step 中位数（用于校准耗时估算）。 */
+export function benchmarkStepMs(tasks) {
+  const samples = []
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    const history = task?.metrics?.history
+    if (!Array.isArray(history) || !history.length) continue
+    const batch = Number(task.batchSize) || 0
+    const total = Number(task.samples) || 0
+    if (!batch || !total) continue
+    const steps = Math.ceil(total / batch)
+    for (const epoch of history) {
+      if (typeof epoch?.durationMs === 'number' && epoch.durationMs > 0) samples.push(epoch.durationMs / steps)
+    }
+  }
+  if (!samples.length) return null
+  samples.sort((a, b) => a - b)
+  const mid = Math.floor(samples.length / 2)
+  return { stepMs: samples.length % 2 ? samples[mid] : (samples[mid - 1] + samples[mid]) / 2, count: samples.length }
+}
+
+/** 过拟合诊断：验证指标变差而训练损失下降。 */
+export function overfitSignal(history) {
+  const rows = Array.isArray(history) ? history : []
+  if (rows.length < 3) return null
+  const last = rows[rows.length - 1]
+  const prev = rows[rows.length - 2]
+  const val = (row) => (typeof row?.val_loss === 'number' ? row.val_loss
+    : typeof row?.canvas_simulated === 'number' ? 1 - row.canvas_simulated : null)
+  const valNow = val(last); const valPrev = val(prev)
+  const trainNow = typeof last?.loss === 'number' ? last.loss : null
+  const trainPrev = typeof prev?.loss === 'number' ? prev.loss : null
+  if (valNow === null || valPrev === null || trainNow === null || trainPrev === null) return null
+  if (valNow - valPrev > 0.001 && trainNow - trainPrev < -0.001) {
+    return { overfit: true, message: '第 ' + last.epoch + ' 轮验证指标变差、训练损失仍在下降，疑似过拟合：建议增大 Dropout 或数据增强' }
+  }
+  return { overfit: false, message: '' }
+}
+
+/** 学习率调度预览（仅画图用）。 */
+export function lrPreview(scheduler, baseLr, epochs, stepsPerEpoch = 20, decay = 0.5) {
+  const total = Math.max(1, epochs * stepsPerEpoch)
+  const points = []
+  for (let index = 0; index < total; index += 1) {
+    const progress = index / total
+    let value = baseLr
+    if (scheduler === 'cosine') value = baseLr * 0.5 * (1 + Math.cos(Math.PI * progress))
+    else if (scheduler === 'step') value = baseLr * Math.pow(decay, Math.floor(progress * 3))
+    points.push({ step: index + 1, lr: Number(value.toFixed(8)) })
+  }
+  return points
 }

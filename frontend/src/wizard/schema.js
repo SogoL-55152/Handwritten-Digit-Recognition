@@ -31,6 +31,7 @@ export const PARAM_SCHEMA = [
         key: 'arch',
         label: '结构预设',
         widget: 'select',
+        displayOnly: true,
         help: '预设只是起点，选中后仍可逐层修改卷积核数量与全连接宽度。',
         options: { from: 'archPresets' }
       }
@@ -44,6 +45,7 @@ export const PARAM_SCHEMA = [
         key: 'optimizer',
         label: '优化器',
         widget: 'select',
+        displayOnly: true,
         help: 'Adam 收敛快；SGD + 动量泛化略好但需要调学习率。',
         options: [
           { value: 'adam', label: 'Adam' },
@@ -142,6 +144,18 @@ export const PARAM_SCHEMA = [
         ]
       },
       {
+        key: 'scheduler',
+        label: '学习率调度',
+        widget: 'select',
+        displayOnly: true,
+        help: '仅用于预览：当前训练管线固定常数学习率。',
+        options: [
+          { value: 'constant', label: '常数' },
+          { value: 'cosine', label: '余弦退火' },
+          { value: 'step', label: '分段衰减' }
+        ]
+      },
+      {
         key: 'amp',
         label: '混合精度',
         widget: 'switch',
@@ -177,6 +191,7 @@ export function defaultConfig() {
     earlyStop: true,
     patience: 3,
     device: 'cpu',
+    scheduler: 'constant',
     amp: false,
     seed: 42
   }

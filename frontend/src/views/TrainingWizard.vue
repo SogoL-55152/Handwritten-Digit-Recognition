@@ -10,7 +10,7 @@ import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
 import StepCurve from '@/training/StepCurve.vue'
 import NetDiagram from '@/wizard/NetDiagram.vue'
-import { ARCH_PRESETS, configHash, estimateMemory, estimateTiming, formatDuration, inferShapes, normalizeConfig, validateConfig } from '@/wizard/estimate.js'
+import { ARCH_PRESETS, benchmarkStepMs, configHash, estimateFlops, estimateMemory, estimateTiming, formatDuration, inferShapes, lrPreview, memoryBreakdown, normalizeConfig, overfitSignal, validateConfig } from '@/wizard/estimate.js'
 import { PARAM_SCHEMA, defaultConfig, isVisible } from '@/wizard/schema.js'
 
 const user = useUserStore()
@@ -26,6 +26,7 @@ const state = reactive({
 })
 const imageUrls = reactive({})
 const errors = ref([])
+const openGroups = reactive({ data: true, structure: true, hyper: true, runtime: true })
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 const archPreset = computed(() => ARCH_PRESETS.find((item) => item.id === config.arch) || ARCH_PRESETS[1])
@@ -45,6 +46,34 @@ const timing = computed(() => estimateTiming({
   device: config.device
 }))
 const checks = computed(() => validateConfig({ config, shapes: shapes.value, memoryGb: memory.value, timing: timing.value }))
+const flops = computed(() => estimateFlops(shapes.value))
+const memoryParts = computed(() => memoryBreakdown(shapes.value.totalParams, shapes.value.activationsPerSample || 0,
+  config.batchSize, config.amp && config.device === 'gpu'))
+const layerRows = computed(() => (shapes.value.rows || []).map((row) => ({
+  ...row,
+  percent: shapes.value.totalParams ? Math.round((row.params / shapes.value.totalParams) * 1000) / 10 : 0
+})))
+const groupSummary = (group) => group.items
+  .filter((item) => isVisible(item, config))
+  .map((item) => {
+    const value = config[item.key]
+    if (item.key === 'learningRate') return `lr ${Number(value).toExponential(1)}`
+    if (item.key === 'earlyStop') return value ? `早停 ${config.patience} 轮` : '无早停'
+    if (item.key === 'initFrom') return value ? `微调自 ${value}` : '从零训练'
+    if (item.key === 'datasetVersionId') return value ? '指定版本' : '不使用版本'
+    return String(value)
+  })
+  .slice(0, 4)
+  .join(' · ')
+const bench = computed(() => benchmarkStepMs(state.tasks))
+const timingText = computed(() => {
+  if (!bench.value) return `按公式估算 ${formatDuration(timing.value.epochSeconds)}/轮`
+  const steps = timing.value.steps
+  const epochSeconds = (steps * bench.value.stepMs) / 1000
+  return `按历史 ${bench.value.count} 个 epoch 校准约 ${formatDuration(epochSeconds)}/轮`
+})
+const overfit = computed(() => overfitSignal(selectedTask.value?.metrics?.history))
+const lrPoints = computed(() => lrPreview(config.scheduler, Number(config.learningRate), Number(config.epochs)))
 const blocking = computed(() => checks.value.some((item) => item.level === 'error'))
 const jsonPreview = computed(() => JSON.stringify(normalizeConfig(config), null, 2))
 const selectedTask = computed(() => state.tasks.find((task) => String(task.id) === String(state.taskId)) || null)
@@ -134,6 +163,17 @@ async function loadModels() {
 function selectDatasetValue(value) {
   state.datasetId = value ? Number(value) : null
   void loadVersions(state.datasetId)
+}
+
+function applyTemplate(kind) {
+  if (kind === 'quick') {
+    Object.assign(config, { epochs: 3, samples: 10000, batchSize: 64, learningRate: 0.001, earlyStop: true, patience: 2 })
+  } else if (kind === 'accurate') {
+    Object.assign(config, { epochs: 12, samples: 60000, batchSize: 128, learningRate: 0.0005, earlyStop: true, patience: 4 })
+  } else {
+    Object.assign(config, { epochs: 8, samples: 30000, batchSize: 64, learningRate: 0.0008, photoRatio: 0.8, earlyStop: true, patience: 3 })
+  }
+  applyPreset(config.arch)
 }
 
 async function submitTraining() {
@@ -289,11 +329,24 @@ onBeforeUnmount(releaseImages)
     <!-- ② 参数 -->
     <section v-if="step === 2" class="wizard-params">
       <div class="panel wizard-form">
+        <div class="template-bar">
+          <span class="muted">参数模板：</span>
+          <button type="button" @click="applyTemplate('quick')">快速上手</button>
+          <button type="button" @click="applyTemplate('accurate')">高精度</button>
+          <button type="button" @click="applyTemplate('robust')">手机笔迹鲁棒</button>
+        </div>
         <div v-for="group in PARAM_SCHEMA" :key="group.id" class="param-group">
-          <h3>{{ group.title }}</h3>
+          <h3 class="group-head" @click="openGroups[group.id] = !openGroups[group.id]">
+            <span>{{ openGroups[group.id] ? '▾' : '▸' }} {{ group.title }}</span>
+            <small class="muted">{{ groupSummary(group) }}</small>
+          </h3>
+          <template v-if="openGroups[group.id]">
           <template v-for="item in group.items" :key="item.key">
             <div v-if="isVisible(item, config)" class="param-line">
-              <label :for="'p-' + item.key">{{ item.label }} <span class="help" :title="item.help">ⓘ</span></label>
+              <label :for="'p-' + item.key">
+                {{ item.label }} <span class="help" :title="item.help">ⓘ</span>
+                <span v-if="item.displayOnly" class="readonly-badge" title="当前训练管线固定，只参与估算">仅估算</span>
+              </label>
               <select v-if="item.widget === 'select'" :id="'p-' + item.key" v-model="config[item.key]"
                       @change="item.key === 'arch' && applyPreset(config.arch)">
                 <template v-if="item.options?.from === 'archPresets'">
@@ -345,6 +398,7 @@ onBeforeUnmount(releaseImages)
               <span v-else class="layer-fixed">固定</span>
             </div>
           </div>
+          </template>
         </div>
       </div>
 
@@ -362,6 +416,23 @@ onBeforeUnmount(releaseImages)
             <div class="estimate-card"><small>总耗时</small><strong>{{ formatDuration(timing.totalSeconds) }}</strong></div>
           </div>
           <p class="muted">单步约 {{ timing.stepMs.toFixed(1) }} ms · {{ timing.steps }} 步/轮 · 训练样本 {{ trainSamples }}</p>
+          <p class="muted">{{ timingText }} · FLOPs ≈ {{ flops.toExponential(2) }}</p>
+          <div class="memory-split">
+            <span>权重 {{ memoryParts.weightsGb.toFixed(3) }}</span>
+            <span>梯度 {{ memoryParts.gradsGb.toFixed(3) }}</span>
+            <span>优化器 {{ memoryParts.optimizerGb.toFixed(3) }}</span>
+            <span>激活 {{ memoryParts.activationsGb.toFixed(3) }}</span>
+          </div>
+        </section>
+        <section class="panel">
+          <h3>分层参数</h3>
+          <div class="layer-table">
+            <div v-for="row in layerRows" :key="row.index" class="layer-table-row">
+              <span class="layer-table-name">{{ row.label }}</span>
+              <span class="bar"><i :style="{ width: Math.max(1, row.percent) + '%' }"></i></span>
+              <span class="layer-table-value">{{ row.params.toLocaleString() }}（{{ row.percent }}%）</span>
+            </div>
+          </div>
         </section>
         <section class="panel">
           <h3>校验</h3>
@@ -370,6 +441,14 @@ onBeforeUnmount(releaseImages)
               <span>{{ check.level === 'ok' ? '✓' : check.level === 'warn' ? '⚠' : '✗' }}</span>{{ check.text }}
             </li>
           </ul>
+        </section>
+        <section class="panel">
+          <h3>学习率预览</h3>
+          <svg class="lr-preview" viewBox="0 0 240 60" preserveAspectRatio="none">
+            <polyline fill="none" stroke="#2f6fd0" stroke-width="2"
+                      :points="lrPoints.map((point, index) => `${(index / Math.max(1, lrPoints.length - 1)) * 240},${60 - (point.lr / Math.max(1e-9, lrPoints[0].lr)) * 56}`).join(' ')" />
+          </svg>
+          <p class="muted">{{ config.scheduler === 'constant' ? '常数学习率' : config.scheduler === 'cosine' ? '余弦退火' : '分段衰减' }}（仅预览）</p>
         </section>
         <section class="panel">
           <h3>配置摘要</h3>
@@ -392,6 +471,7 @@ onBeforeUnmount(releaseImages)
       <template v-if="selectedTask">
         <TrainingCurve :task-id="state.taskId" :history="taskHistory" :height="320" />
         <StepCurve v-if="selectedTask?.metrics?.stepSeries?.length" :metrics="selectedTask.metrics" :height="220" />
+        <p v-if="overfit?.overfit" class="hint-banner">⚠ {{ overfit.message }}</p>
         <div class="wizard-metrics">
           <div v-for="card in taskDetailView.cards.slice(0, 6)" :key="card.key" class="estimate-card">
             <small>{{ card.label }}</small><strong>{{ card.value }}</strong>

@@ -20,6 +20,8 @@ const selectedId = ref(null)
 const logTask = ref(null)
 const logs = ref([])
 const logsError = ref('')
+const logQuery = ref('')
+const logLevel = ref('all')
 let logTimer = null
 
 const board = createTrainingBoard({
@@ -69,6 +71,18 @@ const liveLabel = computed(() => ({
   live: '实时推送已连接', connecting: '实时推送连接中', reconnecting: '推送断开，正在重连',
   unavailable: '实时推送不可用，使用 4 秒轮询', closed: '推送已关闭'
 }[liveStatus.value] || liveStatus.value))
+
+const filteredLogs = computed(() => {
+  const query = logQuery.value.trim().toLowerCase()
+  return logs.value
+    .filter((line) => {
+      if (logLevel.value === 'all') return true
+      if (logLevel.value === 'warn') return /warn|警告/i.test(line)
+      if (logLevel.value === 'error') return /error|traceback|失败/i.test(line)
+      return !/warn|error|traceback/i.test(line)
+    })
+    .filter((line) => !query || line.toLowerCase().includes(query))
+})
 
 const historyOf = (task) => task?.metrics?.history
 const refresh = () => loadAll()
@@ -161,7 +175,17 @@ onUnmounted(() => {
               </tr>
               <tr v-if="logTask === task.id" class="curve-row">
                 <td colspan="6">
-                  <pre class="log-stream">{{ logs.length ? logs.join('\n') : (logsError || '暂无日志') }}</pre>
+                  <div class="log-toolbar">
+                    <select v-model="logLevel">
+                      <option value="all">全部级别</option>
+                      <option value="info">INFO</option>
+                      <option value="warn">WARN</option>
+                      <option value="error">ERROR</option>
+                    </select>
+                    <input v-model="logQuery" placeholder="搜索关键字" />
+                    <span class="muted">{{ filteredLogs.length }}/{{ logs.length }} 行</span>
+                  </div>
+                  <pre class="log-stream">{{ filteredLogs.length ? filteredLogs.join('\n') : (logsError || '暂无日志') }}</pre>
                 </td>
               </tr>
             </template>
