@@ -73,11 +73,15 @@ def read_labels(path: Path) -> dict[str, dict]:
             labels = values_of(box_group["label"])
             order = sorted(range(len(lefts)), key=lambda position: lefts[position])
             digits = [0 if labels[position] == 10 else labels[position] for position in order]
+            digit_boxes = [(int(lefts[position]), int(tops[position]),
+                            int(lefts[position] + widths[position]), int(tops[position] + heights[position]))
+                           for position in order]
             left = min(lefts)
             top = min(tops)
             right = max(lefts[position] + widths[position] for position in range(len(lefts)))
             bottom = max(tops[position] + heights[position] for position in range(len(tops)))
             result[name] = {"text": "".join(str(digit) for digit in digits),
+                            "boxes": digit_boxes,
                             "box": (int(left), int(top), int(right), int(bottom))}
     return result
 
