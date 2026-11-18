@@ -30,6 +30,52 @@ class AcceptancePolicy:
         return {"version": POLICY_VERSION, "minConfidence": self.min_confidence,
                 "minMargin": self.min_margin, "experimental": True}
 
+
+    @staticmethod
+    def _erode(mask):
+        import numpy as np
+
+        out = mask.copy()
+        out[1:, :] &= mask[:-1, :]
+        out[:-1, :] &= mask[1:, :]
+        out[:, 1:] &= mask[:, :-1]
+        out[:, :-1] &= mask[:, 1:]
+        return out
+
+    @classmethod
+    def shape_metrics(cls, mask):
+        """形状指标：bbox 宽高、最大厚度（腐蚀深度换算）、长宽比。"""
+        import numpy as np
+
+        rows, cols = np.nonzero(mask)
+        if not len(rows):
+            return None
+        height = int(rows.max() - rows.min() + 1)
+        width = int(cols.max() - cols.min() + 1)
+        depth = 0
+        current = mask
+        while current.any() and depth < 14:
+            current = cls._erode(current)
+            depth += 1
+        thickness = 2 * depth - 1 if depth else 1
+        return {"width": width, "height": height, "thickness": thickness,
+                "aspect": width / height, "thickRatio": thickness / max(width, height)}
+
+    def _shape_check(self, mask):
+        """形状合理性：数字是细长笔画，不是横线、不是实心块、也不是噪点。"""
+        metrics = self.shape_metrics(mask)
+        if metrics is None:
+            raise UncertainPrediction("empty_foreground")
+        if max(metrics["width"], metrics["height"]) < 5:
+            raise UncertainPrediction("too_small")
+        # 横线/宽条：宽高比过大（标定：真实笔迹最大 1.43，横线 20）
+        if metrics["aspect"] > 3.0:
+            raise UncertainPrediction("too_wide")
+        # 实心块：厚度超过最长边的 35%（标定：真实笔迹 ≤0.25，色块 0.95）
+        if metrics["thickRatio"] > 0.35:
+            raise UncertainPrediction("too_thick")
+        return metrics
+
     def check_input(self, normalized):
         import numpy as np
 
@@ -67,7 +113,10 @@ class AcceptancePolicy:
         significant = sum(area >= max(3, math.ceil(len(rows) * 0.05)) for area in areas)
         if significant >= 4:
             raise UncertainPrediction("fragmented_foreground")
-        return {"foregroundPixels": len(rows), "bboxFill": fill, "significantRegions": significant}
+        # 形状判据放在最后：不改变既有输入的拒识理由，只兜住"横线/实心块/噪点"这类漏网输入
+        metrics = self._shape_check(mask)
+        return {"foregroundPixels": len(rows), "bboxFill": fill, "significantRegions": significant,
+                "thickRatio": round(metrics["thickRatio"], 3), "aspect": round(metrics["aspect"], 2)}
 
     def select(self, probabilities):
         values = list(probabilities)
