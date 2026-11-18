@@ -57,6 +57,14 @@ public class CollectedSampleService {
     public Saved save(long workspaceId, long userId, Integer label, String labelText, boolean consent,
                       ImageValidator.Image image, Integer predictedDigit, String predictedText, Double confidence,
                       String modelVersion, Long recognitionId, String source) {
+        return save(workspaceId, userId, label, labelText, consent, image, predictedDigit, predictedText,
+                confidence, modelVersion, recognitionId, source, null);
+    }
+
+    /** 导入到某个数据集时传 datasetId：去重只看同一数据集内是否已有这张图。 */
+    public Saved save(long workspaceId, long userId, Integer label, String labelText, boolean consent,
+                      ImageValidator.Image image, Integer predictedDigit, String predictedText, Double confidence,
+                      String modelVersion, Long recognitionId, String source, Long datasetId) {
         spaces.requireMember(workspaceId, userId);
         if (!consent) throw new V2Exception(400, "未同意采集时不会保存图片", "CONSENT_REQUIRED");
         boolean multi = labelText != null && !labelText.isBlank();
@@ -69,7 +77,8 @@ public class CollectedSampleService {
         String digest = image.digest();
         List<Long> existing = jdbc.queryForList("""
                 SELECT id FROM t_collected_sample WHERE workspace_id=? AND creator_id=? AND image_digest=?
-                """, Long.class, workspaceId, userId, digest);
+                  AND source_dataset_id <=> ?
+                """, Long.class, workspaceId, userId, digest, datasetId);
         if (!existing.isEmpty()) return new Saved(existing.get(0), true, contributedTotal(userId));
 
         String extension = "image/png".equals(image.contentType()) ? "png" : "jpg";
@@ -85,9 +94,9 @@ public class CollectedSampleService {
         jdbc.update(connection -> {
             var statement = connection.prepareStatement("""
                     INSERT INTO t_collected_sample(workspace_id,creator_id,recognition_id,label,predicted_digit,
-                        confidence,model_version,source,image_digest,artifact_path,size_bytes,content_type,consent,
-                        sample_kind,label_text,predicted_text,digit_count)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
+                        confidence,model_version,source,source_dataset_id,image_digest,artifact_path,size_bytes,
+                        content_type,consent,sample_kind,label_text,predicted_text,digit_count)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
                     """, java.sql.Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, workspaceId);
             statement.setLong(2, userId);
@@ -98,15 +107,17 @@ public class CollectedSampleService {
             if (confidence == null) statement.setNull(6, java.sql.Types.DOUBLE); else statement.setDouble(6, confidence);
             statement.setString(7, modelVersion);
             statement.setString(8, source == null || source.isBlank() ? "WEB" : source);
-            statement.setString(9, digest);
-            statement.setString(10, root.relativize(target).toString().replace('\\', '/'));
-            statement.setInt(11, image.bytes().length);
-            statement.setString(12, image.contentType());
-            statement.setString(13, multi ? "MULTI" : "SINGLE");
-            if (multi) statement.setString(14, labelText); else statement.setNull(14, java.sql.Types.VARCHAR);
-            if (predictedText == null || predictedText.isBlank()) statement.setNull(15, java.sql.Types.VARCHAR);
-            else statement.setString(15, predictedText);
-            if (multi) statement.setInt(16, labelText.length()); else statement.setNull(16, java.sql.Types.TINYINT);
+            if (datasetId == null) statement.setNull(9, java.sql.Types.BIGINT);
+            else statement.setLong(9, datasetId);
+            statement.setString(10, digest);
+            statement.setString(11, root.relativize(target).toString().replace('\\', '/'));
+            statement.setInt(12, image.bytes().length);
+            statement.setString(13, image.contentType());
+            statement.setString(14, multi ? "MULTI" : "SINGLE");
+            if (multi) statement.setString(15, labelText); else statement.setNull(15, java.sql.Types.VARCHAR);
+            if (predictedText == null || predictedText.isBlank()) statement.setNull(16, java.sql.Types.VARCHAR);
+            else statement.setString(16, predictedText);
+            if (multi) statement.setInt(17, labelText.length()); else statement.setNull(17, java.sql.Types.TINYINT);
             return statement;
         }, keyHolder);
         Number generated = keyHolder.getKey();

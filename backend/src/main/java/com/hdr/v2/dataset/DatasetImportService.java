@@ -59,7 +59,7 @@ public class DatasetImportService {
             try {
                 ImageValidator.Image image = images.validate(file);
                 CollectedSampleService.Saved saved = collected.save(workspaceId, userId, label, null, true, image,
-                        null, null, null, null, null, "IMPORT");
+                        null, null, null, null, null, "IMPORT", datasetId);
                 if (saved.duplicate()) {
                     duplicates += 1;
                 } else {
@@ -76,15 +76,8 @@ public class DatasetImportService {
         }
         if (!savedIds.isEmpty()) {
             String placeholders = String.join(",", java.util.Collections.nCopies(savedIds.size(), "?"));
-            Object[] args = new Object[savedIds.size() + 2];
-            args[0] = datasetId;
-            for (int index = 0; index < savedIds.size(); index += 1) args[index + 1] = savedIds.get(index);
-            args[args.length - 1] = datasetId;
-            List<Object> ordered = new ArrayList<>();
-            ordered.add(datasetId);
-            ordered.addAll(savedIds);
-            jdbc.update("UPDATE t_collected_sample SET sample_kind='IMPORTED', source_dataset_id=?, imported_at=UTC_TIMESTAMP() WHERE id IN ("
-                    + placeholders + ")", ordered.toArray());
+            jdbc.update("UPDATE t_collected_sample SET sample_kind='IMPORTED', imported_at=UTC_TIMESTAMP() "
+                    + "WHERE id IN (" + placeholders + ")", savedIds.toArray());
         }
         return new Result(imported, duplicates, failed, files.size());
     }

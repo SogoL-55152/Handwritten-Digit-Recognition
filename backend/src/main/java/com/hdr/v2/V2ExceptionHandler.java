@@ -60,7 +60,7 @@ public class V2ExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<?> database(DataAccessException error) {
-        LOG.error("V2 persistence operation failed: {}", error.getClass().getSimpleName());
+        LOG.error("V2 persistence operation failed: {}", error.getClass().getSimpleName(), error);
         return business(new V2Exception(503, "数据服务暂不可用", "DATABASE_UNAVAILABLE"));
     }
 
