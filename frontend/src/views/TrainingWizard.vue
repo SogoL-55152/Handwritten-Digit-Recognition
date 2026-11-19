@@ -402,7 +402,7 @@ onBeforeUnmount(releaseImages)
         </div>
       </div>
 
-      <aside class="stack">
+      <aside class="stack wizard-side">
         <section class="panel">
           <h3>结构图</h3>
           <NetDiagram :layers="layers" />
