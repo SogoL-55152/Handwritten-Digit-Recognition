@@ -40,6 +40,43 @@ public class CollectedSampleService {
         this.root = Paths.get(directory).toAbsolutePath().normalize();
     }
 
+    /**
+     * 自动清理孤儿文件：服务启动 1 分钟后跑一次，之后按 hdr.collected.sweep-ms（默认 6 小时）重复。
+     * 只处理 30 分钟前的文件，避免删掉「刚写完、记录尚未提交」的图片。
+     */
+    @org.springframework.scheduling.annotation.Scheduled(
+            initialDelayString = "${hdr.collected.sweep.initial-delay-ms:60000}",
+            fixedDelayString = "${hdr.collected.sweep.interval-ms:21600000}")
+    public void sweepOrphans() {
+        int deleted = 0;
+        long freed = 0;
+        long cutoff = System.currentTimeMillis() - java.time.Duration.ofMinutes(30).toMillis();
+        try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
+            for (Path file : stream.filter(Files::isRegularFile).toList()) {
+                try {
+                    if (Files.getLastModifiedTime(file).toMillis() > cutoff) continue;
+                } catch (IOException ignored) {
+                    continue;
+                }
+                String relative = root.relativize(file).toString().replace('\\', '/');
+                Long refs = jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_collected_sample WHERE artifact_path=?", Long.class, relative);
+                if (refs != null && refs > 0) continue;
+                try {
+                    freed += Files.size(file);
+                    Files.deleteIfExists(file);
+                    deleted += 1;
+                } catch (IOException error) {
+                    LOG.warn("自动清理孤儿文件失败 ({})", error.getClass().getSimpleName());
+                }
+            }
+        } catch (IOException error) {
+            LOG.warn("自动清理扫描失败 ({})", error.getClass().getSimpleName());
+            return;
+        }
+        if (deleted > 0) LOG.info("自动清理孤儿文件: {} 个, 释放 {} 字节", deleted, freed);
+    }
+
     /** 扫描整个采集目录，删除没有被任何记录引用的文件；返回删除数量。 */
     public Map<String, Object> cleanupOrphans(long workspaceId, long userId) {
         spaces.requireMember(workspaceId, userId);
