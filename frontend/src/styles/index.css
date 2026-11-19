@@ -256,7 +256,9 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .dataset-desc { font-size: 12px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .dataset-meta { display: flex; gap: 10px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .dataset-meta i { font-style: normal; }
-.dataset-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dataset-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dataset-head > div:first-child { min-width: 220px; flex: 1 1 320px; }
+.dataset-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; }
 .dataset-head h3 { margin: 0 0 4px; }
 .version-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
 .version-chips button { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--line);
@@ -452,7 +454,7 @@ tr.diff td { background: #fdf6e8; }
 .source-label { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .source-limit { width: 100%; text-align: right; }
 
-.svhn-panel { margin-top: 12px; }
+.import-panel { margin-top: 12px; }
 
 button.danger { border-color: #d98b82; color: #a5342a; background: #fff; }
 button.danger:hover:not(:disabled) { background: #fdeceb; border-color: #b0483c; }

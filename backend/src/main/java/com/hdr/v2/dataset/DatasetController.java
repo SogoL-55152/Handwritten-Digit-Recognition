@@ -19,20 +19,15 @@ import java.util.Map;
 public class DatasetController {
     private final DatasetService datasets;
     private final DatasetImportService imports;
-    private final SvhnImportService svhn;
     private final ImportWizardService wizard;
     private final WorkspaceService spaces;
 
-    public DatasetController(DatasetService datasets, DatasetImportService imports, SvhnImportService svhn,
-                             ImportWizardService wizard, WorkspaceService spaces) {
+    public DatasetController(DatasetService datasets, DatasetImportService imports,                              ImportWizardService wizard, WorkspaceService spaces) {
         this.datasets = datasets;
         this.imports = imports;
-        this.svhn = svhn;
         this.wizard = wizard;
         this.spaces = spaces;
     }
-
-    public record ImportSvhnCommand(String directory, Integer perLabel) {}
 
     public record CreateCommand(String name, String description) {}
 
@@ -123,16 +118,6 @@ public class DatasetController {
                                                      HttpServletRequest request) {
         long user = authorize(workspaceId, request);
         return Result.ok(wizard.rollback(workspaceId, user, batchId));
-    }
-
-    @PostMapping("/datasets/{datasetId}/import-svhn")
-    public Result<Map<String, Object>> importSvhn(@PathVariable long workspaceId, @PathVariable long datasetId,
-                                                  @RequestBody(required = false) ImportSvhnCommand command,
-                                                  HttpServletRequest request) {
-        long user = authorize(workspaceId, request);
-        if (command == null) throw new V2Exception(400, "缺少导入参数", "VALIDATION");
-        return Result.ok(svhn.importSvhn(workspaceId, user, datasetId, command.directory(), command.perLabel(),
-                request.getHeader("Authorization")));
     }
 
     @GetMapping("/dataset-versions")

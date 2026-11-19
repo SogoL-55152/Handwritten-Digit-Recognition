@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview, wizardZipCommit, wizardZipPreview } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview, wizardZipCommit, wizardZipPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -16,7 +16,6 @@ const state = reactive({
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
-  svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null },
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
@@ -181,101 +180,6 @@ async function importFolder(event) {
   }
 }
 
-async function doImportSvhn() {
-  if (!state.selectedId || !state.svhn.directory.trim()) return
-  state.svhn.busy = true
-  state.error = ''
-  state.notice = ''
-  state.svhn.result = null
-  try {
-    const result = await importSvhn(snapshot(), state.selectedId, {
-      directory: state.svhn.directory.trim(),
-      perLabel: Number(state.svhn.perLabel)
-    })
-    state.svhn.result = result
-    const summary = result.summary || {}
-    state.notice = `标注导入：成功 ${summary.imported ?? '—'} · 重复 ${summary.duplicates ?? '—'} · 失败 ${summary.failed ?? '—'}`
-    await loadDatasets()
-  } catch (error) {
-    state.error = error?.message || '导入失败'
-  } finally {
-    state.svhn.busy = false
-  }
-}
-
-async function removeDataset() {
-  const dataset = selectedDataset.value
-  if (!dataset) return
-  if (!window.confirm(`确定删除数据集「${dataset.name}」？版本与样本归属会一起删除，采集池里的图片不受影响。`)) return
-  state.busy = true
-  state.error = ''
-  try {
-    await deleteDataset(snapshot(), dataset.id)
-    state.notice = `已删除数据集「${dataset.name}」`
-    state.selectedId = null
-    state.versions = []
-    state.stats = null
-    state.samples = []
-    releaseImages()
-    await loadDatasets()
-  } catch (error) {
-    state.error = error?.message || '删除失败'
-  } finally {
-    state.busy = false
-  }
-}
-
-async function claimRecognition() {
-  if (!state.selectedId) return
-  state.busy = true
-  state.error = ''
-  try {
-    const result = await claimSamples(snapshot(), state.selectedId)
-    state.notice = `已把 ${result.claimed} 条识别采集样本归入本数据集`
-    await loadDatasets()
-  } catch (error) {
-    state.error = error?.message || '归入失败'
-  } finally {
-    state.busy = false
-  }
-}
-
-async function removeVersion() {
-  const version = selectedVersion.value
-  if (!version || !state.selectedId) return
-  state.busy = true
-  state.error = ''
-  try {
-    await deleteVersion(snapshot(), state.selectedId, version.id)
-    state.notice = `已删除版本 ${version.version}`
-    state.selectedVersionId = null
-    state.stats = null
-    state.samples = []
-    await selectDataset(state.selectedId)
-    await loadDatasets()
-  } catch (error) {
-    state.error = error?.message || '删除版本失败'
-  } finally {
-    state.busy = false
-  }
-}
-
-async function removeSample(item) {
-  if (!state.selectedId || !state.selectedVersionId) return
-  state.busy = true
-  state.error = ''
-  try {
-    await removeVersionSample(snapshot(), state.selectedId, state.selectedVersionId, item.sampleId)
-    state.notice = '样本已删除'
-    await loadVersionData()
-    await loadDatasets()
-  } catch (error) {
-    state.error = error?.message || '删除样本失败'
-  } finally {
-    state.busy = false
-  }
-}
-
 async function loadBatches() {
   try {
     state.wizard.batches = await importBatches(snapshot())
@@ -326,7 +230,7 @@ async function commitZip() {
   try {
     const result = await wizardZipCommit(snapshot(), state.selectedId, state.wizard.preview.token)
     state.wizard.result = result
-    state.notice = `智能导入（zip）：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
+    state.notice = `导入数据集（zip）：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
     state.wizard.preview = null
     await loadDatasets()
     await loadBatches()
@@ -344,7 +248,7 @@ async function commitWizard() {
   try {
     const result = await wizardCommit(snapshot(), state.selectedId, state.wizard.directory.trim())
     state.wizard.result = result
-    state.notice = `智能导入：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
+    state.notice = `导入数据集：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
     state.wizard.preview = null
     await loadDatasets()
     await loadBatches()
@@ -425,9 +329,8 @@ onBeforeUnmount(releaseImages)
       </div>
       <div class="row-actions">
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
-        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入数据集</button>
-        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="state.svhn.open = !state.svhn.open">导入标注数据集</button>
-        <button :disabled="state.busy" @click="openWizard">智能导入</button>
+        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入图片</button>
+        <button :disabled="state.busy" @click="openWizard">导入数据集</button>
         <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
@@ -444,27 +347,8 @@ onBeforeUnmount(releaseImages)
       </div>
     </section>
 
-    <section v-if="state.svhn.open" class="panel svhn-panel">
-      <div class="block-head"><h4>导入标注数据集</h4><span class="muted">目录里需有 digitStruct.mat（每张图多个数字的框与标签）；每类数量控制规模</span></div>
-      <div class="import-row">
-        <label class="field field-wide"><span>解压目录</span>
-          <input v-model="state.svhn.directory" placeholder="例如 C:\\...\\train\\train（含 digitStruct.mat）" />
-        </label>
-        <label class="field"><span>每类数量</span>
-          <input v-model.number="state.svhn.perLabel" type="number" min="1" max="20000" />
-        </label>
-        <button class="primary" :disabled="state.svhn.busy || !state.selectedId || !state.svhn.directory.trim()" @click="doImportSvhn">
-          {{ state.svhn.busy ? '导入中…' : '开始导入' }}
-        </button>
-      </div>
-      <p v-if="state.svhn.busy" class="hint">正在按框裁字并分批导入，规模大时可能需要几十秒，请不要关闭页面。</p>
-      <p v-if="state.svhn.result" class="hint">
-        退出码 {{ state.svhn.result.exitCode }} · 耗时 {{ state.svhn.result.seconds }}s
-        <template v-if="state.svhn.result.summary"> · 成功 {{ state.svhn.result.summary.imported }} · 重复 {{ state.svhn.result.summary.duplicates }} · 失败 {{ state.svhn.result.summary.failed }}</template>
-      </p>
-    </section>
-    <section v-if="state.wizard.open" class="panel svhn-panel">
-      <div class="block-head"><h4>智能导入</h4><span class="muted">自动识别目录结构：按类别文件夹 / CSV 标签 / 文件名带标签；先试运行看统计</span></div>
+    <section v-if="state.wizard.open" class="panel import-panel">
+      <div class="block-head"><h4>导入数据集</h4><span class="muted">自动识别目录结构：按类别文件夹 / CSV 标签 / 文件名带标签；先试运行看统计</span></div>
       <div class="import-row">
         <label class="field field-wide"><span>数据集目录（服务端路径）</span>
           <input v-model="state.wizard.directory" placeholder="例如 D:\datasets\my-digits" />
@@ -554,7 +438,7 @@ onBeforeUnmount(releaseImages)
               <h3>{{ selectedDataset.name }}</h3>
               <p class="muted">{{ selectedDataset.description || '无描述' }} · 范围 {{ selectedDataset.scope }}</p>
             </div>
-            <div class="row-actions">
+            <div class="row-actions dataset-actions">
               <span class="tag">{{ state.versions.length }} 个版本</span>
               <button :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
               <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
