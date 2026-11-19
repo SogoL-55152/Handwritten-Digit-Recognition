@@ -180,6 +180,79 @@ async function importFolder(event) {
   }
 }
 
+async function claimRecognition() {
+  if (!state.selectedId) return
+  state.busy = true
+  state.error = ''
+  try {
+    const result = await claimSamples(snapshot(), state.selectedId)
+    state.notice = `已把 ${result.claimed} 条识别采集样本归入本数据集`
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '归入失败'
+  } finally {
+    state.busy = false
+  }
+}
+
+async function removeDataset() {
+  const dataset = selectedDataset.value
+  if (!dataset) return
+  if (!window.confirm(`确定删除数据集「${dataset.name}」？版本与样本归属会一起删除，采集池里的图片不受影响。`)) return
+  state.busy = true
+  state.error = ''
+  try {
+    await deleteDataset(snapshot(), dataset.id)
+    state.notice = `已删除数据集「${dataset.name}」`
+    state.selectedId = null
+    state.versions = []
+    state.stats = null
+    state.samples = []
+    releaseImages()
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '删除失败'
+  } finally {
+    state.busy = false
+  }
+}
+
+async function removeSample(item) {
+  if (!state.selectedId || !state.selectedVersionId) return
+  state.busy = true
+  state.error = ''
+  try {
+    await removeVersionSample(snapshot(), state.selectedId, state.selectedVersionId, item.sampleId)
+    state.notice = '样本已删除'
+    await loadVersionData()
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '删除样本失败'
+  } finally {
+    state.busy = false
+  }
+}
+
+async function removeVersion() {
+  const version = selectedVersion.value
+  if (!version || !state.selectedId) return
+  state.busy = true
+  state.error = ''
+  try {
+    await deleteVersion(snapshot(), state.selectedId, version.id)
+    state.notice = `已删除版本 ${version.version}`
+    state.selectedVersionId = null
+    state.stats = null
+    state.samples = []
+    await selectDataset(state.selectedId)
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '删除版本失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function loadBatches() {
   try {
     state.wizard.batches = await importBatches(snapshot())
