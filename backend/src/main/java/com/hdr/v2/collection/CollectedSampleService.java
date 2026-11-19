@@ -40,6 +40,46 @@ public class CollectedSampleService {
         this.root = Paths.get(directory).toAbsolutePath().normalize();
     }
 
+    /** 扫描整个采集目录，删除没有被任何记录引用的文件；返回删除数量。 */
+    public Map<String, Object> cleanupOrphans(long workspaceId, long userId) {
+        spaces.requireMember(workspaceId, userId);
+        int deleted = 0;
+        long freed = 0;
+        try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
+            for (Path file : stream.filter(Files::isRegularFile).toList()) {
+                String relative = root.relativize(file).toString().replace('\\', '/');
+                Long refs = jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_collected_sample WHERE artifact_path=?", Long.class, relative);
+                if (refs != null && refs > 0) continue;
+                try {
+                    freed += Files.size(file);
+                    Files.deleteIfExists(file);
+                    deleted += 1;
+                } catch (IOException error) {
+                    LOG.warn("删除孤儿文件失败 ({})", error.getClass().getSimpleName());
+                }
+            }
+        } catch (IOException error) {
+            throw new V2Exception(503, "采集目录不可读", "STORAGE_UNAVAILABLE");
+        }
+        return Map.of("deleted", deleted, "freedBytes", freed);
+    }
+
+    /** 只删除没有被任何样本记录引用的文件（路径必须落在采集根目录内）。 */
+    public void deleteArtifactIfOrphan(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) return;
+        Path target = root.resolve(relativePath).normalize();
+        if (!target.startsWith(root)) return;
+        try {
+            Long refs = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM t_collected_sample WHERE artifact_path=?", Long.class, relativePath);
+            if (refs != null && refs > 0) return;
+            Files.deleteIfExists(target);
+        } catch (IOException error) {
+            LOG.warn("删除孤儿图片失败 ({})", error.getClass().getSimpleName());
+        }
+    }
+
     /** 读取采集样本原图（artifact_path 是相对根目录的路径，校验不逃逸）。 */
     public byte[] readArtifact(String relativePath) {
         if (relativePath == null || relativePath.isBlank())

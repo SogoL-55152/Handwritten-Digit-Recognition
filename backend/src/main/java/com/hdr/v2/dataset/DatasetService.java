@@ -153,15 +153,20 @@ public class DatasetService {
         jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL "
                 + "WHERE source_dataset_id=? AND source<>'IMPORT'", datasetId);
         // 导入的样本：没被其他数据集版本引用就删掉记录；被引用则只解除归属
-        for (Long sampleId : jdbc.queryForList(
-                "SELECT id FROM t_collected_sample WHERE source_dataset_id=? AND source='IMPORT'",
-                Long.class, datasetId)) {
+        for (Map<String, Object> row : jdbc.queryForList(
+                "SELECT id, artifact_path FROM t_collected_sample WHERE source_dataset_id=? AND source='IMPORT'",
+                datasetId)) {
+            Long sampleId = ((Number) row.get("id")).longValue();
             Long refs = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM t_v2_dataset_sample s JOIN t_v2_dataset_version v ON v.id=s.version_id
                     WHERE s.sample_id=? AND v.dataset_id<>?
                     """, Long.class, sampleId, datasetId);
-            if (refs == null || refs == 0) jdbc.update("DELETE FROM t_collected_sample WHERE id=?", sampleId);
-            else jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL WHERE id=?", sampleId);
+            if (refs == null || refs == 0) {
+                jdbc.update("DELETE FROM t_collected_sample WHERE id=?", sampleId);
+                collected.deleteArtifactIfOrphan((String) row.get("artifact_path"));
+            } else {
+                jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL WHERE id=?", sampleId);
+            }
         }
         jdbc.update("DELETE FROM t_v2_dataset_version WHERE dataset_id=?", datasetId);
         jdbc.update("DELETE FROM t_v2_dataset WHERE id=?", datasetId);
@@ -265,8 +270,14 @@ public class DatasetService {
                     """, sampleId, datasetId);
             Long refs = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM t_v2_dataset_sample WHERE sample_id=?", Long.class, sampleId);
-            if (refs == null || refs == 0) jdbc.update("DELETE FROM t_collected_sample WHERE id=?", sampleId);
-            else jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL WHERE id=?", sampleId);
+            if (refs == null || refs == 0) {
+                String path = jdbc.queryForObject(
+                        "SELECT artifact_path FROM t_collected_sample WHERE id=?", String.class, sampleId);
+                jdbc.update("DELETE FROM t_collected_sample WHERE id=?", sampleId);
+                collected.deleteArtifactIfOrphan(path);
+            } else {
+                jdbc.update("UPDATE t_collected_sample SET source_dataset_id=NULL WHERE id=?", sampleId);
+            }
         }
         // 合并进来的样本：只从当前版本移除，采集池记录保持不动（它属于别的数据集）
 

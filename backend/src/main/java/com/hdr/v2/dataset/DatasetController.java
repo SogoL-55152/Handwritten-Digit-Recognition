@@ -20,12 +20,16 @@ public class DatasetController {
     private final DatasetService datasets;
     private final DatasetImportService imports;
     private final ImportWizardService wizard;
+    private final com.hdr.v2.collection.CollectedSampleService collected;
     private final WorkspaceService spaces;
 
-    public DatasetController(DatasetService datasets, DatasetImportService imports,                              ImportWizardService wizard, WorkspaceService spaces) {
+    public DatasetController(DatasetService datasets, DatasetImportService imports,                              ImportWizardService wizard,
+                              com.hdr.v2.collection.CollectedSampleService collected,
+                              WorkspaceService spaces) {
         this.datasets = datasets;
         this.imports = imports;
         this.wizard = wizard;
+        this.collected = collected;
         this.spaces = spaces;
     }
 
@@ -104,6 +108,13 @@ public class DatasetController {
         long user = authorize(workspaceId, request);
         if (command == null) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
         return Result.ok(wizard.commit(workspaceId, user, datasetId, command.directory()));
+    }
+
+    /** 清理采集目录里没有被任何样本记录引用的文件（维护用）。 */
+    @PostMapping("/collected/cleanup-orphans")
+    public Result<Map<String, Object>> cleanupOrphans(@PathVariable long workspaceId, HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(collected.cleanupOrphans(workspaceId, user));
     }
 
     @GetMapping("/import-batches")
