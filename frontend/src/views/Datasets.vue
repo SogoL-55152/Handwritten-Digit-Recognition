@@ -16,7 +16,7 @@ const state = reactive({
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
-  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null },
+  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
@@ -211,15 +211,27 @@ async function previewZip(event) {
   const file = (event.target.files || [])[0]
   event.target.value = ''
   if (!file) return
+  if (!/\.zip$/i.test(file.name)) {
+    state.error = '请选择 .zip 压缩包'
+    return
+  }
+  if (file.size > 500 * 1024 * 1024) {
+    state.error = `zip 有 ${(file.size / 1024 / 1024).toFixed(0)}MB，超过 500MB 上限，请拆分后再导入`
+    return
+  }
   state.wizard.busy = true
+  state.wizard.progress = 0
   state.error = ''
   state.wizard.result = null
   try {
-    state.wizard.preview = await wizardZipPreview(snapshot(), file)
+    state.wizard.preview = await wizardZipPreview(snapshot(), file, (value) => { state.wizard.progress = value })
   } catch (error) {
-    state.error = error?.message === 'Network Error' ? 'zip 上传失败：可能超过服务端上限或连接中断，请查看日志' : (error?.message || 'zip 试运行失败')
+    state.error = error?.message === 'Network Error'
+      ? `zip 上传中断（文件 ${(file.size / 1024 / 1024).toFixed(0)}MB），请确认后端在运行且网络稳定`
+      : (error?.message || 'zip 试运行失败')
   } finally {
     state.wizard.busy = false
+    state.wizard.progress = 0
   }
 }
 
@@ -379,6 +391,7 @@ onBeforeUnmount(releaseImages)
           </div>
         </div>
         <p v-if="state.wizard.preview.samples?.length" class="hint">示例文件：{{ state.wizard.preview.samples.join('、') }}</p>
+        <p v-if="state.wizard.progress" class="hint">上传中 {{ state.wizard.progress }}%…</p>
         <p v-if="state.wizard.preview.selfCheck" class="hint-banner" :class="{ 'self-check-bad': state.wizard.preview.selfCheck.accepted === 0 }">
           抽样自检：{{ state.wizard.preview.selfCheck.note }}
         </p>

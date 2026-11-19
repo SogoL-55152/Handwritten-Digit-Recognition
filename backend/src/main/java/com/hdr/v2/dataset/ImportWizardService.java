@@ -78,6 +78,8 @@ public class ImportWizardService {
     /** 上传 zip：解压到临时目录，返回预览与 token（确认导入时用 token）。 */
     public Preview previewZip(long workspaceId, long userId, MultipartFile file) {
         spaces.requireMember(workspaceId, userId);
+        LOG.info("zip 导入预览: name={}, size={}MB", file.getOriginalFilename(),
+                Math.round(file.getSize() / 1024.0 / 1024.0));
         Path temp = extractZip(file);
         Preview preview = scan(workspaceId, temp);
         return new Preview(preview.format(), preview.total(), preview.labels(), preview.skipped(),
@@ -119,6 +121,7 @@ public class ImportWizardService {
                 }
             }
             Files.deleteIfExists(zip);
+            LOG.info("zip 解压完成: {}", dir.getFileName());
             return dir;
         } catch (IOException error) {
             throw new V2Exception(400, "zip 解压失败", "ZIP_INVALID");
