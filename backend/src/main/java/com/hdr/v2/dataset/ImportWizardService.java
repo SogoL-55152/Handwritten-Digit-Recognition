@@ -1,7 +1,9 @@
 package com.hdr.v2.dataset;
 
 import com.hdr.v2.V2Exception;
+import com.hdr.v2.assets.CatalogueService;
 import com.hdr.v2.collection.CollectedSampleService;
+import com.hdr.v2.recognition.ModelClient;
 import com.hdr.v2.recognition.ImageValidator;
 import com.hdr.v2.workspace.WorkspaceService;
 import org.slf4j.Logger;
@@ -10,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -35,18 +38,27 @@ public class ImportWizardService {
     private static final int MAX_FILES = 20000;
 
     public record Preview(String format, int total, Map<String, Integer> labels, int skipped,
-                          Map<String, Integer> skippedDetail, List<String> samples, String note) {}
+                          Map<String, Integer> skippedDetail, List<String> samples, String note,
+                          String token, SelfCheck selfCheck) {}
+
+    /** 抽样自检：用当前生效模型看这批图"像不像数字"。 */
+    public record SelfCheck(int checked, int accepted, double avgConfidence, String note) {}
 
     private final JdbcTemplate jdbc;
     private final WorkspaceService spaces;
     private final CollectedSampleService samples;
+    private final ModelClient models;
+    private final CatalogueService catalogue;
     private final Path root;
 
     public ImportWizardService(JdbcTemplate jdbc, WorkspaceService spaces, CollectedSampleService samples,
+                               ModelClient models, CatalogueService catalogue,
                                @Value("${hdr.import.root:.}") String root) {
         this.jdbc = jdbc;
         this.spaces = spaces;
         this.samples = samples;
+        this.models = models;
+        this.catalogue = catalogue;
         this.root = Paths.get(root).toAbsolutePath().normalize();
     }
 
@@ -60,7 +72,57 @@ public class ImportWizardService {
 
     public Preview preview(long workspaceId, long userId, String directory) {
         spaces.requireMember(workspaceId, userId);
-        return scan(resolve(directory));
+        return scan(workspaceId, resolve(directory));
+    }
+
+    /** 上传 zip：解压到临时目录，返回预览与 token（确认导入时用 token）。 */
+    public Preview previewZip(long workspaceId, long userId, MultipartFile file) {
+        spaces.requireMember(workspaceId, userId);
+        Path temp = extractZip(file);
+        Preview preview = scan(workspaceId, temp);
+        return new Preview(preview.format(), preview.total(), preview.labels(), preview.skipped(),
+                preview.skippedDetail(), preview.samples(), preview.note(), temp.toString(), preview.selfCheck());
+    }
+
+    public Map<String, Object> commitZip(long workspaceId, long userId, long datasetId, String token) {
+        Path temp = Paths.get(token).toAbsolutePath().normalize();
+        if (!temp.startsWith(root) || !Files.isDirectory(temp))
+            throw new V2Exception(400, "临时目录无效或已过期", "TOKEN_INVALID");
+        Map<String, Object> result = commit(workspaceId, userId, datasetId, temp.toString());
+        try (Stream<Path> stream = Files.walk(temp)) {
+            stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+            });
+        } catch (IOException error) {
+            LOG.warn("清理临时目录失败 ({})", error.getClass().getSimpleName());
+        }
+        return result;
+    }
+
+    private Path extractZip(MultipartFile file) {
+        if (file == null || file.isEmpty()) throw new V2Exception(400, "没有选择 zip 文件", "VALIDATION");
+        Path dir = root.resolve(".hdr-import-tmp").resolve(java.util.UUID.randomUUID().toString());
+        try {
+            Files.createDirectories(dir);
+            Path zip = dir.resolve("upload.zip");
+            file.transferTo(zip);
+            try (java.util.zip.ZipInputStream input = new java.util.zip.ZipInputStream(Files.newInputStream(zip))) {
+                java.util.zip.ZipEntry entry;
+                int count = 0;
+                while ((entry = input.getNextEntry()) != null && count < 50000) {
+                    Path target = dir.resolve(entry.getName()).normalize();
+                    if (!target.startsWith(dir)) continue;
+                    if (entry.isDirectory()) { Files.createDirectories(target); continue; }
+                    Files.createDirectories(target.getParent());
+                    Files.copy(input, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    count += 1;
+                }
+            }
+            Files.deleteIfExists(zip);
+            return dir;
+        } catch (IOException error) {
+            throw new V2Exception(400, "zip 解压失败", "ZIP_INVALID");
+        }
     }
 
     @Transactional
@@ -71,7 +133,7 @@ public class ImportWizardService {
                 Long.class, datasetId, workspaceId);
         if (exists == null || exists == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
         Path dir = resolve(directory);
-        Preview preview = scan(dir);
+        Preview preview = scan(workspaceId, dir);
         if (preview.total() == 0)
             throw new V2Exception(400, "没有识别到可导入的图片，请检查目录结构", "NO_SAMPLES");
 
@@ -138,7 +200,7 @@ public class ImportWizardService {
 
     // ---------- 扫描与格式识别 ----------
 
-    private Preview scan(Path dir) {
+    private Preview scan(long workspaceId, Path dir) {
         Map<String, Integer> labels = new LinkedHashMap<>();
         Map<String, Integer> skipped = new LinkedHashMap<>();
         List<String> samples = new ArrayList<>();
@@ -159,7 +221,43 @@ public class ImportWizardService {
             default -> "识别为「文件名带标签」：取文件名中第一个数字作为标签";
         };
         return new Preview(format, total, labels, skipped.values().stream().mapToInt(Integer::intValue).sum(),
-                skipped, samples, note);
+                skipped, samples, note, null, selfCheck(workspaceId, files, dir, format, skipped));
+    }
+
+    /** 抽最多 8 张，用生效模型预测一次；接受率很低说明这批图可能不是数字。 */
+    private SelfCheck selfCheck(long workspaceId, List<Path> files, Path dir, String format,
+                                Map<String, Integer> skipped) {
+        if (files.isEmpty()) return null;
+        CatalogueService.Model model;
+        try {
+            model = catalogue.activeModel();
+        } catch (RuntimeException error) {
+            return null;
+        }
+        int checked = 0;
+        int accepted = 0;
+        double confidenceSum = 0;
+        for (Path file : files) {
+            if (checked >= 8) break;
+            try {
+                byte[] bytes = Files.readAllBytes(file);
+                String type = file.getFileName().toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+                String digest = sha256(bytes);
+                ModelClient.Prediction prediction = models.predict(workspaceId, java.util.UUID.randomUUID().toString(),
+                        model, new ImageValidator.Image(bytes, digest, type), true);
+                accepted += 1;
+                confidenceSum += prediction.confidence();
+            } catch (Exception error) {
+                // 拒识或失败都算"不像数字"
+            }
+            checked += 1;
+        }
+        if (checked == 0) return null;
+        double avg = accepted == 0 ? 0 : confidenceSum / accepted;
+        String note = accepted == 0
+                ? "抽样 " + checked + " 张全部被拒识：这批图可能不是手写数字"
+                : "抽样 " + checked + " 张，接受 " + accepted + " 张（平均置信度 " + String.format("%.2f", avg) + "）";
+        return new SelfCheck(checked, accepted, Math.round(avg * 1000) / 1000.0, note);
     }
 
     private String detectFormat(Path dir, Map<String, Integer> skipped) {

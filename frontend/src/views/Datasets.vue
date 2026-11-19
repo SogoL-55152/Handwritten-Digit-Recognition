@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview, wizardZipCommit, wizardZipPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -17,7 +17,7 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
   svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
-  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [] },
+  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null },
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
@@ -303,6 +303,40 @@ async function previewWizard() {
   }
 }
 
+async function previewZip(event) {
+  const file = (event.target.files || [])[0]
+  event.target.value = ''
+  if (!file) return
+  state.wizard.busy = true
+  state.error = ''
+  state.wizard.result = null
+  try {
+    state.wizard.preview = await wizardZipPreview(snapshot(), file)
+  } catch (error) {
+    state.error = error?.message || 'zip 试运行失败'
+  } finally {
+    state.wizard.busy = false
+  }
+}
+
+async function commitZip() {
+  if (!state.selectedId || !state.wizard.preview?.token) return
+  state.wizard.busy = true
+  state.error = ''
+  try {
+    const result = await wizardZipCommit(snapshot(), state.selectedId, state.wizard.preview.token)
+    state.wizard.result = result
+    state.notice = `智能导入（zip）：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
+    state.wizard.preview = null
+    await loadDatasets()
+    await loadBatches()
+  } catch (error) {
+    state.error = error?.message || 'zip 导入失败'
+  } finally {
+    state.wizard.busy = false
+  }
+}
+
 async function commitWizard() {
   if (!state.selectedId || !state.wizard.preview) return
   state.wizard.busy = true
@@ -438,8 +472,15 @@ onBeforeUnmount(releaseImages)
         <button :disabled="state.wizard.busy || !state.wizard.directory.trim()" @click="previewWizard">
           {{ state.wizard.busy ? '处理中…' : '试运行' }}
         </button>
-        <button class="primary" :disabled="state.wizard.busy || !state.selectedId || !state.wizard.preview" @click="commitWizard">
+        <label class="field"><span>或上传 zip</span>
+          <input type="file" accept=".zip" @change="previewZip" />
+        </label>
+        <button v-if="!state.wizard.preview?.token" class="primary"
+                :disabled="state.wizard.busy || !state.selectedId || !state.wizard.preview" @click="commitWizard">
           {{ state.selectedId ? '确认导入到当前数据集' : '先选中数据集' }}
+        </button>
+        <button v-else class="primary" :disabled="state.wizard.busy || !state.selectedId" @click="commitZip">
+          {{ state.selectedId ? '确认导入（zip）' : '先选中数据集' }}
         </button>
       </div>
 
@@ -454,6 +495,9 @@ onBeforeUnmount(releaseImages)
           </div>
         </div>
         <p v-if="state.wizard.preview.samples?.length" class="hint">示例文件：{{ state.wizard.preview.samples.join('、') }}</p>
+        <p v-if="state.wizard.preview.selfCheck" class="hint-banner" :class="{ 'self-check-bad': state.wizard.preview.selfCheck.accepted === 0 }">
+          抽样自检：{{ state.wizard.preview.selfCheck.note }}
+        </p>
         <p v-if="state.wizard.preview.skippedDetail" class="hint">
           跳过原因：<template v-for="(value, key) in state.wizard.preview.skippedDetail" :key="key">{{ key }} {{ value }} ｜ </template>
         </p>

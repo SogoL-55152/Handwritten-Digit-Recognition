@@ -498,3 +498,5 @@ tr.best td { background: #fffaf0; font-weight: 600; }
 .batch-list { margin-top: 14px; }
 .batch-row { display: grid; grid-template-columns: 56px 1fr 90px 150px 1fr auto; gap: 10px; align-items: center;
   font-size: 12px; padding: 6px 2px; border-bottom: 1px dashed #eef1f5; }
+
+.self-check-bad { border-color: #e2b7b1; background: #fdeceb; color: #a5342a; }

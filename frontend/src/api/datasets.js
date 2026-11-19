@@ -96,3 +96,14 @@ export const importBatches = (snapshot) =>
 export const rollbackBatch = (snapshot, batchId) =>
   request.delete(`${base(snapshot)}/import-batches/${encodeURIComponent(batchId)}`,
     { authSession: snapshot.session, silent: true })
+
+export function wizardZipPreview(snapshot, file) {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  return request.post(`${base(snapshot)}/datasets/import-wizard/zip-preview`, form,
+    { authSession: snapshot.session, silent: true, timeout: 600000 })
+}
+
+export const wizardZipCommit = (snapshot, datasetId, token) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard/zip`, { token },
+    { authSession: snapshot.session, silent: true, timeout: 600000 })

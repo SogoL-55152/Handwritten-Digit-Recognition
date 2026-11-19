@@ -82,6 +82,26 @@ public class DatasetController {
         return Result.ok(wizard.preview(workspaceId, user, command.directory()));
     }
 
+    public record WizardToken(String token) {}
+
+    @PostMapping(value = "/datasets/import-wizard/zip-preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<ImportWizardService.Preview> zipPreview(@PathVariable long workspaceId,
+                                                          @RequestParam("file") MultipartFile file,
+                                                          HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(wizard.previewZip(workspaceId, user, file));
+    }
+
+    @PostMapping("/datasets/{datasetId}/import-wizard/zip")
+    public Result<Map<String, Object>> zipCommit(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                 @RequestBody(required = false) WizardToken command,
+                                                 HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        if (command == null || command.token() == null)
+            throw new V2Exception(400, "缺少临时目录 token", "VALIDATION");
+        return Result.ok(wizard.commitZip(workspaceId, user, datasetId, command.token()));
+    }
+
     @PostMapping("/datasets/{datasetId}/import-wizard")
     public Result<Map<String, Object>> wizardCommit(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                     @RequestBody(required = false) WizardCommand command,
