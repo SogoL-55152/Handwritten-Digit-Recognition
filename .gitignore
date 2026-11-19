@@ -280,3 +280,6 @@ desktop.ini
 # SVHN 解压目录（33k+13k 张图，不入仓库）
 /train/
 /test/
+
+# 汇报材料不入库
+docs/*.pptx
