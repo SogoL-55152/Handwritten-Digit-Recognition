@@ -50,16 +50,26 @@ public class ImportWizardService {
     private final ModelClient models;
     private final CatalogueService catalogue;
     private final Path root;
+    private final com.fasterxml.jackson.databind.ObjectMapper mapper;
+    private final String python;
+    private final String bboxScript;
 
     public ImportWizardService(JdbcTemplate jdbc, WorkspaceService spaces, CollectedSampleService samples,
                                ModelClient models, CatalogueService catalogue,
-                               @Value("${hdr.import.root:.}") String root) {
+                               com.fasterxml.jackson.databind.ObjectMapper mapper,
+                               @Value("${hdr.import.root:.}") String root,
+                               @Value("${hdr.import.python:python}") String python,
+                               @Value("${hdr.import.bboxScript:model-service/tools/bbox_crop.py}") String bboxScript) {
         this.jdbc = jdbc;
         this.spaces = spaces;
         this.samples = samples;
         this.models = models;
         this.catalogue = catalogue;
         this.root = Paths.get(root).toAbsolutePath().normalize();
+        this.mapper = mapper;
+        this.python = python;
+        this.bboxScript = Paths.get(bboxScript).isAbsolute() ? bboxScript
+                : Paths.get(System.getProperty("user.dir")).resolve(bboxScript).toString();
     }
 
     private Path resolve(String directory) {
@@ -136,6 +146,18 @@ public class ImportWizardService {
                 Long.class, datasetId, workspaceId);
         if (exists == null || exists == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
         Path dir = resolve(directory);
+        Path bboxCrops = null;
+        if ("bbox".equals(detectFormat(dir, new LinkedHashMap<>()))) {
+            Path labels = findLabelsMat(dir);
+            bboxCrops = root.resolve(".hdr-crops").resolve(java.util.UUID.randomUUID().toString());
+            try {
+                Files.createDirectories(bboxCrops);
+            } catch (IOException error) {
+                throw new V2Exception(500, "无法创建临时目录", "CROP_FAILED");
+            }
+            runBboxScript(labels.getParent(), labels, bboxCrops, false);
+            dir = bboxCrops;
+        }
         Preview preview = scan(workspaceId, dir);
         if (preview.total() == 0)
             throw new V2Exception(400, "没有识别到可导入的图片，请检查目录结构", "NO_SAMPLES");
@@ -171,6 +193,15 @@ public class ImportWizardService {
         result.put("imported", imported);
         result.put("duplicates", duplicates);
         result.put("failed", failed);
+        if (bboxCrops != null) {
+            try (Stream<Path> stream = Files.walk(bboxCrops)) {
+                stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+                });
+            } catch (IOException error) {
+                LOG.warn("清理裁剪目录失败 ({})", error.getClass().getSimpleName());
+            }
+        }
         return result;
     }
 
@@ -208,6 +239,7 @@ public class ImportWizardService {
         Map<String, Integer> skipped = new LinkedHashMap<>();
         List<String> samples = new ArrayList<>();
         String format = detectFormat(dir, skipped);
+        if ("bbox".equals(format)) return bboxPreview(dir);
         List<Path> files = listImages(dir, format);
         int total = 0;
         for (Path file : files) {
@@ -265,6 +297,7 @@ public class ImportWizardService {
     }
 
     private String detectFormat(Path dir, Map<String, Integer> skipped) {
+        if (hasLabelsMat(dir)) return "bbox";
         try (Stream<Path> children = Files.list(dir)) {
             List<Path> list = children.toList();
             if (list.stream().anyMatch(Files::isDirectory)) return "folder";
@@ -274,6 +307,70 @@ public class ImportWizardService {
         }
         skipped.merge("没有类别目录或 csv，按文件名识别", 0, Integer::sum);
         return "filename";
+    }
+
+    private boolean hasLabelsMat(Path dir) {
+        return findLabelsMat(dir) != null;
+    }
+
+    private Path findLabelsMat(Path dir) {
+        try (Stream<Path> stream = Files.walk(dir, 3)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().equals("digitStruct.mat"))
+                    .findFirst().orElse(null);
+        } catch (IOException error) {
+            return null;
+        }
+    }
+
+    /** 带框数据集：先 dry-run 统计能裁出多少单字。 */
+    private Preview bboxPreview(Path dir) {
+        Path labels = findLabelsMat(dir);
+        if (labels == null) throw new V2Exception(400, "没有找到 digitStruct.mat", "LABELS_NOT_FOUND");
+        Path images = labels.getParent();
+        com.fasterxml.jackson.databind.JsonNode summary = runBboxScript(images, labels, null, true);
+        int digits = summary.path("digits").asInt();
+        Map<String, Integer> labels2 = new LinkedHashMap<>();
+        summary.path("perLabel").fields().forEachRemaining(entry -> labels2.put(entry.getKey(), entry.getValue().asInt()));
+        Map<String, Integer> skipped = new LinkedHashMap<>();
+        int multi = summary.path("skippedMulti").asInt();
+        int small = summary.path("skippedSmall").asInt();
+        if (multi > 0) skipped.put("多段未切开", multi);
+        if (small > 0) skipped.put("框太小", small);
+        String note = "识别为「带框标注（digitStruct.mat）」：每张图按框裁成单字，多段或过小的会跳过";
+        return new Preview("bbox", digits, labels2, multi + small, skipped, List.of(), note, null, null);
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode runBboxScript(Path images, Path labels, Path out, boolean dryRun) {
+        List<String> command = new ArrayList<>(List.of(python, bboxScript,
+                "--images", images.toString(), "--labels", labels.toString()));
+        if (out != null) { command.add("--out"); command.add(out.toString()); }
+        if (dryRun) command.add("--dry-run");
+        try {
+            ProcessBuilder builder = new ProcessBuilder(command);
+            builder.redirectErrorStream(true);
+            Process process = builder.start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!process.waitFor(1800, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new V2Exception(503, "裁字脚本超时（超过 30 分钟）", "IMPORT_TIMEOUT");
+            }
+            String lastJson = null;
+            for (String line : output.split("\\R")) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("{") && trimmed.endsWith("}")) lastJson = trimmed;
+            }
+            if (process.exitValue() != 0 || lastJson == null) {
+                LOG.warn("bbox 脚本失败: {}", output.length() > 400 ? output.substring(output.length() - 400) : output);
+                throw new V2Exception(400, "裁字失败，请检查 digitStruct.mat 与图片是否匹配", "CROP_FAILED");
+            }
+            return mapper.readTree(lastJson);
+        } catch (IOException error) {
+            throw new V2Exception(500, "无法启动裁字脚本（检查 hdr.import.python 配置）", "SCRIPT_UNAVAILABLE");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new V2Exception(500, "裁字被中断", "CROP_FAILED");
+        }
     }
 
     private List<Path> listImages(Path dir, String format) {
