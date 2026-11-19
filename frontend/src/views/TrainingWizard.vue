@@ -199,7 +199,7 @@ async function submitTraining() {
     }
     const created = await createTask(state.datasetId, payload, user.getSnapshot())
     state.taskId = created.id
-    state.notice = `已提交训练任务 #${created.id}，切换到第③步查看进度`
+    state.notice = `已提交训练任务 #${created.id}（数据准备在后台进行），切换到第③步查看进度`
     await loadTasks()
     step.value = 3
   } catch (error) {

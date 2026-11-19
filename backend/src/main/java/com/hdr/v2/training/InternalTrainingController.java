@@ -26,6 +26,13 @@ public class InternalTrainingController {
         this.internalToken = internalToken;
     }
 
+    /** worker 开始训练前取数：按需导出数据版本（有缓存则复用）。 */
+    @PostMapping("/{id}/prepare")
+    public Result<Map<String, Object>> prepare(@PathVariable long id, HttpServletRequest request) {
+        requireInternal(request);
+        return Result.ok(service.prepareData(id));
+    }
+
     @PostMapping("/{id}/state")
     public Result<TrainingService.TaskView> state(@PathVariable long id,
                                                   @RequestBody(required = false) Map<String, Object> body,

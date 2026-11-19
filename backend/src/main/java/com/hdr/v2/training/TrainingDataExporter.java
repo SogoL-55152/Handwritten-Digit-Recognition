@@ -40,7 +40,64 @@ public class TrainingDataExporter {
 
     public record Exported(String directory, int count, Map<String, Integer> labels, int writers) {}
 
+    private static final String MANIFEST = ".export.json";
+
+    /** 版本样本不可变：清单里的数量与当前 TRAIN 数一致即可复用，避免每次任务重写几万张图。 */
+    private Exported readManifest(Path target, long versionId, int expectedCount) {
+        Path manifest = target.resolve(MANIFEST);
+        if (!Files.isRegularFile(manifest) || expectedCount <= 0) return null;
+        try {
+            Map<String, Object> data = mapper.readValue(manifest.toFile(), Map.class);
+            if (!(data.get("versionId") instanceof Number id) || id.longValue() != versionId) return null;
+            if (!(data.get("count") instanceof Number count) || count.intValue() != expectedCount) return null;
+            Map<String, Integer> labels = new java.util.LinkedHashMap<>();
+            Object rawLabels = data.get("labels");
+            if (rawLabels instanceof Map<?, ?> map) {
+                map.forEach((key, value) -> labels.put(String.valueOf(key),
+                        value instanceof Number number ? number.intValue() : 0));
+            }
+            int writers = data.get("writers") instanceof Number number ? number.intValue() : 0;
+            return new Exported(target.toString(), expectedCount, labels, writers);
+        } catch (Exception error) {
+            LOG.warn("训练数据清单读取失败，将重新导出 ({})", error.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private void writeManifest(Path target, long versionId, int count, Map<String, Integer> labels, int writers) {
+        try {
+            Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("versionId", versionId);
+            data.put("count", count);
+            data.put("labels", labels);
+            data.put("writers", writers);
+            data.put("exportedAt", java.time.Instant.now().toString());
+            mapper.writeValue(target.resolve(MANIFEST).toFile(), data);
+        } catch (Exception error) {
+            LOG.warn("训练数据清单写入失败 ({})", error.getClass().getSimpleName());
+        }
+    }
+
+    private void clearDirectory(Path target) throws java.io.IOException {
+        try (var stream = Files.walk(target)) {
+            stream.sorted(java.util.Comparator.reverseOrder())
+                    .filter(path -> !path.equals(target))
+                    .forEach(path -> {
+                        try { Files.deleteIfExists(path); } catch (java.io.IOException ignored) { }
+                    });
+        }
+    }
+
     public Exported export(long versionId) {
+        Long expected = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_v2_dataset_sample WHERE version_id=? AND split='TRAIN'
+                """, Long.class, versionId);
+        Path cached = root.resolve("v" + versionId);
+        Exported reuse = readManifest(cached, versionId, expected == null ? 0 : expected.intValue());
+        if (reuse != null) {
+            LOG.info("复用已导出的训练数据: v{} ({} 张)", versionId, reuse.count());
+            return reuse;
+        }
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT s.sample_id, s.label, s.writer_key, c.artifact_path
                 FROM t_v2_dataset_sample s
@@ -50,8 +107,9 @@ public class TrainingDataExporter {
                 """, versionId);
         if (rows.isEmpty())
             throw new V2Exception(400, "该版本没有训练集样本，无法用于训练", "NO_TRAIN_SAMPLES");
-        Path target = root.resolve("v" + versionId);
+        Path target = cached;
         try {
+            if (Files.isDirectory(target)) clearDirectory(target);
             Files.createDirectories(target);
             Map<String, Integer> labels = new LinkedHashMap<>();
             int written = 0;
@@ -80,7 +138,8 @@ public class TrainingDataExporter {
             manifest.put("writers", writers.size());
             Files.writeString(target.resolve("manifest.json"),
                     mapper.writeValueAsString(manifest) + "\n");
-            return new Exported(target.toString(), written, labels, writers.size());
+            writeManifest(target, versionId, written, labels, writers.size());
+        return new Exported(target.toString(), written, labels, writers.size());
         } catch (IOException error) {
             LOG.warn("Training data export failed ({})", error.getClass().getSimpleName());
             throw new V2Exception(503, "训练数据导出失败，请稍后重试", "STORAGE_UNAVAILABLE");

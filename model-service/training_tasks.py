@@ -74,9 +74,13 @@ def notify(task_id, payload):
     request = urllib.request.Request(
         f"{callback_base()}/internal/v2/training/{task_id}/state", data=body, method="POST",
         headers={"Content-Type": "application/json", "X-HDR-Internal-Token": token})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        if response.status != 200:
-            raise RuntimeError(f"callback rejected with {response.status}")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status != 200:
+                raise RuntimeError(f"callback rejected with {response.status}")
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:200]
+        raise RuntimeError(f"callback failed: {error.code} {detail}") from error
 
 
 def _digest(path):
@@ -188,7 +192,12 @@ def train_one(task_id, attempt, params):
         # 每轮实时回写：Java 落库并通过 SSE 推给前端画曲线。
         notify(task_id, {"state": "RUNNING", "attempt": attempt, "metrics": epoch_metrics})
 
-    extra_dir = Path(params["dataDir"]) if params.get("dataDir") else None
+    data_dir = params.get("dataDir")
+    if not data_dir and params.get("datasetVersionId"):
+        prepared = _prepare_data(task_id)
+        data_dir = prepared.get("dataDir") or None
+        logger.info("prepared data for %s: %s", task_id, data_dir)
+    extra_dir = Path(data_dir) if data_dir else None
     import contextlib
     import sys
 
@@ -245,6 +254,19 @@ def _finish(task_id):
     client.delete(f"training:requeue:{task_id}")
     client.srem(ACTIVE_SET, task_id)
     client.delete(f"training:payload:{task_id}")
+
+
+def _prepare_data(task_id):
+    """向 Java 侧取数：后端按需导出数据版本并返回目录（幂等，有缓存直接复用）。"""
+    import requests
+
+    response = requests.post(f"{callback_base()}/internal/v2/training/{task_id}/prepare",
+                             headers={"X-HDR-Internal-Token": os.getenv("MODEL_INTERNAL_TOKEN", "")},
+                             timeout=1800)
+    if response.status_code != 200:
+        raise RuntimeError(f"prepare failed: {response.status_code} {response.text[:200]}")
+    body = response.json()
+    return body.get("data") or {}
 
 
 def _run_training(task_id, attempt, params):

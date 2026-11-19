@@ -67,7 +67,7 @@ public class TrainingService {
                     Long.class, versionId, datasetId);
             if (found == null || found == 0)
                 throw new V2Exception(400, "数据集版本不存在或尚未就绪", "DATASET_VERSION_NOT_FOUND");
-            dataDir = exporter.export(versionId).directory();
+            // 导出延迟到 worker 首次取数（prepare），提交请求不再被几万张图卡住。
         }
         params.put("datasetVersionId", versionId);
         params.put("dataDir", dataDir);
@@ -113,6 +113,25 @@ public class TrainingService {
         TaskView created = view(taskId);
         events.publish(created);
         return created;
+    }
+
+    /** worker 取数：按需导出（有缓存直接复用），并把目录写回任务行。幂等。 */
+    @Transactional
+    public Map<String, Object> prepareData(long taskId) {
+        TaskRow row = requireRow(taskId);
+        String rawVersion = row.datasetVersionId();
+        if (rawVersion == null || rawVersion.isBlank()) {
+            return Map.of("dataDir", "", "count", 0, "labels", Map.of(), "writers", 0,
+                    "note", "未指定数据版本，使用内置 MNIST");
+        }
+        TrainingDataExporter.Exported exported = exporter.export(Long.parseLong(rawVersion));
+        jdbc.update("UPDATE t_v2_training_task SET data_dir=? WHERE id=?", exported.directory(), taskId);
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("dataDir", exported.directory());
+        body.put("count", exported.count());
+        body.put("labels", exported.labels());
+        body.put("writers", exported.writers());
+        return body;
     }
 
     /** Python 回调：推进状态并（成功时）登记模型。回调只能前进，不能把已成功改回运行。 */
