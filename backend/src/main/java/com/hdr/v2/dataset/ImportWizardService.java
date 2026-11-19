@@ -221,7 +221,8 @@ public class ImportWizardService {
             default -> "识别为「文件名带标签」：取文件名中第一个数字作为标签";
         };
         return new Preview(format, total, labels, skipped.values().stream().mapToInt(Integer::intValue).sum(),
-                skipped, samples, note, null, selfCheck(workspaceId, files, dir, format, skipped));
+                skipped, samples, note, null,
+                total == 0 ? null : selfCheck(workspaceId, files, dir, format, skipped));
     }
 
     /** 抽最多 8 张，用生效模型预测一次；接受率很低说明这批图可能不是数字。 */

@@ -165,6 +165,7 @@ public class DatasetService {
         }
         jdbc.update("DELETE FROM t_v2_dataset_version WHERE dataset_id=?", datasetId);
         jdbc.update("DELETE FROM t_v2_dataset WHERE id=?", datasetId);
+        jdbc.update("DELETE FROM t_import_batch WHERE dataset_id=?", datasetId);
     }
 
     public List<Version> versions(long workspaceId, long userId, long datasetId) {

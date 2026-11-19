@@ -217,7 +217,7 @@ async function previewZip(event) {
   try {
     state.wizard.preview = await wizardZipPreview(snapshot(), file)
   } catch (error) {
-    state.error = error?.message || 'zip 试运行失败'
+    state.error = error?.message === 'Network Error' ? 'zip 上传失败：可能超过服务端上限或连接中断，请查看日志' : (error?.message || 'zip 试运行失败')
   } finally {
     state.wizard.busy = false
   }
@@ -235,7 +235,7 @@ async function commitZip() {
     await loadDatasets()
     await loadBatches()
   } catch (error) {
-    state.error = error?.message || 'zip 导入失败'
+    state.error = error?.message === 'Network Error' ? 'zip 导入失败：连接中断或文件过大' : (error?.message || 'zip 导入失败')
   } finally {
     state.wizard.busy = false
   }

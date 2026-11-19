@@ -49,7 +49,7 @@ public class V2ExceptionHandler {
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<?> oversized(Exception error) { return business(new V2Exception(413, "图片最大为5MiB", "IMAGE_TOO_LARGE")); }
+    public ResponseEntity<?> oversized(Exception error) { return business(new V2Exception(413, "上传文件过大：单文件上限 200MB（单张图片仍为 5MB）", "UPLOAD_TOO_LARGE")); }
 
     @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
     public ResponseEntity<?> multipart(org.springframework.web.multipart.MultipartException error) {
