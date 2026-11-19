@@ -396,12 +396,23 @@ tr.diff td { background: #fdf6e8; }
 .wizard-sample { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px; background: #fff; }
 .wizard-sample img { width: 100%; height: 56px; object-fit: contain; background: #f6f9fd; border-radius: 4px; }
 .wizard-sample figcaption { text-align: center; font-size: 12px; font-weight: 600; }
-.wizard-params { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-@media (max-width: 1100px) { .wizard-params { grid-template-columns: minmax(0, 1fr); } }
+.wizard-params { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+/* 左侧参数栏吸顶：右侧内容再长也不会在左边留一大片空白 */
+.wizard-form { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 120px); overflow: auto; }
+.wizard-form::-webkit-scrollbar { width: 8px; }
+.wizard-form::-webkit-scrollbar-thumb { background: #d6dee8; border-radius: 8px; }
+@media (max-width: 1100px) { .wizard-params { grid-template-columns: minmax(0, 1fr); }
+  .wizard-form { position: static; max-height: none; overflow: visible; } }
 .param-group { padding: 10px 0; border-bottom: 1px dashed var(--line); }
 .param-group:last-child { border-bottom: 0; }
 .param-group h3 { margin: 0 0 8px; font-size: 14px; }
-.param-line { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px; align-items: center; margin-bottom: 10px; }
+.param-group .group-head { padding: 4px 0; border-radius: 6px; }
+.param-group .group-head:hover { background: #f6f8fb; }
+.param-line { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 12px; align-items: center; margin-bottom: 10px; }
+.param-line > label { display: inline-flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px;
+  font-size: 13px; font-weight: 600; color: #33475e; line-height: 1.4; }
+.param-line > label .help { font-weight: 400; color: #8a9bb0; cursor: help; }
+.param-line select, .param-line input[type='number'], .param-line input[type='text'] { width: 100%; }
 .param-line > label { font-size: 13px; color: #33475e; }
 .help { cursor: help; color: var(--muted); }
 .log-slider { display: grid; grid-template-columns: minmax(0, 1fr) 110px 64px; gap: 8px; align-items: center; }
