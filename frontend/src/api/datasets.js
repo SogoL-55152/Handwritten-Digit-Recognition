@@ -81,3 +81,18 @@ export const removeVersionSample = (snapshot, datasetId, versionId, sampleId) =>
 export const deleteVersion = (snapshot, datasetId, versionId) =>
   request.delete(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/versions/${encodeURIComponent(versionId)}`,
     { authSession: snapshot.session, silent: true })
+
+export const wizardPreview = (snapshot, directory) =>
+  request.post(`${base(snapshot)}/datasets/import-wizard/preview`, { directory },
+    { authSession: snapshot.session, silent: true })
+
+export const wizardCommit = (snapshot, datasetId, directory) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard`, { directory },
+    { authSession: snapshot.session, silent: true, timeout: 600000 })
+
+export const importBatches = (snapshot) =>
+  request.get(`${base(snapshot)}/import-batches`, { authSession: snapshot.session, silent: true })
+
+export const rollbackBatch = (snapshot, batchId) =>
+  request.delete(`${base(snapshot)}/import-batches/${encodeURIComponent(batchId)}`,
+    { authSession: snapshot.session, silent: true })

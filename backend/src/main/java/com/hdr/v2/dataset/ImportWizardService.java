@@ -1,0 +1,302 @@
+package com.hdr.v2.dataset;
+
+import com.hdr.v2.V2Exception;
+import com.hdr.v2.collection.CollectedSampleService;
+import com.hdr.v2.recognition.ImageValidator;
+import com.hdr.v2.workspace.WorkspaceService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
+
+/**
+ * 智能导入：自动识别目录里的数据集形态（按类文件夹 / CSV / 文件名），先试运行再确认导入。
+ * 只读取配置根目录（hdr.import.root）下的路径。
+ */
+@Service
+public class ImportWizardService {
+    private static final Logger LOG = LoggerFactory.getLogger(ImportWizardService.class);
+    private static final int MAX_FILES = 20000;
+
+    public record Preview(String format, int total, Map<String, Integer> labels, int skipped,
+                          Map<String, Integer> skippedDetail, List<String> samples, String note) {}
+
+    private final JdbcTemplate jdbc;
+    private final WorkspaceService spaces;
+    private final CollectedSampleService samples;
+    private final Path root;
+
+    public ImportWizardService(JdbcTemplate jdbc, WorkspaceService spaces, CollectedSampleService samples,
+                               @Value("${hdr.import.root:.}") String root) {
+        this.jdbc = jdbc;
+        this.spaces = spaces;
+        this.samples = samples;
+        this.root = Paths.get(root).toAbsolutePath().normalize();
+    }
+
+    private Path resolve(String directory) {
+        if (directory == null || directory.isBlank()) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
+        Path dir = Paths.get(directory).toAbsolutePath().normalize();
+        if (!dir.startsWith(root)) throw new V2Exception(400, "目录必须位于允许的根目录下：" + root, "PATH_NOT_ALLOWED");
+        if (!Files.isDirectory(dir)) throw new V2Exception(400, "目录不存在：" + dir, "PATH_NOT_FOUND");
+        return dir;
+    }
+
+    public Preview preview(long workspaceId, long userId, String directory) {
+        spaces.requireMember(workspaceId, userId);
+        return scan(resolve(directory));
+    }
+
+    @Transactional
+    public Map<String, Object> commit(long workspaceId, long userId, long datasetId, String directory) {
+        spaces.requireMember(workspaceId, userId);
+        Long exists = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_dataset WHERE id=? AND workspace_id=? AND status='ACTIVE'",
+                Long.class, datasetId, workspaceId);
+        if (exists == null || exists == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        Path dir = resolve(directory);
+        Preview preview = scan(dir);
+        if (preview.total() == 0)
+            throw new V2Exception(400, "没有识别到可导入的图片，请检查目录结构", "NO_SAMPLES");
+
+        long batchId = insertBatch(workspaceId, datasetId, preview.format(), dir.toString(), userId);
+        int imported = 0;
+        int duplicates = 0;
+        int failed = 0;
+        for (Map.Entry<String, Integer> row : preview.labels().entrySet()) {
+            int label = Integer.parseInt(row.getKey());
+            for (Path file : imagesForLabel(dir, preview.format(), label)) {
+                try {
+                    byte[] bytes = Files.readAllBytes(file);
+                    String digest = sha256(bytes);
+                    String type = file.getFileName().toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+                    CollectedSampleService.Saved saved = samples.save(workspaceId, userId, label, null, true,
+                            new ImageValidator.Image(bytes, digest, type), null, null, null, null, null, "IMPORT", datasetId);
+                    if (saved.duplicate()) duplicates += 1;
+                    else {
+                        imported += 1;
+                        jdbc.update("UPDATE t_collected_sample SET import_batch_id=? WHERE id=?", batchId, saved.id());
+                    }
+                } catch (IOException | V2Exception error) {
+                    failed += 1;
+                }
+            }
+        }
+        jdbc.update("UPDATE t_import_batch SET imported=?, skipped=?, skipped_detail=? WHERE id=?",
+                imported, preview.skipped() + failed, truncate(skippedText(preview, failed)), batchId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("batchId", Long.toString(batchId));
+        result.put("format", preview.format());
+        result.put("imported", imported);
+        result.put("duplicates", duplicates);
+        result.put("failed", failed);
+        return result;
+    }
+
+    public List<Map<String, Object>> batches(long workspaceId, long userId) {
+        spaces.requireMember(workspaceId, userId);
+        return jdbc.queryForList("""
+                SELECT b.*, d.name AS dataset_name FROM t_import_batch b
+                LEFT JOIN t_v2_dataset d ON d.id = b.dataset_id
+                WHERE b.workspace_id = ? ORDER BY b.id DESC LIMIT 50
+                """, workspaceId);
+    }
+
+    @Transactional
+    public Map<String, Object> rollback(long workspaceId, long userId, long batchId) {
+        spaces.requireMember(workspaceId, userId);
+        Map<String, Object> batch = jdbc.queryForList(
+                "SELECT * FROM t_import_batch WHERE id=? AND workspace_id=?", batchId, workspaceId).stream()
+                .findFirst().orElseThrow(() -> new V2Exception(404, "批次不存在", "BATCH_NOT_FOUND"));
+        Long referenced = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_collected_sample c JOIN t_v2_dataset_sample s ON s.sample_id = c.id
+                WHERE c.import_batch_id = ?
+                """, Long.class, batchId);
+        if (referenced != null && referenced > 0)
+            throw new V2Exception(409, "该批次已有 " + referenced + " 条样本进入版本，不能回滚", "BATCH_IN_USE");
+        int deleted = jdbc.update("DELETE FROM t_collected_sample WHERE import_batch_id=? AND workspace_id=?",
+                batchId, workspaceId);
+        jdbc.update("DELETE FROM t_import_batch WHERE id=?", batchId);
+        return Map.of("deleted", deleted, "batchId", Long.toString(batchId));
+    }
+
+    // ---------- 扫描与格式识别 ----------
+
+    private Preview scan(Path dir) {
+        Map<String, Integer> labels = new LinkedHashMap<>();
+        Map<String, Integer> skipped = new LinkedHashMap<>();
+        List<String> samples = new ArrayList<>();
+        String format = detectFormat(dir, skipped);
+        List<Path> files = listImages(dir, format);
+        int total = 0;
+        for (Path file : files) {
+            if (total >= MAX_FILES) { skipped.merge("超过上限", 1, Integer::sum); break; }
+            Integer label = labelOf(dir, file, format, skipped);
+            if (label == null) continue;
+            labels.merge(String.valueOf(label), 1, Integer::sum);
+            total += 1;
+            if (samples.size() < 6) samples.add(dir.relativize(file).toString().replace('\\', '/'));
+        }
+        String note = switch (format) {
+            case "folder" -> "识别为「按类别分文件夹」：子目录名必须是 0–9";
+            case "csv" -> "识别为「CSV 标签」：按 csv 里的图片名与标签列匹配";
+            default -> "识别为「文件名带标签」：取文件名中第一个数字作为标签";
+        };
+        return new Preview(format, total, labels, skipped.values().stream().mapToInt(Integer::intValue).sum(),
+                skipped, samples, note);
+    }
+
+    private String detectFormat(Path dir, Map<String, Integer> skipped) {
+        try (Stream<Path> children = Files.list(dir)) {
+            List<Path> list = children.toList();
+            if (list.stream().anyMatch(Files::isDirectory)) return "folder";
+            if (list.stream().anyMatch(path -> path.getFileName().toString().toLowerCase().endsWith(".csv"))) return "csv";
+        } catch (IOException error) {
+            throw new V2Exception(400, "目录读取失败", "PATH_NOT_FOUND");
+        }
+        skipped.merge("没有类别目录或 csv，按文件名识别", 0, Integer::sum);
+        return "filename";
+    }
+
+    private List<Path> listImages(Path dir, String format) {
+        int depth = "folder".equals(format) ? 3 : 2;
+        try (Stream<Path> stream = Files.walk(dir, depth)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String name = path.getFileName().toString().toLowerCase();
+                        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg");
+                    })
+                    .sorted()
+                    .limit(MAX_FILES)
+                    .toList();
+        } catch (IOException error) {
+            throw new V2Exception(400, "目录读取失败", "PATH_NOT_FOUND");
+        }
+    }
+
+    private final Map<Path, Map<String, Integer>> csvCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private Integer labelOf(Path dir, Path file, String format, Map<String, Integer> skipped) {
+        String relative = dir.relativize(file).toString().replace('\\', '/');
+        if ("folder".equals(format)) {
+            String head = relative.contains("/") ? relative.substring(0, relative.indexOf('/')) : "";
+            if (head.matches("[0-9]")) return Integer.parseInt(head);
+            skipped.merge("目录名不是 0–9", 1, Integer::sum);
+            return null;
+        }
+        if ("csv".equals(format)) {
+            Map<String, Integer> map = csvCache.computeIfAbsent(dir, this::readCsv);
+            Integer label = map.get(file.getFileName().toString());
+            if (label == null) skipped.merge("csv 里没有这个文件", 1, Integer::sum);
+            return label;
+        }
+        Matcher matcher = Pattern.compile("(?:^|[^0-9])([0-9])(?:[^0-9]|$)").matcher(file.getFileName().toString());
+        if (matcher.find()) return Integer.parseInt(matcher.group(1));
+        skipped.merge("文件名里没有数字", 1, Integer::sum);
+        return null;
+    }
+
+    private Map<String, Integer> readCsv(Path dir) {
+        Map<String, Integer> map = new LinkedHashMap<>();
+        try (Stream<Path> stream = Files.list(dir)) {
+            Path csv = stream.filter(path -> path.getFileName().toString().toLowerCase().endsWith(".csv"))
+                    .findFirst().orElse(null);
+            if (csv == null) return map;
+            List<String> lines = Files.readAllLines(csv, StandardCharsets.UTF_8);
+            if (lines.isEmpty()) return map;
+            String[] header = lines.get(0).split(",");
+            int nameColumn = -1;
+            int labelColumn = -1;
+            for (int index = 0; index < header.length; index += 1) {
+                String key = header[index].trim().toLowerCase();
+                if (nameColumn < 0 && (key.contains("file") || key.contains("name") || key.contains("image"))) nameColumn = index;
+                if (labelColumn < 0 && (key.contains("label") || key.contains("digit") || key.equals("class") || key.equals("y")))
+                    labelColumn = index;
+            }
+            if (nameColumn < 0 || labelColumn < 0) return map;
+            for (int index = 1; index < lines.size(); index += 1) {
+                String[] cells = lines.get(index).split(",");
+                if (cells.length <= Math.max(nameColumn, labelColumn)) continue;
+                String name = cells[nameColumn].trim();
+                String label = cells[labelColumn].trim();
+                if (label.matches("[0-9]")) map.put(name, Integer.parseInt(label));
+            }
+        } catch (IOException error) {
+            LOG.warn("CSV 读取失败 ({})", error.getClass().getSimpleName());
+        }
+        return map;
+    }
+
+    private List<Path> imagesForLabel(Path dir, String format, int label) {
+        Map<String, Integer> skipped = new LinkedHashMap<>();
+        return listImages(dir, format).stream()
+                .filter(path -> {
+                    Integer value = labelOf(dir, path, format, skipped);
+                    return value != null && value == label;
+                })
+                .toList();
+    }
+
+    private long insertBatch(long workspaceId, long datasetId, String format, String source, long userId) {
+        var keys = new org.springframework.jdbc.support.GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            var statement = connection.prepareStatement("""
+                    INSERT INTO t_import_batch(workspace_id,dataset_id,format,source,created_by)
+                    VALUES(?,?,?,?,?)
+                    """, java.sql.Statement.RETURN_GENERATED_KEYS);
+            statement.setLong(1, workspaceId);
+            statement.setLong(2, datasetId);
+            statement.setString(3, format);
+            statement.setString(4, truncate(source));
+            statement.setLong(5, userId);
+            return statement;
+        }, keys);
+        Number key = keys.getKey();
+        if (key == null) throw new IllegalStateException("import batch id not generated");
+        return key.longValue();
+    }
+
+    private static String skippedText(Preview preview, int failed) {
+        Map<String, Integer> detail = new LinkedHashMap<>(preview.skippedDetail());
+        if (failed > 0) detail.merge("读取/校验失败", failed, Integer::sum);
+        StringBuilder builder = new StringBuilder();
+        detail.forEach((key, value) -> {
+            if (value <= 0) return;
+            if (builder.length() > 0) builder.append("；");
+            builder.append(key).append(' ').append(value);
+        });
+        return builder.toString();
+    }
+
+    private static String truncate(String text) {
+        return text != null && text.length() > 1000 ? text.substring(0, 1000) : text;
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(bytes);
+            StringBuilder builder = new StringBuilder();
+            for (byte value : hash) builder.append(String.format("%02x", value));
+            return builder.toString();
+        } catch (Exception error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
+        }
+    }
+}

@@ -492,3 +492,9 @@ tr.best td { background: #fffaf0; font-weight: 600; }
 .log-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
 .log-toolbar select { width: 120px; }
 .log-toolbar input { width: 200px; }
+
+.wizard-report { margin: 10px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+.wizard-report p { margin: 4px 0; font-size: 13px; }
+.batch-list { margin-top: 14px; }
+.batch-row { display: grid; grid-template-columns: 56px 1fr 90px 150px 1fr auto; gap: 10px; align-items: center;
+  font-size: 12px; padding: 6px 2px; border-bottom: 1px dashed #eef1f5; }

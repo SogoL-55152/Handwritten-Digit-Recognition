@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, importSvhn, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -17,6 +17,7 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
   svhn: { open: false, busy: false, directory: '', perLabel: 500, result: null },
+  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [] },
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
@@ -275,6 +276,66 @@ async function removeSample(item) {
   }
 }
 
+async function loadBatches() {
+  try {
+    state.wizard.batches = await importBatches(snapshot())
+  } catch (error) {
+    state.wizard.batches = []
+  }
+}
+
+async function openWizard() {
+  state.wizard.open = !state.wizard.open
+  if (state.wizard.open && !state.wizard.batches.length) await loadBatches()
+}
+
+async function previewWizard() {
+  if (!state.wizard.directory.trim()) return
+  state.wizard.busy = true
+  state.error = ''
+  state.wizard.result = null
+  try {
+    state.wizard.preview = await wizardPreview(snapshot(), state.wizard.directory.trim())
+  } catch (error) {
+    state.error = error?.message || '试运行失败'
+  } finally {
+    state.wizard.busy = false
+  }
+}
+
+async function commitWizard() {
+  if (!state.selectedId || !state.wizard.preview) return
+  state.wizard.busy = true
+  state.error = ''
+  try {
+    const result = await wizardCommit(snapshot(), state.selectedId, state.wizard.directory.trim())
+    state.wizard.result = result
+    state.notice = `智能导入：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
+    state.wizard.preview = null
+    await loadDatasets()
+    await loadBatches()
+  } catch (error) {
+    state.error = error?.message || '导入失败'
+  } finally {
+    state.wizard.busy = false
+  }
+}
+
+async function rollback(batch) {
+  state.busy = true
+  state.error = ''
+  try {
+    const result = await rollbackBatch(snapshot(), batch.id)
+    state.notice = `已回滚批次 #${batch.id}，删除 ${result.deleted} 条样本`
+    await loadBatches()
+    await loadDatasets()
+  } catch (error) {
+    state.error = error?.message || '回滚失败'
+  } finally {
+    state.busy = false
+  }
+}
+
 async function build() {
   if (state.busy || !state.selectedId) return
   state.busy = true
@@ -332,6 +393,7 @@ onBeforeUnmount(releaseImages)
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入数据集</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="state.svhn.open = !state.svhn.open">导入标注数据集</button>
+        <button :disabled="state.busy" @click="openWizard">智能导入</button>
         <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
@@ -366,6 +428,52 @@ onBeforeUnmount(releaseImages)
         退出码 {{ state.svhn.result.exitCode }} · 耗时 {{ state.svhn.result.seconds }}s
         <template v-if="state.svhn.result.summary"> · 成功 {{ state.svhn.result.summary.imported }} · 重复 {{ state.svhn.result.summary.duplicates }} · 失败 {{ state.svhn.result.summary.failed }}</template>
       </p>
+    </section>
+    <section v-if="state.wizard.open" class="panel svhn-panel">
+      <div class="block-head"><h4>智能导入</h4><span class="muted">自动识别目录结构：按类别文件夹 / CSV 标签 / 文件名带标签；先试运行看统计</span></div>
+      <div class="import-row">
+        <label class="field field-wide"><span>数据集目录（服务端路径）</span>
+          <input v-model="state.wizard.directory" placeholder="例如 D:\datasets\my-digits" />
+        </label>
+        <button :disabled="state.wizard.busy || !state.wizard.directory.trim()" @click="previewWizard">
+          {{ state.wizard.busy ? '处理中…' : '试运行' }}
+        </button>
+        <button class="primary" :disabled="state.wizard.busy || !state.selectedId || !state.wizard.preview" @click="commitWizard">
+          {{ state.selectedId ? '确认导入到当前数据集' : '先选中数据集' }}
+        </button>
+      </div>
+
+      <div v-if="state.wizard.preview" class="wizard-report">
+        <p><strong>格式：</strong>{{ state.wizard.preview.format }} — {{ state.wizard.preview.note }}</p>
+        <p><strong>可导入：</strong>{{ state.wizard.preview.total }} 张<template v-if="state.wizard.preview.skipped"> ｜ 跳过 {{ state.wizard.preview.skipped }} 张</template></p>
+        <div class="label-bars">
+          <div v-for="(count, label) in state.wizard.preview.labels" :key="label" class="label-bar">
+            <span class="label-name">{{ label }}</span>
+            <span class="bar"><i :style="{ width: Math.max(2, (count / state.wizard.preview.total) * 100) + '%' }"></i></span>
+            <span class="label-count">{{ count }}</span>
+          </div>
+        </div>
+        <p v-if="state.wizard.preview.samples?.length" class="hint">示例文件：{{ state.wizard.preview.samples.join('、') }}</p>
+        <p v-if="state.wizard.preview.skippedDetail" class="hint">
+          跳过原因：<template v-for="(value, key) in state.wizard.preview.skippedDetail" :key="key">{{ key }} {{ value }} ｜ </template>
+        </p>
+      </div>
+
+      <p v-if="state.wizard.result" class="hint">
+        导入完成：成功 {{ state.wizard.result.imported }} · 重复 {{ state.wizard.result.duplicates }} · 失败 {{ state.wizard.result.failed }}
+      </p>
+
+      <div v-if="state.wizard.batches.length" class="batch-list">
+        <div class="block-head"><h4>导入批次</h4><span class="muted">可回滚（样本未进入版本时）</span></div>
+        <div v-for="batch in state.wizard.batches" :key="batch.id" class="batch-row">
+          <span>#{{ batch.id }}</span>
+          <span>{{ batch.dataset_name || batch.dataset_id }}</span>
+          <span>{{ batch.format }}</span>
+          <span>成功 {{ batch.imported }} · 跳过 {{ batch.skipped }}</span>
+          <span class="muted">{{ batch.source }}</span>
+          <button class="link" :disabled="state.busy" @click="rollback(batch)">回滚</button>
+        </div>
+      </div>
     </section>
     <p v-if="state.folder.busy" class="notice" role="status">正在导入：{{ state.folder.progress || '准备中…' }}</p>
     <p v-if="state.folder.result" class="notice" role="status">

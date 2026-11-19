@@ -20,13 +20,15 @@ public class DatasetController {
     private final DatasetService datasets;
     private final DatasetImportService imports;
     private final SvhnImportService svhn;
+    private final ImportWizardService wizard;
     private final WorkspaceService spaces;
 
     public DatasetController(DatasetService datasets, DatasetImportService imports, SvhnImportService svhn,
-                             WorkspaceService spaces) {
+                             ImportWizardService wizard, WorkspaceService spaces) {
         this.datasets = datasets;
         this.imports = imports;
         this.svhn = svhn;
+        this.wizard = wizard;
         this.spaces = spaces;
     }
 
@@ -67,6 +69,40 @@ public class DatasetController {
                                                              HttpServletRequest request) {
         long user = authorize(workspaceId, request);
         return Result.ok(imports.importFiles(workspaceId, user, datasetId, label, files == null ? List.of() : files));
+    }
+
+    public record WizardCommand(String directory) {}
+
+    @PostMapping("/datasets/import-wizard/preview")
+    public Result<ImportWizardService.Preview> wizardPreview(@PathVariable long workspaceId,
+                                                             @RequestBody(required = false) WizardCommand command,
+                                                             HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        if (command == null) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
+        return Result.ok(wizard.preview(workspaceId, user, command.directory()));
+    }
+
+    @PostMapping("/datasets/{datasetId}/import-wizard")
+    public Result<Map<String, Object>> wizardCommit(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                    @RequestBody(required = false) WizardCommand command,
+                                                    HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        if (command == null) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
+        return Result.ok(wizard.commit(workspaceId, user, datasetId, command.directory()));
+    }
+
+    @GetMapping("/import-batches")
+    public Result<List<Map<String, Object>>> importBatches(@PathVariable long workspaceId,
+                                                           HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(wizard.batches(workspaceId, user));
+    }
+
+    @DeleteMapping("/import-batches/{batchId}")
+    public Result<Map<String, Object>> rollbackBatch(@PathVariable long workspaceId, @PathVariable long batchId,
+                                                     HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(wizard.rollback(workspaceId, user, batchId));
     }
 
     @PostMapping("/datasets/{datasetId}/import-svhn")
