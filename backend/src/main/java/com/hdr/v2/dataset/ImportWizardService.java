@@ -50,6 +50,7 @@ public class ImportWizardService {
     private final ModelClient models;
     private final CatalogueService catalogue;
     private final Path root;
+    private final List<Path> allowedRoots;
     private final com.fasterxml.jackson.databind.ObjectMapper mapper;
     private final String python;
     private final String bboxScript;
@@ -65,7 +66,19 @@ public class ImportWizardService {
         this.samples = samples;
         this.models = models;
         this.catalogue = catalogue;
-        this.root = Paths.get(root).toAbsolutePath().normalize();
+        List<Path> roots = new ArrayList<>();
+        for (String part : root.split("[;,]")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) continue;
+            try {
+                roots.add(Paths.get(trimmed).toAbsolutePath().normalize());
+            } catch (RuntimeException ignored) {
+                // 非法路径直接忽略
+            }
+        }
+        if (roots.isEmpty()) roots.add(Paths.get(".").toAbsolutePath().normalize());
+        this.allowedRoots = List.copyOf(roots);
+        this.root = this.allowedRoots.get(0);
         this.mapper = mapper;
         this.python = python;
         this.bboxScript = Paths.get(bboxScript).isAbsolute() ? bboxScript
@@ -75,7 +88,11 @@ public class ImportWizardService {
     private Path resolve(String directory) {
         if (directory == null || directory.isBlank()) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
         Path dir = Paths.get(directory).toAbsolutePath().normalize();
-        if (!dir.startsWith(root)) throw new V2Exception(400, "目录必须位于允许的根目录下：" + root, "PATH_NOT_ALLOWED");
+        boolean allowed = allowedRoots.stream().anyMatch(dir::startsWith);
+        if (!allowed) {
+            String roots = String.join("、", allowedRoots.stream().map(Path::toString).toList());
+            throw new V2Exception(400, "目录必须位于允许的根目录下：" + roots, "PATH_NOT_ALLOWED");
+        }
         if (!Files.isDirectory(dir)) throw new V2Exception(400, "目录不存在：" + dir, "PATH_NOT_FOUND");
         return dir;
     }

@@ -301,6 +301,7 @@ async function openWizard() {
   state.wizard.result = null
   state.localPreview = null
   state.picked = null
+  state.error = ''
   if (!state.wizard.batches.length) await loadBatches()
 }
 
@@ -563,6 +564,9 @@ onBeforeUnmount(releaseImages)
           导入完成：成功 {{ state.wizard.result.imported }} · 重复 {{ state.wizard.result.duplicates }} · 失败 {{ state.wizard.result.failed }}
         </p>
         <p v-if="state.folder.busy" class="hint">正在上传：{{ state.folder.progress || '准备中…' }}</p>
+
+        <p v-if="state.error" class="notice error modal-error" role="alert">{{ state.error }}</p>
+        <p v-if="state.folder.busy" class="notice modal-error" role="status">正在上传：{{ state.folder.progress || '准备中…' }}</p>
 
         <footer class="modal-foot">
           <button @click="closeWizard">取消</button>
