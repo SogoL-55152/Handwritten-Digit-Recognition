@@ -112,7 +112,8 @@ def _validate_form(allow_args=()):
 
 
 TRAINING_FIELDS = {"epochs", "samples", "batchSize", "learningRate", "seed", "photoRatio",
-                   "useEmnist", "initFrom", "datasetVersionId", "dataDir", "earlyStop", "patience"}
+                   "useEmnist", "initFrom", "datasetVersionId", "dataDir", "earlyStop", "patience",
+                   "trainFrom", "trainableLayers"}
 MAX_TASK_ID = 19
 
 
@@ -120,6 +121,16 @@ def _validate_training_params(params):
     """与前端冻结原型一致的参数边界；返回错误文案或 None。"""
     if not isinstance(params, dict) or set(params) != TRAINING_FIELDS:
         return "训练参数字段必须与约定一致"
+    train_from = params.get("trainFrom", "all")
+    layers = params.get("trainableLayers")
+    if train_from not in {"all", "fc1", "fc2", "custom"}:
+        return "trainFrom 只能是 all/fc1/fc2/custom"
+    known = {"conv1", "conv2", "fc1", "fc2"}
+    if not isinstance(layers, list) or set(layers) - known or not layers:
+        return "trainableLayers 必须是 conv1/conv2/fc1/fc2 的非空子集"
+    if "fc2" not in layers:
+        return "fc2（最后一层）必须可训练"
+
     epochs, samples, batch = params["epochs"], params["samples"], params["batchSize"]
     if isinstance(epochs, bool) or not isinstance(epochs, int) or not 1 <= epochs <= 5:
         return "epochs 必须在 1..5"

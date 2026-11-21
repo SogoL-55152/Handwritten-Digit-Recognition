@@ -247,10 +247,45 @@ def load_extra_inputs(directory: Path):
     return np.stack(inputs).astype(np.float32)[:, None, :, :], np.asarray(labels, dtype=np.int64)
 
 
+LAYER_NAMES = ("conv1", "conv2", "fc1", "fc2")
+
+
+def _layer_module(model, name: str):
+    """按块取模块：features[0]=conv1, features[3]=conv2, classifier[1]=fc1, classifier[4]=fc2。"""
+    if name == "conv1":
+        return model.features[0]
+    if name == "conv2":
+        return model.features[3]
+    if name == "fc1":
+        return model.classifier[1]
+    if name == "fc2":
+        return model.classifier[4]
+    raise ValueError(f"未知层名：{name}")
+
+
+def apply_trainable(model, trainable_layers):
+    """按层设置 requires_grad；trainable_layers=None 表示全部可训练。"""
+    if trainable_layers is None:
+        return list(LAYER_NAMES)
+    unknown = [name for name in trainable_layers if name not in LAYER_NAMES]
+    if unknown:
+        raise ValueError(f"未知层名：{','.join(unknown)}")
+    if "fc2" not in trainable_layers:
+        raise ValueError("fc2（最后一层）必须可训练，否则训练没有意义")
+    for name in LAYER_NAMES:
+        flag = name in trainable_layers
+        for parameter in _layer_module(model, name).parameters():
+            parameter.requires_grad = flag
+    if not any(parameter.requires_grad for parameter in model.parameters()):
+        raise ValueError("没有可训练参数，请至少保留 fc2")
+    return [name for name in LAYER_NAMES if name in trainable_layers]
+
+
 def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | None,
         threads: int | None = None, emnist_zip: Path | None = None,
         on_epoch: "callable | None" = None, extra_dir: Path | None = None,
-        early_stop: bool = False, patience: int = 3) -> dict:
+        early_stop: bool = False, patience: int = 3,
+        trainable_layers: "list[str] | None" = None) -> dict:
     """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
@@ -302,11 +337,16 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
             raise ValueError("--init must be an existing checkpoint file")
         start_model, _ = load_checkpoint(init.open("rb"), device="cpu")
         model.load_state_dict(start_model.state_dict())
+    active_layers = apply_trainable(model, trainable_layers)
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(json.dumps({"trainableLayers": active_layers, "trainableParams": trainable_params,
+                      "totalParams": total_params}), flush=True)
     before = {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),
               "canvas_simulated_1000": accuracy(model, torch, canvas_test, test_labels),
               "photo_simulated_1000": accuracy(model, torch, photo_test, test_labels)}
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config.learning_rate)
     loss_fn = torch.nn.CrossEntropyLoss()
     labels = torch.from_numpy(train_labels.astype(np.int64))
     history = []
@@ -395,6 +435,9 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         "extra_samples": extra_count,
         "bestEpoch": best_epoch,
         "earlyStopped": early_stopped,
+        "trainableLayers": active_layers,
+        "trainableParams": trainable_params,
+        "totalParams": total_params,
         "stepSeries": step_series,
         "before": before,
         "after": {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),

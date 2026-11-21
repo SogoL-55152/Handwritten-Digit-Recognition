@@ -28,6 +28,12 @@ const imageUrls = reactive({})
 const errors = ref([])
 const openGroups = reactive({ data: true, structure: true, hyper: true, runtime: true })
 const help = reactive({ open: false, item: null })
+const LAYERS = [
+  { key: 'conv1', label: 'conv1（卷积 32）' },
+  { key: 'conv2', label: 'conv2（卷积 64）' },
+  { key: 'fc1', label: 'fc1（全连接 128）' },
+  { key: 'fc2', label: 'fc2（输出 10 类）' }
+]
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 const archPreset = computed(() => ARCH_PRESETS.find((item) => item.id === config.arch) || ARCH_PRESETS[1])
@@ -166,6 +172,17 @@ function selectDatasetValue(value) {
   void loadVersions(state.datasetId)
 }
 
+function toggleLayer(key) {
+  const current = Array.isArray(config.trainableLayers) ? config.trainableLayers : []
+  if (key === 'fc2' && current.includes('fc2')) {
+    state.error = 'fc2（最后一层）必须可训练'
+    return
+  }
+  state.error = ''
+  const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+  config.trainableLayers = LAYERS.map((layer) => layer.key).filter((item) => next.includes(item))
+}
+
 function openHelp(item) {
   help.open = true
   help.item = item || null
@@ -210,7 +227,9 @@ async function submitTraining() {
       initFrom: config.initFrom || null,
       datasetVersionId: config.datasetVersionId || null,
       earlyStop: Boolean(config.earlyStop),
-      patience: Number(config.patience) || 3
+      patience: Number(config.patience) || 3,
+      trainFrom: config.trainFrom || 'all',
+      trainableLayers: config.trainFrom === 'custom' ? (config.trainableLayers || []) : undefined
     }
     const created = await createTask(state.datasetId, payload, user.getSnapshot())
     state.taskId = created.id
@@ -401,6 +420,14 @@ onBeforeUnmount(releaseImages)
                 <span>{{ config[item.key] }}</span>
               </div>
               <input v-else-if="item.widget === 'number'" :id="'p-' + item.key" v-model.number="config[item.key]" type="number" :min="item.min" :max="item.max" />
+              <div v-else-if="item.widget === 'layers'" class="layer-checks">
+                <label v-for="layer in LAYERS" :key="layer.key" class="layer-check">
+                  <input type="checkbox" :checked="(config.trainableLayers || []).includes(layer.key)"
+                         :disabled="layer.key === 'fc2'" @change="toggleLayer(layer.key)" />
+                  {{ layer.label }}
+                </label>
+                <p class="hint">fc2 固定可训练；其余按需勾选。</p>
+              </div>
               <input v-else-if="item.widget === 'switch'" :id="'p-' + item.key" type="checkbox" class="switch-input" v-model="config[item.key]" />
             </div>
           </template>

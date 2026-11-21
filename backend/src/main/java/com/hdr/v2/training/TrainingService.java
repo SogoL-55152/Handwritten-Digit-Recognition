@@ -29,7 +29,8 @@ import java.util.Map;
 public class TrainingService {
     public record CreateRequest(Integer epochs, Integer samples, Integer batchSize, Double learningRate,
                                 Long seed, Double photoRatio, Boolean useEmnist, String initFrom,
-                                Long datasetVersionId, Boolean earlyStop, Integer patience) {}
+                                Long datasetVersionId, Boolean earlyStop, Integer patience,
+                                      String trainFrom, java.util.List<String> trainableLayers) {}
     public record TaskView(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
@@ -280,6 +281,8 @@ public class TrainingService {
         if (request.useEmnist() == null) throw new V2Exception(400, "useEmnist 必须是布尔值", "VALIDATION");
         if (request.patience() != null && (request.patience() < 1 || request.patience() > 10))
             throw new V2Exception(400, "patience 必须在 1..10", "VALIDATION");
+
+        java.util.List<String> layers = resolveTrainableLayers(request.trainFrom(), request.trainableLayers());
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("epochs", epochs);
         params.put("samples", samples);
@@ -290,6 +293,8 @@ public class TrainingService {
         params.put("useEmnist", request.useEmnist());
         params.put("earlyStop", request.earlyStop() != null && request.earlyStop());
         params.put("patience", request.patience() == null ? 3 : request.patience());
+        params.put("trainFrom", request.trainFrom() == null ? "all" : request.trainFrom());
+        params.put("trainableLayers", layers);
         return params;
     }
 
@@ -364,5 +369,27 @@ public class TrainingService {
                 started == null ? null : Instant.ofEpochMilli(started.getTime()).toString(),
                 finished == null ? null : Instant.ofEpochMilli(finished.getTime()).toString(),
                 rs.getString("dataset_version_id"));
+    }
+
+    /** 四档冻结策略 → 可训练层列表；自定义时 fc2 必须保留。 */
+    static java.util.List<String> resolveTrainableLayers(String trainFrom, java.util.List<String> requested) {
+        String mode = trainFrom == null || trainFrom.isBlank() ? "all" : trainFrom;
+        java.util.List<String> known = java.util.List.of("conv1", "conv2", "fc1", "fc2");
+        return switch (mode) {
+            case "all" -> known;
+            case "fc1" -> java.util.List.of("fc1", "fc2");
+            case "fc2" -> java.util.List.of("fc2");
+            case "custom" -> {
+                if (requested == null || requested.isEmpty())
+                    throw new V2Exception(400, "自定义冻结策略至少要选一层可训练", "VALIDATION");
+                java.util.List<String> cleaned = requested.stream().filter(known::contains).distinct().toList();
+                if (cleaned.isEmpty())
+                    throw new V2Exception(400, "可训练层名称不合法，可选：conv1/conv2/fc1/fc2", "VALIDATION");
+                if (!cleaned.contains("fc2"))
+                    throw new V2Exception(400, "fc2（最后一层）必须可训练", "VALIDATION");
+                yield known.stream().filter(cleaned::contains).toList();
+            }
+            default -> throw new V2Exception(400, "trainFrom 只能是 all/fc1/fc2/custom", "VALIDATION");
+        };
     }
 }

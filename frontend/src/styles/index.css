@@ -572,3 +572,6 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .flow-list a { color: var(--primary); text-decoration: none; }
 .flow-list a:hover { text-decoration: underline; }
 .flow-article { border-bottom: 1px dashed var(--line); padding-bottom: 14px; }
+
+.layer-checks { display: grid; gap: 4px; font-size: 13px; }
+.layer-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }

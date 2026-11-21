@@ -12,6 +12,7 @@ def params(**overrides):
         "epochs": 1, "samples": 1000, "batchSize": 64, "learningRate": 0.001, "seed": 7,
         "photoRatio": 0.5, "useEmnist": False, "initFrom": None, "datasetVersionId": None,
         "dataDir": None, "earlyStop": False, "patience": 3,
+        "trainFrom": "all", "trainableLayers": ["conv1", "conv2", "fc1", "fc2"],
     }
     base.update(overrides)
     return base

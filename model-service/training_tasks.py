@@ -207,7 +207,8 @@ def train_one(task_id, attempt, params):
                       threads=int(os.getenv("TRAINING_THREADS", "2")),
                       emnist_zip=emnist_zip() if params.get("useEmnist") else None,
                       on_epoch=report_epoch, extra_dir=extra_dir,
-                      early_stop=bool(params.get("earlyStop")), patience=int(params.get("patience") or 3))
+                      early_stop=bool(params.get("earlyStop")), patience=int(params.get("patience") or 3),
+                      trainable_layers=params.get("trainableLayers"))
     log_sink.flush()
     stable = root / "checkpoint.pt"
     shutil.copyfile(attempt_dir / "checkpoint.pt", stable)
