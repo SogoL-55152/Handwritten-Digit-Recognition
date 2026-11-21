@@ -175,3 +175,15 @@ Docker Compose 骨架（`docker compose up -d --build`）**尚未验证**，交�
 - 各成员在功能分支完成增量，经评审/CI 后合入 `develop`；`develop` 不会永久停留在框架状态。
 - Wiki 是团队文档协作入口，`docs/` 保存待同步材料与版本快照。二者不自动同步，Wiki 发布前需保留组员的最新改动。
 - 周四集中展示本周成果；需求确认、代码评审、合并和真机验收必须由实际参与者完成。
+
+## 模型权重（不在仓库里）
+
+训练产出的权重不进 git（约 114 MB），首次克隆后先执行一次：
+
+    # Windows
+    powershell -ExecutionPolicy Bypass -File scripts/fetch-weights.ps1
+
+    # Linux / macOS
+    bash scripts/fetch-weights.sh
+
+脚本会下载基线权重并做 sha256 校验。说明见 [docs/权重与产物管理.md](docs/权重与产物管理.md)。
