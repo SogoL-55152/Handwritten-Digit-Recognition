@@ -565,6 +565,44 @@ onBeforeUnmount(releaseImages)
         </div>
 
         <div v-else class="help-groups">
+          <article class="flow-article">
+            <h4>整体流程（先看这里）</h4>
+            <p class="muted">训练不是一步完成的：先在数据集页把数据准备好，再来这里选版本和调参，最后到训练记录与模型管理页看结果。</p>
+            <ol class="flow-list">
+              <li>
+                <strong>1. 准备数据</strong>
+                <p>数据集页 → 新建数据集 → 导入数据集（文件夹 / CSV / 文件名 / zip / 带框多位数 / IDX）。导入成功后会自动生成一个版本。</p>
+                <p><router-link to="/datasets">去数据集页</router-link></p>
+              </li>
+              <li>
+                <strong>2. 选数据版本</strong>
+                <p>本页第 ① 步：选数据集 + 版本。版本是快照，之后补的样本不会自动进来，要重新生成版本。</p>
+              </li>
+              <li>
+                <strong>3. 决定从哪开始</strong>
+                <p>「微调起点」选当前生效模型 = 微调（快、稳）；选「从零训练」= 用内置 MNIST + 你的样本重训（慢，但不受旧模型限制）。</p>
+              </li>
+              <li>
+                <strong>4. 设参数</strong>
+                <p>第一次跑先按「快速上手」：样本 10,000、3 轮、学习率 1e-3、早停开。跑通后再调学习率与轮数，别一次改多个。</p>
+              </li>
+              <li>
+                <strong>5. 提交训练</strong>
+                <p>点「开始训练」立即返回任务号；数据准备（导出/复用）在后台进行，页面不再卡住。</p>
+              </li>
+              <li>
+                <strong>6. 看进度与结果</strong>
+                <p>本页下方能看到逐轮准确率与损失；历史任务到「训练记录」页看曲线与三域评估。</p>
+                <p><router-link to="/training">去训练记录</router-link></p>
+              </li>
+              <li>
+                <strong>7. 上线</strong>
+                <p>新模型不差于当前模型时，到「模型管理」页激活；识别接口随即切换到新模型。</p>
+                <p><router-link to="/models">去模型管理</router-link></p>
+              </li>
+            </ol>
+          </article>
+
           <article v-for="group in PARAM_SCHEMA" :key="group.id">
             <h4>{{ group.title }}</h4>
             <div v-for="item in group.items" :key="item.key" class="help-row">
@@ -576,6 +614,22 @@ onBeforeUnmount(releaseImages)
               <p v-for="line in item.detail.split('\n')" :key="line">{{ line }}</p>
             </div>
           </article>
+          <article>
+            <h4>常见问题</h4>
+            <div class="help-row">
+              <div class="help-row-head"><strong>提交后很久没动静？</strong></div>
+              <p>先看「训练记录」里任务详情：准备数据阶段没有逐轮输出，属正常；几十秒到几分钟取决于版本大小与是否命中导出缓存。</p>
+            </div>
+            <div class="help-row">
+              <div class="help-row-head"><strong>准确率不涨？</strong></div>
+              <p>先查数据（标签分布、多位数样本、抽样自检），再降学习率或加样本；盲目加轮数通常没用。</p>
+            </div>
+            <div class="help-row">
+              <div class="help-row-head"><strong>早停太早？</strong></div>
+              <p>把耐心从 2 提到 3~4；画板模拟准确率波动大是正常现象。</p>
+            </div>
+          </article>
+
           <article>
             <h4>三套常用配置</h4>
             <div class="help-row">
