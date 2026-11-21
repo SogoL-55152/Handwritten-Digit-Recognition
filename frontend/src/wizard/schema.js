@@ -147,6 +147,27 @@ export const PARAM_SCHEMA = [
         options: { from: 'models' }
       },
       {
+        key: 'trainFrom',
+        label: '冻结策略',
+        widget: 'select',
+        help: '决定哪些层参与更新：冻结越多越稳、越快，但能学的新东西越少。',
+        detail: '作用：控制从哪一层开始训练。冻结的层保持起点权重不变，只更新后面的层。\n常规：样本少（<2000）选「冻结卷积层，只训全连接」；只换分类习惯选「只训最后一层（fc2）」；数据多且场景差异大选「不冻结」。\n注意：fc2（最后一层）必须可训练；不选微调起点却冻结卷积层，效果通常不好。',
+        options: [
+          { value: 'all', label: '不冻结（全量微调）' },
+          { value: 'fc1', label: '冻结卷积层，只训全连接' },
+          { value: 'fc2', label: '只训最后一层（fc2）' },
+          { value: 'custom', label: '自定义' }
+        ]
+      },
+      {
+        key: 'trainableLayers',
+        label: '可训练层',
+        widget: 'layers',
+        help: '勾选参与训练的层；fc2 必须保留。',
+        detail: '作用：自定义哪些参数块参与更新。\n层含义：conv1/conv2 是特征提取，fc1 是 128 维全连接，fc2 是 10 类输出层。\n常规：自定义一般用于「只冻 conv2」这类折中；fc2 必须勾选。',
+        dependsOn: { key: 'trainFrom', equals: 'custom' }
+      },
+      {
         key: 'device',
         label: '设备',
         widget: 'select',
@@ -203,6 +224,8 @@ export function defaultConfig() {
     samples: 10000,
     photoRatio: 0.5,
     initFrom: null,
+    trainFrom: 'all',
+    trainableLayers: ['conv1', 'conv2', 'fc1', 'fc2'],
     batchSize: 64,
     epochs: 10,
     earlyStop: true,
@@ -222,4 +245,4 @@ export function isVisible(item, config) {
 }
 
 /** 每个字段的控件类型，页面按这个渲染。 */
-export const WIDGETS = ['select', 'segmented', 'log-slider', 'slider', 'number', 'switch']
+export const WIDGETS = ['select', 'segmented', 'log-slider', 'slider', 'number', 'switch', 'layers']
