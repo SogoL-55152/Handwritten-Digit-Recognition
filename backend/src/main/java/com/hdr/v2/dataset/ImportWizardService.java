@@ -158,10 +158,17 @@ public class ImportWizardService {
     @Transactional
     public Map<String, Object> commit(long workspaceId, long userId, long datasetId, String directory) {
         spaces.requireMember(workspaceId, userId);
-        Long exists = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM t_v2_dataset WHERE id=? AND workspace_id=? AND status='ACTIVE'",
-                Long.class, datasetId, workspaceId);
-        if (exists == null || exists == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        List<Map<String, Object>> found = jdbc.queryForList(
+                "SELECT scope, workspace_id, status FROM t_v2_dataset WHERE id=?", datasetId);
+        if (found.isEmpty()) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        Map<String, Object> datasetRow = found.get(0);
+        if (!"ACTIVE".equals(datasetRow.get("status")))
+            throw new V2Exception(404, "数据集已停用，不能导入", "DATASET_NOT_FOUND");
+        if ("PUBLIC".equals(datasetRow.get("scope")))
+            throw new V2Exception(409, "公共数据集只读，请选择你自己的数据集再导入", "DATASET_PUBLIC");
+        Object owner = datasetRow.get("workspace_id");
+        if (owner == null || ((Number) owner).longValue() != workspaceId)
+            throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
         Path dir = resolve(directory);
         Path bboxCrops = null;
         if ("bbox".equals(detectFormat(dir, new LinkedHashMap<>()))) {

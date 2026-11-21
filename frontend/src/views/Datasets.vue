@@ -42,6 +42,13 @@ const SOURCE_NOTES = {
 }
 const selectedDataset = computed(() => state.datasets.find((item) => item.id === state.selectedId) || null)
 const selectedVersion = computed(() => state.versions.find((item) => item.id === state.selectedVersionId) || null)
+
+/** 导入只允许写自己的数据集：未选 / 公共数据集都要禁用并说明原因。 */
+const importBlocked = computed(() => {
+  if (!state.selectedId) return '先在左侧选择一个数据集'
+  if (selectedDataset.value?.scope === 'PUBLIC') return '公共数据集只读，不能导入样本'
+  return ''
+})
 const labelList = computed(() => labelRows(state.stats))
 const splitList = computed(() => splitRows(state.stats))
 const hints = computed(() => splitHints(state.stats))
@@ -71,7 +78,10 @@ async function loadDatasets() {
   state.error = ''
   try {
     state.datasets = await listDatasets(snapshot())
-    if (!state.selectedId && state.datasets.length) await selectDataset(state.datasets[0].id)
+    if (!state.selectedId && state.datasets.length) {
+    const own = state.datasets.find((item) => item.scope !== 'PUBLIC') || state.datasets[0]
+    await selectDataset(own.id)
+  }
   } catch (error) {
     state.error = error?.message || '数据集加载失败'
   } finally {
@@ -565,20 +575,21 @@ onBeforeUnmount(releaseImages)
         </p>
         <p v-if="state.folder.busy" class="hint">正在上传：{{ state.folder.progress || '准备中…' }}</p>
 
+        <p v-if="importBlocked" class="notice modal-error" role="status">{{ importBlocked }}</p>
         <p v-if="state.error" class="notice error modal-error" role="alert">{{ state.error }}</p>
         <p v-if="state.folder.busy" class="notice modal-error" role="status">正在上传：{{ state.folder.progress || '准备中…' }}</p>
 
         <footer class="modal-foot">
           <button @click="closeWizard">取消</button>
           <button v-if="state.importSource === 'folder'" class="primary"
-                  :disabled="state.busy || !state.localPreview || !state.selectedId" @click="uploadPickedFolder">
-            {{ state.selectedId ? '开始上传' : '先选中数据集' }}
+                  :disabled="state.busy || !state.localPreview || Boolean(importBlocked)" @click="uploadPickedFolder">
+            {{ importBlocked || '开始上传' }}
           </button>
           <button v-else-if="state.wizard.preview?.token" class="primary"
-                  :disabled="state.wizard.busy || !state.selectedId" @click="commitZip">确认导入（zip）</button>
+                  :disabled="state.wizard.busy || Boolean(importBlocked)" @click="commitZip">确认导入（zip）</button>
           <button v-else class="primary"
-                  :disabled="state.wizard.busy || !state.selectedId || !state.wizard.preview" @click="commitWizard">
-            {{ state.selectedId ? '确认导入' : '先选中数据集' }}
+                  :disabled="state.wizard.busy || Boolean(importBlocked) || !state.wizard.preview" @click="commitWizard">
+            {{ importBlocked || '确认导入' }}
           </button>
         </footer>
       </section>
