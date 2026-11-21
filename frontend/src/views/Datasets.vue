@@ -24,6 +24,22 @@ const state = reactive({
 const imageUrls = reactive({})
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
+
+/** 三种来源各自适配哪些数据集形态（弹窗里直接显示，避免选错入口）。 */
+const SOURCE_NOTES = {
+  server: {
+    suits: ['按 0–9 分文件夹', 'CSV（name,label）', '文件名带标签', '带框多位数（digitStruct.mat）', 'IDX（MNIST / EMNIST）'],
+    limits: '数据在服务器磁盘上；不受 5MB/张、200 张/批限制，几万张也能导；IDX 与带框多位数只有这个入口支持。'
+  },
+  zip: {
+    suits: ['按 0–9 分文件夹', 'CSV（name,label）', '文件名带标签', '带框多位数（digitStruct.mat）', 'IDX（MNIST / EMNIST）'],
+    limits: '数据在别的机器上，需要打包上传；zip ≤500MB，解压后按目录结构自动识别；文件多时上传较慢。'
+  },
+  folder: {
+    suits: ['按 0–9 分文件夹（只支持这一种）'],
+    limits: '浏览器直接读取本机文件夹；单张 ≤5MB、单批 20 张、一次最多 200 张；不支持 CSV / 文件名标签 / 带框多位数 / IDX。'
+  }
+}
 const selectedDataset = computed(() => state.datasets.find((item) => item.id === state.selectedId) || null)
 const selectedVersion = computed(() => state.versions.find((item) => item.id === state.selectedVersionId) || null)
 const labelList = computed(() => labelRows(state.stats))
@@ -488,6 +504,15 @@ onBeforeUnmount(releaseImages)
           <button type="button" :class="{ active: state.importSource === 'server' }" @click="chooseSource('server')">服务器目录</button>
           <button type="button" :class="{ active: state.importSource === 'zip' }" @click="chooseSource('zip')">上传 zip</button>
           <button type="button" :class="{ active: state.importSource === 'folder' }" @click="chooseSource('folder')">本机文件夹</button>
+        </div>
+
+        <div class="source-note">
+          <p><strong>适配的数据集形态：</strong>
+            <span v-for="(form, index) in SOURCE_NOTES[state.importSource].suits" :key="form">
+              {{ form }}<template v-if="index < SOURCE_NOTES[state.importSource].suits.length - 1">、</template>
+            </span>
+          </p>
+          <p class="muted">{{ SOURCE_NOTES[state.importSource].limits }}</p>
         </div>
 
         <div v-if="state.importSource === 'server'" class="import-box">

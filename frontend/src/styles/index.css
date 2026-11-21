@@ -553,3 +553,7 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .help-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .help-row-head code { font-size: 11px; color: #8a9bb0; }
 .help-row p { margin: 2px 0; color: #33475e; }
+
+.source-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; font-size: 12.5px; line-height: 1.7; }
+.source-note p { margin: 0; }
+.source-note .muted { margin-top: 2px; }
