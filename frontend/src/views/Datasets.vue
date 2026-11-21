@@ -17,7 +17,7 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
-  importStep: 1, importSource: 'server', localPreview: null, picked: null,
+  importSource: 'server', localPreview: null, picked: null,
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
@@ -187,7 +187,6 @@ function pickFolder(event) {
     skippedDetail: { '非图片': ignored, '目录名不是 0–9': noLabel },
     note: '本机文件夹：按 0–9 子目录上传（单批 20 张）'
   }
-  state.importStep = 3
 }
 
 async function uploadPickedFolder() {
@@ -212,7 +211,6 @@ async function uploadPickedFolder() {
     const summary = importSummary(results)
     state.folder = { busy: false, progress: '', result: { ...summary, ignored: picked.ignored, noLabel: picked.noLabel, labels: picked.labels.length } }
     state.notice = `目录导入：成功 ${summary.imported} · 重复 ${summary.duplicates} · 失败 ${summary.failed}`
-    state.importStep = 4
     await loadDatasets()
   } catch (error) {
     state.folder = { busy: false, progress: '', result: null }
@@ -305,7 +303,6 @@ async function loadBatches() {
 
 async function openWizard() {
   state.wizard.open = true
-  state.importStep = 1
   state.importSource = 'server'
   state.wizard.preview = null
   state.wizard.result = null
@@ -327,7 +324,6 @@ function chooseSource(source) {
   state.wizard.preview = null
   state.localPreview = null
   state.picked = null
-  state.importStep = 2
 }
 
 async function previewWizard() {
@@ -503,13 +499,6 @@ onBeforeUnmount(releaseImages)
           </div>
           <button class="link" @click="closeWizard">关闭</button>
         </header>
-
-        <div class="step-bar">
-          <span :class="{ active: state.importStep >= 1 }">1 选来源</span>
-          <span :class="{ active: state.importStep >= 2 }">2 准备</span>
-          <span :class="{ active: state.importStep >= 3 }">3 试运行</span>
-          <span :class="{ active: state.importStep >= 4 }">4 完成</span>
-        </div>
 
         <div class="source-tabs">
           <button type="button" :class="{ active: state.importSource === 'server' }" @click="chooseSource('server')">服务器目录</button>
