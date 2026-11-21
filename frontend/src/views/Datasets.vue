@@ -550,8 +550,9 @@ onBeforeUnmount(releaseImages)
               </div>
             </div>
             <p v-if="preview.samples?.length" class="hint">示例：{{ preview.samples.join('、') }}</p>
-            <p v-if="preview.selfCheck" class="hint-banner" :class="{ 'self-check-bad': preview.selfCheck.accepted === 0 }">
-              抽样自检：{{ preview.selfCheck.note }}
+            <p v-if="preview.selfCheck" class="hint-banner"
+               :class="{ 'self-check-bad': preview.selfCheck.accepted === 0 || preview.selfCheck.multiCount > 0 }">
+              {{ preview.selfCheck.multiCount > 0 ? '⚠ ' : '' }}抽样自检：{{ preview.selfCheck.note }}
             </p>
             <p v-if="preview.skippedDetail" class="hint">
               跳过原因：<template v-for="(value, key) in preview.skippedDetail" :key="key">{{ key }} {{ value }} ｜ </template>

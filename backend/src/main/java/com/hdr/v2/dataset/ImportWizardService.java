@@ -42,7 +42,8 @@ public class ImportWizardService {
                           String token, SelfCheck selfCheck) {}
 
     /** 抽样自检：用当前生效模型看这批图"像不像数字"。 */
-    public record SelfCheck(int checked, int accepted, double avgConfidence, String note) {}
+    public record SelfCheck(int checked, int accepted, double avgConfidence, String note,
+                            int multiChecked, int multiCount) {}
 
     private final JdbcTemplate jdbc;
     private final WorkspaceService spaces;
@@ -323,12 +324,33 @@ public class ImportWizardService {
             }
             checked += 1;
         }
+        // 再抽样几张做「单字校验」：多位数图会被当成单字导入，标签必然错
+        int multiChecked = 0;
+        int multiCount = 0;
+        for (Path file : files) {
+            if (multiChecked >= 4) break;
+            try {
+                byte[] bytes = Files.readAllBytes(file);
+                String type = file.getFileName().toString().toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+                String digest = sha256(bytes);
+                ModelClient.MultiPrediction multi = models.predictMulti(workspaceId,
+                        java.util.UUID.randomUUID().toString(), model,
+                        new ImageValidator.Image(bytes, digest, type), 2, true);
+                multiChecked += 1;
+                if (multi.digits() != null && multi.digits().size() > 1) multiCount += 1;
+            } catch (Exception error) {
+                // 切分失败不影响主流程
+            }
+        }
         if (checked == 0) return null;
         double avg = accepted == 0 ? 0 : confidenceSum / accepted;
         String note = accepted == 0
                 ? "抽样 " + checked + " 张全部被拒识：这批图可能不是手写数字"
                 : "抽样 " + checked + " 张，接受 " + accepted + " 张（平均置信度 " + String.format("%.2f", avg) + "）";
-        return new SelfCheck(checked, accepted, Math.round(avg * 1000) / 1000.0, note);
+        if (multiCount > 0) {
+            note += "；其中 " + multiCount + "/" + multiChecked + " 张含多个数字，导入后标签会错，建议先裁成单字";
+        }
+        return new SelfCheck(checked, accepted, Math.round(avg * 1000) / 1000.0, note, multiChecked, multiCount);
     }
 
     private String detectFormat(Path dir, Map<String, Integer> skipped) {
