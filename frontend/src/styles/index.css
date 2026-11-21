@@ -556,3 +556,6 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .source-note .muted { margin-top: 2px; }
 
 .modal-error { margin: 10px 0 0; }
+
+.multi-badge { position: absolute; right: 6px; top: 28px; padding: 1px 6px; border-radius: 6px;
+  background: #fdeceb; color: #a5342a; font-size: 10px; font-weight: 600; }

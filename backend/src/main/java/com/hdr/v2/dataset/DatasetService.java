@@ -25,7 +25,7 @@ public class DatasetService {
     public record Version(String id, String datasetId, String version, String status, String splitRule,
                           int sampleCount, int writerCount, int valPercent, int testPercent, String createdAt) {}
     public record Sample(String id, String sampleId, String split, String label, String kind,
-                         String writer, String createdAt) {}
+                         String writer, String createdAt, boolean multiDigit) {}
     /** 来源：从已有版本挑样本（用于合并/追加）。sources 为空时退回“整池筛选”。 */
     public record Source(Long versionId, List<Integer> labels, Integer limit) {}
     public record BuildCommand(String version, String splitRule, Integer valPercent, Integer testPercent,
@@ -214,10 +214,18 @@ public class DatasetService {
         if (label != null) { where += " AND label=?"; args.add(String.valueOf(label)); }
         args.add(safeSize);
         args.add((safePage - 1) * safeSize);
-        return jdbc.query("SELECT * FROM t_v2_dataset_sample WHERE " + where + " ORDER BY id LIMIT ? OFFSET ?",
+        String scoped = where.replace("version_id", "s.version_id")
+                .replace("split=", "s.split=")
+                .replace("label=", "s.label=");
+        String sql = "SELECT s.*, COALESCE(c.multi_digit, 0) AS multi_digit"
+                + " FROM t_v2_dataset_sample s"
+                + " LEFT JOIN t_collected_sample c ON c.id = s.sample_id"
+                + " WHERE " + scoped
+                + " ORDER BY s.id LIMIT ? OFFSET ?";
+        return jdbc.query(sql,
                 (rs, i) -> new Sample(rs.getString("id"), rs.getString("sample_id"), rs.getString("split"),
                         rs.getString("label"), rs.getString("kind"), rs.getString("writer_key"),
-                        rs.getString("created_at")), args.toArray());
+                        rs.getString("created_at"), rs.getInt("multi_digit") == 1), args.toArray());
     }
 
     /** 删除版本：有训练任务引用时拒绝；删完刷新数据集统计。 */

@@ -20,15 +20,17 @@ public class DatasetController {
     private final DatasetService datasets;
     private final DatasetImportService imports;
     private final ImportWizardService wizard;
+    private final SampleInspectionService inspection;
     private final com.hdr.v2.collection.CollectedSampleService collected;
     private final WorkspaceService spaces;
 
-    public DatasetController(DatasetService datasets, DatasetImportService imports,                              ImportWizardService wizard,
+    public DatasetController(DatasetService datasets, DatasetImportService imports,                              ImportWizardService wizard, SampleInspectionService inspection,
                               com.hdr.v2.collection.CollectedSampleService collected,
                               WorkspaceService spaces) {
         this.datasets = datasets;
         this.imports = imports;
         this.wizard = wizard;
+        this.inspection = inspection;
         this.collected = collected;
         this.spaces = spaces;
     }
@@ -152,6 +154,18 @@ public class DatasetController {
         long user = authorize(workspaceId, request);
         datasets.deleteDataset(workspaceId, user, datasetId);
         return Result.ok(Map.of("deleted", Long.toString(datasetId)));
+    }
+
+    public record InspectCommand(Integer limit) {}
+
+    /** 巡检：对未巡检样本跑一次多位数检测（标记不删除），可重复调用直到 remaining=0。 */
+    @PostMapping("/datasets/{datasetId}/inspect")
+    public Result<Map<String, Object>> inspect(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                               @RequestBody(required = false) InspectCommand command,
+                                               HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        int limit = command == null || command.limit() == null ? 50 : command.limit();
+        return Result.ok(inspection.inspect(workspaceId, user, datasetId, limit));
     }
 
     @GetMapping("/datasets/{datasetId}/versions")

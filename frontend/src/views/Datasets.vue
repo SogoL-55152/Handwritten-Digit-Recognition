@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview, wizardZipCommit, wizardZipPreview } from '@/api/datasets.js'
+import { allVersions, buildVersion, claimSamples, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, inspectDataset, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, versionSamples, versionStats, wizardCommit, wizardPreview, wizardZipCommit, wizardZipPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 
@@ -215,6 +215,21 @@ async function uploadPickedFolder() {
   } catch (error) {
     state.folder = { busy: false, progress: '', result: null }
     state.error = error?.message || '目录导入失败'
+  } finally {
+    state.busy = false
+  }
+}
+
+async function inspectSamples() {
+  if (!state.selectedId) return
+  state.busy = true
+  state.error = ''
+  try {
+    const result = await inspectDataset(snapshot(), state.selectedId, 50)
+    state.notice = `巡检完成：本轮检查 ${result.checked} 张，发现多位数 ${result.multi} 张；剩余未巡检 ${result.remaining} 张`
+    await loadVersionData()
+  } catch (error) {
+    state.error = error?.message || '巡检失败'
   } finally {
     state.busy = false
   }
@@ -633,6 +648,7 @@ onBeforeUnmount(releaseImages)
             </div>
             <div class="row-actions dataset-actions">
               <span class="tag">{{ state.versions.length }} 个版本</span>
+              <button :disabled="state.busy" title="跑一次多位数检测，把疑似多数字的样本标出来" @click="inspectSamples">巡检多位数</button>
               <button :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
               <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
             </div>
@@ -726,6 +742,7 @@ onBeforeUnmount(releaseImages)
                   <img v-if="imageUrls[item.id]" :src="imageUrls[item.id]" :alt="'样本 ' + item.label" />
                   <span v-else class="sample-placeholder">无图</span>
                   <span class="split-badge" :class="splitClass(item.split)">{{ item.split }}</span>
+                  <span v-if="item.multiDigit" class="multi-badge" title="巡检怀疑这张图里有多个数字，建议删除">多位数?</span>
                   <button class="sample-delete" type="button" :disabled="state.busy"
                           title="从版本中删除该样本" @click.stop="removeSample(item)">×</button>
                 </div>
