@@ -93,6 +93,11 @@ public class DatasetService {
             throw new V2Exception(400, "当前样本只有 " + writerKeys.size() + " 位书写者，无法按人划分；请改用 RANDOM 或补充更多人的样本",
                     "TOO_FEW_WRITERS");
 
+        // 样本很少时按百分比划分会把全部样本切到 TEST，导致没有训练集
+        if (selected.size() <= 3) {
+            val = 0;
+            test = 0;
+        }
         long id = insertVersion(datasetId, version, splitRule, val, test, userId);
         Set<String> writers = new HashSet<>();
         for (Map<String, Object> row : selected) {
@@ -104,6 +109,14 @@ public class DatasetService {
                     VALUES(?,?,?,?,?,?)
                     """, id, sampleId, split, labelOf(row), String.valueOf(row.get("sample_kind")), writer);
             writers.add(writer);
+        }
+        // 兜底：无论比例怎么算，至少保留 1 条训练样本（否则训练任务必然失败）
+        if (countSplit(id, "TRAIN") == 0) {
+            java.util.List<Long> candidates = jdbc.queryForList(
+                    "SELECT id FROM t_v2_dataset_sample WHERE version_id=? ORDER BY split='TEST' DESC, id LIMIT 1",
+                    Long.class, id);
+            if (!candidates.isEmpty())
+                jdbc.update("UPDATE t_v2_dataset_sample SET split='TRAIN' WHERE id=?", candidates.get(0));
         }
         jdbc.update("UPDATE t_v2_dataset_version SET status='READY', sample_count=?, writer_count=? WHERE id=?",
                 selected.size(), writers.size(), id);

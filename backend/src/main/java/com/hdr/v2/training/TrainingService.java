@@ -68,6 +68,13 @@ public class TrainingService {
                     Long.class, versionId, datasetId);
             if (found == null || found == 0)
                 throw new V2Exception(400, "数据集版本不存在或尚未就绪", "DATASET_VERSION_NOT_FOUND");
+            Long trainSamples = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM t_v2_dataset_sample WHERE version_id=? AND split='TRAIN'",
+                    Long.class, versionId);
+            if (trainSamples == null || trainSamples == 0)
+                throw new V2Exception(400,
+                        "该版本没有训练集样本：请在数据集页重新生成版本（样本很少时把验证/测试比例设为 0）",
+                        "NO_TRAIN_SAMPLES");
             // 导出延迟到 worker 首次取数（prepare），提交请求不再被几万张图卡住。
         }
         params.put("datasetVersionId", versionId);
