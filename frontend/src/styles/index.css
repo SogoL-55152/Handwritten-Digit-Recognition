@@ -559,3 +559,8 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 
 .multi-badge { position: absolute; right: 6px; top: 28px; padding: 1px 6px; border-radius: 6px;
   background: #fdeceb; color: #a5342a; font-size: 10px; font-weight: 600; }
+
+.source-search { width: 100%; max-width: 320px; margin: 4px 0 8px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.source-list { max-height: 260px; overflow: auto; }
+.source-label { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

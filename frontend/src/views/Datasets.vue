@@ -18,7 +18,7 @@ const state = reactive({
   folder: { busy: false, progress: '', result: null },
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
   importSource: 'server', localPreview: null, picked: null,
-  sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
+  sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF', sourceQuery: '',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
@@ -44,6 +44,14 @@ const selectedDataset = computed(() => state.datasets.find((item) => item.id ===
 const selectedVersion = computed(() => state.versions.find((item) => item.id === state.selectedVersionId) || null)
 
 /** 导入只允许写自己的数据集：未选 / 公共数据集都要禁用并说明原因。 */
+/** 样本来源搜索：按「数据集名 / 版本名」过滤，避免列表太长。 */
+const filteredSourceOptions = computed(() => {
+  const query = state.sourceQuery.trim().toLowerCase()
+  if (!query) return state.sourceOptions
+  return state.sourceOptions.filter((option) =>
+    `${option.dataset_name || ''} ${option.version || ''}`.toLowerCase().includes(query))
+})
+
 const importBlocked = computed(() => {
   if (!state.selectedId) return '先在左侧选择一个数据集'
   if (selectedDataset.value?.scope === 'PUBLIC') return '公共数据集只读，不能导入样本'
@@ -232,6 +240,32 @@ async function inspectSamples() {
     state.error = error?.message || '巡检失败'
   } finally {
     state.busy = false
+  }
+}
+
+/** 导入成功后自动生成一个版本；失败不影响导入结果，只提示。 */
+async function autoBuildVersion() {
+  if (!state.selectedId) return
+  const previous = state.error
+  state.error = ''
+  try {
+    const payload = buildPayload({ ...state.buildForm, version: state.buildForm.version || nextVersion(state.versions) })
+    let version
+    try {
+      version = await buildVersion(snapshot(), state.selectedId, payload)
+    } catch (error) {
+      // 只有一位书写者时按人划分会失败，自动回退到随机划分再试一次
+      if (String(error?.message || '').includes('书写者')) {
+        version = await buildVersion(snapshot(), state.selectedId, { ...payload, splitRule: 'RANDOM' })
+      } else {
+        throw error
+      }
+    }
+    state.notice = `已自动生成版本 ${version.version}：${version.sampleCount} 条样本`
+    await selectDataset(state.selectedId)
+    await selectVersion(version.id)
+  } catch (error) {
+    state.error = (previous ? previous + '；' : '') + `导入成功，但自动生成版本失败：${error?.message || '未知错误'}，请手动点「生成版本」`
   }
 }
 
@@ -679,7 +713,9 @@ onBeforeUnmount(releaseImages)
                 <label><input type="radio" value="VERSIONS" v-model="state.sourceMode" /> 指定版本合并</label>
               </div>
               <template v-if="state.sourceMode === 'VERSIONS'">
-              <div v-for="option in state.sourceOptions" :key="option.id" class="source-row">
+              <input v-model="state.sourceQuery" class="source-search" placeholder="搜索数据集或版本…" />
+              <div class="source-list">
+              <div v-for="option in filteredSourceOptions" :key="option.id" class="source-row">
                 <input class="source-check" type="checkbox"
                        :checked="state.sources.some((item) => item.versionId === option.id)"
                        @change="toggleSource(option.id)" />
@@ -691,7 +727,9 @@ onBeforeUnmount(releaseImages)
                        @change="state.sources.find((item) => item.versionId === option.id).limit = Number($event.target.value)" />
                 <span v-else class="source-limit muted">全部</span>
               </div>
+              </div>
               <p v-if="!state.sourceOptions.length" class="muted">还没有其他可用版本。</p>
+              <p v-else-if="!filteredSourceOptions.length" class="muted">没有匹配「{{ state.sourceQuery }}」的版本。</p>
               <p v-else-if="!state.sources.length" class="hint">至少勾选一个版本，否则无法生成版本。</p>
               </template>
             </div>
