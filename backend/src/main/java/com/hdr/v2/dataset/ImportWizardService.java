@@ -163,6 +163,16 @@ public class ImportWizardService {
             throw new V2Exception(400, "没有识别到可导入的图片，请检查目录结构", "NO_SAMPLES");
 
         long batchId = insertBatch(workspaceId, datasetId, preview.format(), dir.toString(), userId);
+        if ("idx".equals(preview.format())) {
+            int[] counts = importIdx(workspaceId, userId, datasetId, batchId, dir);
+            Map<String, Object> idxResult = new LinkedHashMap<>();
+            idxResult.put("batchId", Long.toString(batchId));
+            idxResult.put("format", "idx");
+            idxResult.put("imported", counts[0]);
+            idxResult.put("duplicates", 0);
+            idxResult.put("failed", counts[1]);
+            return idxResult;
+        }
         int imported = 0;
         int duplicates = 0;
         int failed = 0;
@@ -240,6 +250,7 @@ public class ImportWizardService {
         List<String> samples = new ArrayList<>();
         String format = detectFormat(dir, skipped);
         if ("bbox".equals(format)) return bboxPreview(dir);
+        if ("idx".equals(format)) return idxPreview(dir);
         List<Path> files = listImages(dir, format);
         int total = 0;
         for (Path file : files) {
@@ -297,6 +308,7 @@ public class ImportWizardService {
     }
 
     private String detectFormat(Path dir, Map<String, Integer> skipped) {
+        if (IdxReader.isIdx(dir)) return "idx";
         if (hasLabelsMat(dir)) return "bbox";
         try (Stream<Path> children = Files.list(dir)) {
             List<Path> list = children.toList();
@@ -307,6 +319,43 @@ public class ImportWizardService {
         }
         skipped.merge("没有类别目录或 csv，按文件名识别", 0, Integer::sum);
         return "filename";
+    }
+
+    /** IDX（MNIST/EMNIST）：只读标签统计，不解析图片。 */
+    private Preview idxPreview(Path dir) {
+        List<IdxReader.Pair> pairs = IdxReader.pairs(dir);
+        if (pairs.isEmpty()) throw new V2Exception(400, "目录里没有 IDX 文件对（images-idx3 + labels-idx1）", "IDX_INVALID");
+        Map<String, Integer> labels = IdxReader.countLabels(pairs);
+        int total = labels.values().stream().mapToInt(Integer::intValue).sum();
+        List<String> names = pairs.stream()
+                .map(pair -> pair.images().getFileName().toString()
+                        + (pair.emnist() ? "（EMNIST，按转置还原）" : ""))
+                .toList();
+        String note = "识别为「IDX（MNIST/EMNIST）」：逐张转 28×28 PNG 入库，压缩包会自动解压读取";
+        return new Preview("idx", total, labels, 0, new LinkedHashMap<>(), names, note, null, null);
+    }
+
+    private int[] importIdx(long workspaceId, long userId, long datasetId, long batchId, Path dir) {
+        List<IdxReader.Pair> pairs = IdxReader.pairs(dir);
+        int[] imported = {0};
+        int[] failed = {0};
+        IdxReader.streamLabelsAndImages(pairs, (label, png) -> {
+            try {
+                String digest = sha256(png);
+                CollectedSampleService.Saved saved = samples.save(workspaceId, userId, label, null, true,
+                        new ImageValidator.Image(png, digest, "image/png"), null, null, null, null, null,
+                        "IMPORT", datasetId);
+                if (!saved.duplicate()) {
+                    imported[0] += 1;
+                    jdbc.update("UPDATE t_collected_sample SET import_batch_id=? WHERE id=?", batchId, saved.id());
+                }
+            } catch (Exception error) {
+                failed[0] += 1;
+            }
+        });
+        jdbc.update("UPDATE t_import_batch SET imported=?, skipped=?, skipped_detail=? WHERE id=?",
+                imported[0], failed[0], failed[0] > 0 ? "转换/校验失败 " + failed[0] : null, batchId);
+        return new int[]{imported[0], failed[0]};
     }
 
     private boolean hasLabelsMat(Path dir) {

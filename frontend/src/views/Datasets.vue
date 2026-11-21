@@ -17,11 +17,11 @@ const state = reactive({
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
+  importStep: 1, importSource: 'server', localPreview: null, picked: null,
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF',
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
-const folderInput = ref(null)
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 const selectedDataset = computed(() => state.datasets.find((item) => item.id === state.selectedId) || null)
@@ -141,36 +141,52 @@ function toggleSource(versionId) {
   else state.sources.push({ versionId, limit: state.sourceLimit, labels: [] })
 }
 
-async function importFolder(event) {
+function pickFolder(event) {
   const files = Array.from(event.target.files || [])
   event.target.value = ''
-  if (!files.length || !state.selectedId) return
+  if (!files.length) return
   const { groups, ignored, noLabel } = groupByFolder(files)
   const labels = Object.keys(groups).filter((digit) => groups[digit].length).map(Number).sort((a, b) => a - b)
   if (!labels.length) {
     state.error = '没有找到按 0–9 命名的子目录（例如 0/xxx.png）'
     return
   }
+  state.error = ''
+  state.picked = { files, groups, labels, ignored, noLabel }
+  state.localPreview = {
+    format: 'folder',
+    total: labels.reduce((sum, digit) => sum + groups[digit].length, 0),
+    labels: Object.fromEntries(labels.map((digit) => [String(digit), groups[digit].length])),
+    skipped: ignored + noLabel,
+    skippedDetail: { '非图片': ignored, '目录名不是 0–9': noLabel },
+    note: '本机文件夹：按 0–9 子目录上传（单批 20 张）'
+  }
+  state.importStep = 3
+}
+
+async function uploadPickedFolder() {
+  const picked = state.picked
+  if (!picked || !state.selectedId) return
   state.busy = true
   state.error = ''
-  state.notice = ''
   state.folder = { busy: true, progress: '', result: null }
   const results = []
   try {
-    for (let index = 0; index < labels.length; index += 1) {
-      const digit = labels[index]
-      const batches = batchOf(groups[digit], 20)
+    for (let index = 0; index < picked.labels.length; index += 1) {
+      const digit = picked.labels[index]
+      const batches = batchOf(picked.groups[digit], 20)
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
         state.folder.progress = progressText({
-          label: digit, labelIndex: index + 1, labelCount: labels.length,
+          label: digit, labelIndex: index + 1, labelCount: picked.labels.length,
           batchIndex: batchIndex + 1, batchCount: batches.length
         })
         results.push(await importSamples(snapshot(), state.selectedId, digit, batches[batchIndex]))
       }
     }
     const summary = importSummary(results)
-    state.folder = { busy: false, progress: '', result: { ...summary, ignored, noLabel, labels: labels.length } }
+    state.folder = { busy: false, progress: '', result: { ...summary, ignored: picked.ignored, noLabel: picked.noLabel, labels: picked.labels.length } }
     state.notice = `目录导入：成功 ${summary.imported} · 重复 ${summary.duplicates} · 失败 ${summary.failed}`
+    state.importStep = 4
     await loadDatasets()
   } catch (error) {
     state.folder = { busy: false, progress: '', result: null }
@@ -262,8 +278,29 @@ async function loadBatches() {
 }
 
 async function openWizard() {
-  state.wizard.open = !state.wizard.open
-  if (state.wizard.open && !state.wizard.batches.length) await loadBatches()
+  state.wizard.open = true
+  state.importStep = 1
+  state.importSource = 'server'
+  state.wizard.preview = null
+  state.wizard.result = null
+  state.localPreview = null
+  state.picked = null
+  if (!state.wizard.batches.length) await loadBatches()
+}
+
+function closeWizard() {
+  state.wizard.open = false
+  state.wizard.preview = null
+  state.localPreview = null
+  state.picked = null
+}
+
+function chooseSource(source) {
+  state.importSource = source
+  state.wizard.preview = null
+  state.localPreview = null
+  state.picked = null
+  state.importStep = 2
 }
 
 async function previewWizard() {
@@ -414,9 +451,7 @@ onBeforeUnmount(releaseImages)
       </div>
       <div class="row-actions">
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
-        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="folderInput?.click()">导入图片</button>
-        <button :disabled="state.busy" @click="openWizard">导入数据集</button>
-        <input ref="folderInput" type="file" webkitdirectory directory multiple hidden @change="importFolder" />
+        <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="openWizard">导入数据集</button>
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
       </div>
     </header>
@@ -432,61 +467,103 @@ onBeforeUnmount(releaseImages)
       </div>
     </section>
 
-    <section v-if="state.wizard.open" class="panel import-panel">
-      <div class="block-head"><h4>导入数据集</h4><span class="muted">自动识别目录结构：按类别文件夹 / CSV 标签 / 文件名带标签；先试运行看统计</span></div>
-      <div class="import-row">
-        <label class="field field-wide"><span>数据集目录（服务端路径）</span>
-          <input v-model="state.wizard.directory" placeholder="例如 D:\datasets\my-digits" />
-        </label>
-        <button :disabled="state.wizard.busy || !state.wizard.directory.trim()" @click="previewWizard">
-          {{ state.wizard.busy ? '处理中…' : '试运行' }}
-        </button>
-        <label class="field"><span>或上传 zip</span>
-          <input type="file" accept=".zip" @change="previewZip" />
-        </label>
-        <button v-if="!state.wizard.preview?.token" class="primary"
-                :disabled="state.wizard.busy || !state.selectedId || !state.wizard.preview" @click="commitWizard">
-          {{ state.selectedId ? '确认导入到当前数据集' : '先选中数据集' }}
-        </button>
-        <button v-else class="primary" :disabled="state.wizard.busy || !state.selectedId" @click="commitZip">
-          {{ state.selectedId ? '确认导入（zip）' : '先选中数据集' }}
-        </button>
-      </div>
-
-      <div v-if="state.wizard.preview" class="wizard-report">
-        <p><strong>格式：</strong>{{ state.wizard.preview.format }} — {{ state.wizard.preview.note }}</p>
-        <p><strong>可导入：</strong>{{ state.wizard.preview.total }} 张<template v-if="state.wizard.preview.skipped"> ｜ 跳过 {{ state.wizard.preview.skipped }} 张</template></p>
-        <div class="label-bars">
-          <div v-for="(count, label) in state.wizard.preview.labels" :key="label" class="label-bar">
-            <span class="label-name">{{ label }}</span>
-            <span class="bar"><i :style="{ width: Math.max(2, (count / state.wizard.preview.total) * 100) + '%' }"></i></span>
-            <span class="label-count">{{ count }}</span>
+    <div v-if="state.wizard.open" class="modal-mask" @click.self="closeWizard">
+      <section class="modal-card import-modal">
+        <header class="modal-head">
+          <div>
+            <h3>导入数据集</h3>
+            <p class="muted">选来源 → 试运行 → 确认；支持文件夹 / CSV / 文件名 / zip / 带框多位数 / IDX（MNIST、EMNIST）</p>
           </div>
-        </div>
-        <p v-if="state.wizard.preview.samples?.length" class="hint">示例文件：{{ state.wizard.preview.samples.join('、') }}</p>
-        <p v-if="state.wizard.progress" class="hint">上传中 {{ state.wizard.progress }}%…</p>
-        <p v-if="state.wizard.preview.selfCheck" class="hint-banner" :class="{ 'self-check-bad': state.wizard.preview.selfCheck.accepted === 0 }">
-          抽样自检：{{ state.wizard.preview.selfCheck.note }}
-        </p>
-        <p v-if="state.wizard.preview.skippedDetail" class="hint">
-          跳过原因：<template v-for="(value, key) in state.wizard.preview.skippedDetail" :key="key">{{ key }} {{ value }} ｜ </template>
-        </p>
-      </div>
+          <button class="link" @click="closeWizard">关闭</button>
+        </header>
 
-      <p v-if="state.wizard.result" class="hint">
-        导入完成：成功 {{ state.wizard.result.imported }} · 重复 {{ state.wizard.result.duplicates }} · 失败 {{ state.wizard.result.failed }}
-      </p>
-
-      <div v-if="state.wizard.batches.length" class="batch-list">
-        <div class="block-head"><h4>导入批次</h4><span class="muted">可回滚（样本未进入版本时）</span></div>
-        <div v-for="batch in state.wizard.batches" :key="batch.id" class="batch-row">
-          <span>#{{ batch.id }}</span>
-          <span>{{ batch.dataset_name || batch.dataset_id }}</span>
-          <span>{{ batch.format }}</span>
-          <span>成功 {{ batch.imported }} · 跳过 {{ batch.skipped }}</span>
-          <span class="muted">{{ batch.source }}</span>
-          <button class="link" :disabled="state.busy" @click="rollback(batch)">回滚</button>
+        <div class="step-bar">
+          <span :class="{ active: state.importStep >= 1 }">1 选来源</span>
+          <span :class="{ active: state.importStep >= 2 }">2 准备</span>
+          <span :class="{ active: state.importStep >= 3 }">3 试运行</span>
+          <span :class="{ active: state.importStep >= 4 }">4 完成</span>
         </div>
+
+        <div class="source-tabs">
+          <button type="button" :class="{ active: state.importSource === 'server' }" @click="chooseSource('server')">服务器目录</button>
+          <button type="button" :class="{ active: state.importSource === 'zip' }" @click="chooseSource('zip')">上传 zip</button>
+          <button type="button" :class="{ active: state.importSource === 'folder' }" @click="chooseSource('folder')">本机文件夹</button>
+        </div>
+
+        <div v-if="state.importSource === 'server'" class="import-box">
+          <label class="field field-wide"><span>数据集目录（服务端路径）</span>
+            <input v-model="state.wizard.directory" placeholder="例如 D:\datasets\my-digits（含 0–9 子目录、labels.csv、digitStruct.mat 或 IDX 文件）" />
+          </label>
+          <button :disabled="state.wizard.busy || !state.wizard.directory.trim()" @click="previewWizard">
+            {{ state.wizard.busy ? '处理中…' : '试运行' }}
+          </button>
+        </div>
+
+        <div v-else-if="state.importSource === 'zip'" class="import-box">
+          <label class="field"><span>zip 压缩包（≤500MB）</span>
+            <input type="file" accept=".zip" @change="previewZip" />
+          </label>
+          <p v-if="state.wizard.progress" class="hint">上传中 {{ state.wizard.progress }}%…</p>
+        </div>
+
+        <div v-else class="import-box">
+          <label class="field"><span>选择包含 0–9 子目录的文件夹</span>
+            <input type="file" webkitdirectory directory multiple @change="pickFolder" />
+          </label>
+          <p class="hint">浏览器上传，单批 20 张；适合几百张以内的小批数据。</p>
+        </div>
+
+        <div v-if="state.wizard.preview || state.localPreview" class="wizard-report">
+          <template v-for="preview in [state.wizard.preview || state.localPreview]" :key="preview.format">
+            <p><strong>格式：</strong>{{ preview.format }} — {{ preview.note }}</p>
+            <p><strong>可导入：</strong>{{ preview.total }} 张<template v-if="preview.skipped"> ｜ 跳过 {{ preview.skipped }} 张</template></p>
+            <div class="label-bars">
+              <div v-for="(count, label) in preview.labels" :key="label" class="label-bar">
+                <span class="label-name">{{ label }}</span>
+                <span class="bar"><i :style="{ width: Math.max(2, (count / Math.max(1, preview.total)) * 100) + '%' }"></i></span>
+                <span class="label-count">{{ count }}</span>
+              </div>
+            </div>
+            <p v-if="preview.samples?.length" class="hint">示例：{{ preview.samples.join('、') }}</p>
+            <p v-if="preview.selfCheck" class="hint-banner" :class="{ 'self-check-bad': preview.selfCheck.accepted === 0 }">
+              抽样自检：{{ preview.selfCheck.note }}
+            </p>
+            <p v-if="preview.skippedDetail" class="hint">
+              跳过原因：<template v-for="(value, key) in preview.skippedDetail" :key="key">{{ key }} {{ value }} ｜ </template>
+            </p>
+          </template>
+        </div>
+
+        <p v-if="state.wizard.result" class="hint">
+          导入完成：成功 {{ state.wizard.result.imported }} · 重复 {{ state.wizard.result.duplicates }} · 失败 {{ state.wizard.result.failed }}
+        </p>
+        <p v-if="state.folder.busy" class="hint">正在上传：{{ state.folder.progress || '准备中…' }}</p>
+
+        <footer class="modal-foot">
+          <button @click="closeWizard">取消</button>
+          <button v-if="state.importSource === 'folder'" class="primary"
+                  :disabled="state.busy || !state.localPreview || !state.selectedId" @click="uploadPickedFolder">
+            {{ state.selectedId ? '开始上传' : '先选中数据集' }}
+          </button>
+          <button v-else-if="state.wizard.preview?.token" class="primary"
+                  :disabled="state.wizard.busy || !state.selectedId" @click="commitZip">确认导入（zip）</button>
+          <button v-else class="primary"
+                  :disabled="state.wizard.busy || !state.selectedId || !state.wizard.preview" @click="commitWizard">
+            {{ state.selectedId ? '确认导入' : '先选中数据集' }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <section v-if="state.wizard.batches.length && state.wizard.open" class="panel batch-panel">
+      <div class="block-head"><h4>导入批次</h4><span class="muted">可回滚（样本未进入版本时）</span></div>
+      <div v-for="batch in state.wizard.batches" :key="batch.id" class="batch-row">
+        <span>#{{ batch.id }}</span>
+        <span>{{ batch.dataset_name || batch.dataset_id }}</span>
+        <span>{{ batch.format }}</span>
+        <span>成功 {{ batch.imported }} · 跳过 {{ batch.skipped }}</span>
+        <span class="muted">{{ batch.source }}</span>
+        <button class="link" :disabled="state.busy" @click="rollback(batch)">回滚</button>
       </div>
     </section>
     <p v-if="state.folder.busy" class="notice" role="status">正在导入：{{ state.folder.progress || '准备中…' }}</p>
