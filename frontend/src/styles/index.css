@@ -376,7 +376,7 @@ tr.diff td { background: #fdf6e8; }
 .delta-chip.up { background: #e8f6ec; color: #1f7a3d; }
 .delta-chip.down { background: #fdeceb; color: #9d3022; }
 
-/* ---------- 参数可视化向导 ---------- */
+/* ---------- 训练模型（原参数可视化）向导 ---------- */
 .wizard-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .wizard-steps { display: flex; flex-wrap: wrap; gap: 8px; }
 .wizard-step { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--line);
@@ -489,7 +489,7 @@ tr.best td { background: #fffaf0; font-weight: 600; }
 .sample-card:hover .sample-delete { opacity: 1; }
 .sample-delete:hover:not(:disabled) { background: #fdeceb; border-color: #b0483c; }
 
-/* ---------- 参数可视化 P0 ---------- */
+/* ---------- 训练模型 P0 ---------- */
 .template-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .template-bar button { padding: 4px 12px; min-height: 30px; font-size: 12px; border-radius: 999px; }
 .group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; }

@@ -270,7 +270,7 @@ onBeforeUnmount(releaseImages)
       <div class="wizard-head">
         <div>
           <p class="eyebrow">TRAIN WIZARD</p>
-          <h2>参数可视化（新）</h2>
+          <h2>训练模型</h2>
           <p class="muted">四步向导：选数据 → 调参数（实时估算参数量/显存/耗时）→ 看训练 → 看评估。</p>
         </div>
         <div class="wizard-steps">
