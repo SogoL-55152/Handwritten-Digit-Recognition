@@ -27,6 +27,7 @@ const state = reactive({
 const imageUrls = reactive({})
 const errors = ref([])
 const openGroups = reactive({ data: true, structure: true, hyper: true, runtime: true })
+const help = reactive({ open: false, item: null })
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 const archPreset = computed(() => ARCH_PRESETS.find((item) => item.id === config.arch) || ARCH_PRESETS[1])
@@ -165,6 +166,20 @@ function selectDatasetValue(value) {
   void loadVersions(state.datasetId)
 }
 
+function openHelp(item) {
+  help.open = true
+  help.item = item || null
+}
+
+function openManual() {
+  openHelp(null)
+}
+
+function closeHelp() {
+  help.open = false
+  help.item = null
+}
+
 function applyTemplate(kind) {
   if (kind === 'quick') {
     Object.assign(config, { epochs: 3, samples: 10000, batchSize: 64, learningRate: 0.001, earlyStop: true, patience: 2 })
@@ -269,8 +284,13 @@ onBeforeUnmount(releaseImages)
     <section class="panel">
       <div class="wizard-head">
         <div>
-          <p class="eyebrow">TRAIN WIZARD</p>
-          <h2>训练模型</h2>
+          <div class="wizard-title-row">
+            <div>
+              <p class="eyebrow">TRAIN WIZARD</p>
+              <h2>训练模型</h2>
+            </div>
+            <button type="button" class="manual-button" @click="openManual">用户手册</button>
+          </div>
           <p class="muted">四步向导：选数据 → 调参数（实时估算参数量/显存/耗时）→ 看训练 → 看评估。</p>
         </div>
         <div class="wizard-steps">
@@ -344,7 +364,7 @@ onBeforeUnmount(releaseImages)
           <template v-for="item in group.items" :key="item.key">
             <div v-if="isVisible(item, config)" class="param-line">
               <label :for="'p-' + item.key">
-                {{ item.label }} <span class="help" :title="item.help">ⓘ</span>
+                {{ item.label }} <button type="button" class="help" :title="item.help" @click.stop="openHelp(item)">ⓘ</button>
                 <span v-if="item.displayOnly" class="readonly-badge" title="当前训练管线固定，只参与估算">仅估算</span>
               </label>
               <select v-if="item.widget === 'select'" :id="'p-' + item.key" v-model="config[item.key]"
@@ -529,4 +549,56 @@ onBeforeUnmount(releaseImages)
       <button v-else class="primary" @click="step = 1">回到第一步</button>
     </div>
   </div>
+    <div v-if="help.open" class="modal-mask" @click.self="closeHelp">
+      <section class="modal-card help-card">
+        <header class="modal-head">
+          <div>
+            <h3>{{ help.item ? help.item.label : '训练模型 · 参数用户手册' }}</h3>
+            <p class="muted">{{ help.item ? (help.item.displayOnly ? '仅参与估算，不影响真实训练' : '真实参与训练') : '点每个参数旁的 ⓘ 看单条详细说明' }}</p>
+          </div>
+          <button class="link" @click="closeHelp">关闭</button>
+        </header>
+
+        <div v-if="help.item" class="help-detail">
+          <p v-for="line in help.item.detail.split('\n')" :key="line">{{ line }}</p>
+          <p class="muted">当前取值：{{ config[help.item.key] }}</p>
+        </div>
+
+        <div v-else class="help-groups">
+          <article v-for="group in PARAM_SCHEMA" :key="group.id">
+            <h4>{{ group.title }}</h4>
+            <div v-for="item in group.items" :key="item.key" class="help-row">
+              <div class="help-row-head">
+                <strong>{{ item.label }}</strong>
+                <span v-if="item.displayOnly" class="readonly-badge">仅估算</span>
+                <code>{{ item.key }}</code>
+              </div>
+              <p v-for="line in item.detail.split('\n')" :key="line">{{ line }}</p>
+            </div>
+          </article>
+          <article>
+            <h4>三套常用配置</h4>
+            <div class="help-row">
+              <div class="help-row-head"><strong>快速上手</strong></div>
+              <p>样本 10,000 ｜ 3 轮 ｜ 学习率 1e-3 ｜ batch 64 ｜ 早停开、耐心 2</p>
+              <p>用途：先确认数据与链路没问题，几十秒出结果。</p>
+            </div>
+            <div class="help-row">
+              <div class="help-row-head"><strong>高精度</strong></div>
+              <p>样本 60,000 ｜ 8~12 轮 ｜ 学习率 5e-4 ｜ batch 128 ｜ 早停开、耐心 4</p>
+              <p>用途：数据量大、机器有空闲时冲精度；CPU 约 10 分钟起。</p>
+            </div>
+            <div class="help-row">
+              <div class="help-row-head"><strong>手机笔迹微调</strong></div>
+              <p>基于生效模型微调 ｜ 样本 10,000 ｜ 3~5 轮 ｜ 学习率 3e-4 ｜ 照片增广 0.3~0.6</p>
+              <p>用途：用自己的手写数据适配，注意别把学习率调大。</p>
+            </div>
+          </article>
+        </div>
+
+        <footer class="modal-foot">
+          <button @click="closeHelp">知道了</button>
+        </footer>
+      </section>
+    </div>
 </template>
