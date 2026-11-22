@@ -145,6 +145,8 @@ public class DatasetController {
     public Result<Map<String, Object>> claimSamples(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                     HttpServletRequest request) {
         long user = authorize(workspaceId, request);
+        if (!"SUPER_ADMIN".equals(com.hdr.v2.auth.V2Principal.require(request).platformRole()))
+            throw new V2Exception(403, "只有平台管理员可以使用归入识别采集", "FORBIDDEN");
         return Result.ok(Map.of("claimed", datasets.claimRecognition(workspaceId, user, datasetId)));
     }
 

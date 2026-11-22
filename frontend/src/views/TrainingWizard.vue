@@ -454,7 +454,7 @@ onBeforeUnmount(releaseImages)
             </div>
             <button type="button" class="manual-button" @click="openManual">用户手册</button>
           </div>
-          <p class="muted">四步向导：选数据 → 调参数（实时估算参数量/显存/耗时）→ 看训练 → 看评估。</p>
+
         </div>
         <div class="wizard-steps">
           <button v-for="(label, index) in STEPS" :key="label" type="button" class="wizard-step"
@@ -499,7 +499,7 @@ onBeforeUnmount(releaseImages)
             <span v-else class="sample-placeholder">无图</span>
             <figcaption>{{ item.label }}</figcaption>
           </figure>
-          <p v-if="!state.samples.length" class="muted">选一个版本后显示样本缩略图。</p>
+          <p v-if="!state.samples.length" class="muted inline-hint">选一个版本后显示缩略图</p>
         </div>
       </div>
       <aside class="panel">

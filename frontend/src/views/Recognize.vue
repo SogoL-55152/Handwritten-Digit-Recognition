@@ -114,7 +114,7 @@ function setConsent(value) {
   if (consentGiven.value) feedbackErrors.value = {}
 }
 
-const enhanced = reactive({ loading: false, url: '', error: '' })
+const enhanced = reactive({ loading: false, url: '', error: '', shown: false })
 
 async function previewEnhanced() {
   const file = controller.selectedFile()
@@ -127,6 +127,7 @@ async function previewEnhanced() {
     enhanced.url = ''
   }
   enhanced.loading = true
+  enhanced.shown = true
   enhanced.error = ''
   try {
     const blob = await previewEnhancedImage(workspace.getSnapshot(), file)
@@ -253,7 +254,7 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
           <figcaption>{{ state.image.mime === 'image/jpeg' ? 'JPEG' : 'PNG' }} · {{ state.image.width }} × {{ state.image.height }} 像素 · {{ (state.image.size / 1024).toFixed(1) }} KiB</figcaption>
         </figure>
         <p v-else-if="!state.validating" class="muted">尚未选择有效图片。</p>
-        <figure v-if="state.inputKind === 'image' && (enhanced.url || enhanced.error)" class="enhanced-preview">
+        <figure v-if="state.inputKind === 'image' && enhanced.shown && (enhanced.url || enhanced.error)" class="enhanced-preview">
           <figcaption class="muted">{{ enhanced.error || '预处理后（白底黑字、笔画加粗；实际送入模型的就是这张）' }}</figcaption>
           <img v-if="enhanced.url" :src="enhanced.url" alt="预处理后的图片" />
         </figure>

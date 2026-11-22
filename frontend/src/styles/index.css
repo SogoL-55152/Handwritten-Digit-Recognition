@@ -606,3 +606,7 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .live-dot.FAILED { background: #a5342a; }
 .live-logs pre { max-height: 220px; overflow: auto; background: #0f1a26; color: #cfe0f0; padding: 10px 12px;
   border-radius: 8px; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; }
+
+.inline-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.model-search { min-width: 220px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }

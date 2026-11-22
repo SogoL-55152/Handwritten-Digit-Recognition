@@ -39,6 +39,24 @@ public class WorkspaceService {
     }
     public WorkspaceService(JdbcTemplate jdbc, int maxWorkspaces) { this(jdbc, maxWorkspaces, new PilotPolicy(false, "")); }
 
+    /** 删除空间：仅 OWNER 可删；个人空间不允许删除（会破坏默认空间）。 */
+    @Transactional
+    public void delete(long workspaceId, long userId) {
+        Integer owner = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_workspace_member
+                WHERE workspace_id=? AND user_id=? AND role='OWNER' AND status='ACTIVE'
+                """, Integer.class, workspaceId, userId);
+        if (owner == null || owner == 0)
+            throw new com.hdr.v2.V2Exception(403, "只有空间创建者可以删除空间", "FORBIDDEN");
+        Integer personal = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_workspace WHERE id=? AND personal_user_id IS NOT NULL",
+                Integer.class, workspaceId);
+        if (personal != null && personal > 0)
+            throw new com.hdr.v2.V2Exception(409, "个人空间不能删除", "PERSONAL_WORKSPACE");
+        jdbc.update("UPDATE t_workspace SET status='DELETED' WHERE id=?", workspaceId);
+        jdbc.update("UPDATE t_workspace_member SET status='REMOVED' WHERE workspace_id=?", workspaceId);
+    }
+
     public List<Workspace> list(long userId) {
         return jdbc.query(MEMBER_QUERY + " ORDER BY (w.personal_user_id=m.user_id) DESC,w.id", WORKSPACE, userId);
     }

@@ -3,6 +3,8 @@ import request from './request.js'
 export const workspacePath = (id) => `/workspaces/${encodeURIComponent(id)}`
 export const listWorkspaces = (authSession) => request.get('/workspaces', { authSession, silent: true })
 export const getWorkspace = (id, authSession) => request.get(workspacePath(id), { authSession, silent: true })
+export const deleteWorkspace = (id, authSession) =>
+  request.delete(workspacePath(id), { authSession, silent: true })
 export const createWorkspace = (name, authSession) => request.post('/workspaces', { name }, { authSession, silent: true })
 export const getResource = (snapshot, resource) => request.get(`${workspacePath(snapshot.workspaceId)}/${resource}`, { authSession: snapshot.session, silent: true })
 export const getPlatform = (authSession, resource) => request.get(`/platform/${resource}`, { authSession, silent: true })

@@ -19,7 +19,7 @@ const state = reactive({
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
   importSource: 'server', localPreview: null, picked: null,
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF', sourceQuery: '',
-  labelOpen: false,
+  labelOpen: false, manualOpen: false,
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
@@ -523,6 +523,7 @@ onBeforeUnmount(releaseImages)
         <p class="muted">把采集到的样本整理成可训练、可评测的集合。版本是快照，划分默认按书写者隔离。</p>
       </div>
       <div class="row-actions">
+        <button type="button" @click="state.manualOpen = true">用户手册</button>
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="openWizard">导入数据集</button>
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
@@ -684,7 +685,7 @@ onBeforeUnmount(releaseImages)
             <div class="row-actions dataset-actions">
               <span class="tag">{{ state.versions.length }} 个版本</span>
               <button :disabled="state.busy" title="跑一次多位数检测，把疑似多数字的样本标出来" @click="inspectSamples">巡检多位数</button>
-              <button :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
+              <button v-if="user.isSuperAdmin" :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
               <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
             </div>
           </div>
@@ -810,4 +811,53 @@ onBeforeUnmount(releaseImages)
       </div>
     </section>
   </div>
+
+    <div v-if="state.manualOpen" class="modal-mask" @click.self="state.manualOpen = false">
+      <section class="modal-card help-card">
+        <header class="modal-head">
+          <div>
+            <h3>数据集 · 用户手册</h3>
+            <p class="muted">从导入到训练的完整流程；先看流程，再看每个格式的规则。</p>
+          </div>
+          <button class="link" @click="state.manualOpen = false">关闭</button>
+        </header>
+        <div class="help-groups">
+          <article class="flow-article">
+            <h4>整体流程</h4>
+            <ol class="flow-list">
+              <li><strong>1. 新建数据集</strong><p>点右上角「新建数据集」，起一个名字；导入的样本会归属到它。</p></li>
+              <li><strong>2. 导入样本</strong><p>选中数据集后点「导入数据集」，选择来源与格式，先「试运行」看统计，再确认导入。</p></li>
+              <li><strong>3. 自动建版本</strong><p>导入成功后会自动生成一个版本（快照）；也可以手动调整划分比例再建。</p></li>
+              <li><strong>4. 巡检多位数</strong><p>点「巡检多位数」把疑似多数字的样本标出来，在样本网格里删除。</p></li>
+              <li><strong>5. 去训练</strong><p>到「训练模型」页选择这个版本，设置参数后开始训练。</p></li>
+            </ol>
+          </article>
+
+          <article>
+            <h4>支持的导入格式</h4>
+            <div class="help-row"><div class="help-row-head"><strong>按 0–9 分文件夹</strong></div><p>目录下每个子目录名是 0–9，图片放里面。</p></div>
+            <div class="help-row"><div class="help-row-head"><strong>CSV 标签</strong></div><p>平铺图片 + <code>labels.csv</code>，两列为文件名与标签（0–9）。</p></div>
+            <div class="help-row"><div class="help-row-head"><strong>文件名带标签</strong></div><p>取文件名里第一个孤立数字，如 <code>3_001.png</code>；<code>IMG_0001</code> 这类会被跳过。</p></div>
+            <div class="help-row"><div class="help-row-head"><strong>带框多位数</strong></div><p>SVHN 风格的 <code>digitStruct.mat</code>，按框自动裁成单字。</p></div>
+            <div class="help-row"><div class="help-row-head"><strong>IDX（MNIST / EMNIST）</strong></div><p>目录里有 <code>*-images-idx3-ubyte</code> 与 <code>*-labels-idx1-ubyte</code>（.gz 也支持）。</p></div>
+            <div class="help-row"><div class="help-row-head"><strong>本机文件夹</strong></div><p>浏览器上传，只支持 0–9 子目录；单张 ≤5MB、单批 20 张、单次 ≤200 张。</p></div>
+          </article>
+
+          <article>
+            <h4>版本与划分</h4>
+            <div class="help-row"><p>版本是样本快照：生成后新导入的样本不会自动进来，要重新生成版本。</p></div>
+            <div class="help-row"><p>划分默认按书写者隔离（避免同一人跨集合）；不足 3 位书写者时改用随机划分。</p></div>
+            <div class="help-row"><p>样本很少时（≤3 条）全部划到训练集，否则训练集会为空、任务必然失败。</p></div>
+          </article>
+
+          <article>
+            <h4>删除与回滚</h4>
+            <div class="help-row"><p>导入后未进入版本的批次可以回滚（批次列表里的「回滚」）。</p></div>
+            <div class="help-row"><p>版本一旦被训练任务使用就不能删（会提示 VERSION_IN_USE）。</p></div>
+            <div class="help-row"><p>删除数据集会一并删除它导入的样本；从识别页归入的样本只解除归属，不删原图。</p></div>
+          </article>
+        </div>
+        <footer class="modal-foot"><button @click="state.manualOpen = false">知道了</button></footer>
+      </section>
+    </div>
 </template>

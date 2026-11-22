@@ -31,6 +31,14 @@ public class WorkspaceController {
         return Result.ok(workspaces.create(V2Principal.require(request).userId(), body.name()));
     }
 
+    @org.springframework.web.bind.annotation.DeleteMapping("/{workspaceId}")
+    public Result<java.util.Map<String, Object>> delete(@org.springframework.web.bind.annotation.PathVariable long workspaceId,
+                                                       HttpServletRequest request) {
+        long user = com.hdr.v2.auth.V2Principal.require(request).userId();
+        workspaces.delete(workspaceId, user);
+        return Result.ok(java.util.Map.of("deleted", Long.toString(workspaceId)));
+    }
+
     @GetMapping("/{workspaceId}")
     public Result<WorkspaceService.Workspace> get(@PathVariable long workspaceId, HttpServletRequest request) {
         return Result.ok(workspaces.requireMember(workspaceId, V2Principal.require(request).userId()));
