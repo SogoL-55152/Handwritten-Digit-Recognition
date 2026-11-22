@@ -112,3 +112,17 @@ export const wizardZipCommit = (snapshot, datasetId, token) =>
 export const inspectDataset = (snapshot, datasetId, limit = 50) =>
   request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/inspect`, { limit },
     { authSession: snapshot.session, silent: true, timeout: 600000 })
+
+export const uploadFolder = (snapshot, files, paths) => {
+  const form = new FormData()
+  files.forEach((file, index) => {
+    form.append('file', file, file.name)
+    form.append('path', paths[index] || file.name)
+  })
+  return request.post(`${base(snapshot)}/datasets/import-wizard/upload`, form,
+    { authSession: snapshot.session, silent: true, timeout: 900000 })
+}
+
+export const commitUpload = (snapshot, datasetId, token) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard/upload-commit`, { token },
+    { authSession: snapshot.session, silent: true, timeout: 900000 })

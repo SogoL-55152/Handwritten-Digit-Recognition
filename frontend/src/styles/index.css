@@ -613,3 +613,8 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 
 .page-heading-actions { display: flex; align-items: center; gap: 10px; }
 .page-heading-actions .manual-button { background: #fff; }
+
+.folder-first { border-top: 0; padding-top: 4px; }
+.folder-first .primary { padding: 8px 18px; font-size: 14px; }
+.other-sources { margin: 10px 0; border-top: 1px dashed var(--line); padding-top: 8px; font-size: 13px; }
+.other-sources summary { cursor: pointer; color: #5b6b7f; margin-bottom: 6px; }

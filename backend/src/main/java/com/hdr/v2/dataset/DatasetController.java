@@ -74,6 +74,27 @@ public class DatasetController {
 
     public record WizardCommand(String directory) {}
 
+    @PostMapping(value = "/datasets/import-wizard/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<Map<String, Object>> wizardUpload(@PathVariable long workspaceId,
+                                                    @RequestParam("file") java.util.List<org.springframework.web.multipart.MultipartFile> files,
+                                                    @RequestParam(value = "path", required = false) java.util.List<String> paths,
+                                                    HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(wizard.uploadPreview(workspaceId, user, files, paths));
+    }
+
+    public record UploadCommit(String token) {}
+
+    @PostMapping("/datasets/{datasetId}/import-wizard/upload-commit")
+    public Result<Map<String, Object>> wizardUploadCommit(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                          @RequestBody UploadCommit command,
+                                                          HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        if (command == null || command.token() == null)
+            throw new V2Exception(400, "缺少上传标识", "VALIDATION");
+        return Result.ok(wizard.commitUpload(workspaceId, user, datasetId, command.token()));
+    }
+
     @PostMapping("/datasets/import-wizard/preview")
     public Result<ImportWizardService.Preview> wizardPreview(@PathVariable long workspaceId,
                                                              @RequestBody(required = false) WizardCommand command,

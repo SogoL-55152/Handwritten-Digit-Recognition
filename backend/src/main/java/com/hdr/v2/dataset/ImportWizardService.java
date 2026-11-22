@@ -98,6 +98,64 @@ public class ImportWizardService {
         return dir;
     }
 
+    /** 方案A：把浏览器选中的文件夹上传到临时目录，返回识别结果与 token。 */
+    public Map<String, Object> uploadPreview(long workspaceId, long userId,
+                                             java.util.List<org.springframework.web.multipart.MultipartFile> files,
+                                             java.util.List<String> paths) {
+        spaces.requireMember(workspaceId, userId);
+        if (files == null || files.isEmpty())
+            throw new V2Exception(400, "没有收到文件", "VALIDATION");
+        if (files.size() > 5000)
+            throw new V2Exception(400, "一次最多上传 5000 个文件；更多请改用 zip 或服务器目录", "TOO_MANY_FILES");
+        String token = java.util.UUID.randomUUID().toString();
+        Path uploadRoot = root.resolve(".hdr-upload");
+        Path target = uploadRoot.resolve(token).normalize();
+        if (!target.startsWith(uploadRoot)) throw new V2Exception(400, "非法上传路径", "VALIDATION");
+        try {
+            Files.createDirectories(target);
+            for (int index = 0; index < files.size(); index += 1) {
+                String relative = paths != null && paths.size() > index ? paths.get(index) : files.get(index).getOriginalFilename();
+                if (relative == null || relative.isBlank()) continue;
+                Path destination = target.resolve(relative.replace('\\', '/')).normalize();
+                if (!destination.startsWith(target)) continue;
+                Files.createDirectories(destination.getParent() == null ? target : destination.getParent());
+                files.get(index).transferTo(destination);
+            }
+        } catch (java.io.IOException error) {
+            throw new V2Exception(503, "上传目录写入失败，请重试", "STORAGE_UNAVAILABLE");
+        }
+        Preview preview = scan(workspaceId, target);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", token);
+        body.put("preview", preview);
+        return body;
+    }
+
+    /** 方案A：确认导入后立即清理临时目录。 */
+    public Map<String, Object> commitUpload(long workspaceId, long userId, long datasetId, String token) {
+        if (token == null || !token.matches("[0-9a-fA-F-]{36}"))
+            throw new V2Exception(400, "上传标识不合法", "VALIDATION");
+        Path uploadRoot = root.resolve(".hdr-upload");
+        Path target = uploadRoot.resolve(token).normalize();
+        if (!target.startsWith(uploadRoot) || !Files.isDirectory(target))
+            throw new V2Exception(400, "上传内容已过期，请重新选择文件夹", "UPLOAD_EXPIRED");
+        try {
+            return commit(workspaceId, userId, datasetId, target.toString());
+        } finally {
+            deleteTree(target);
+        }
+    }
+
+    private void deleteTree(Path target) {
+        try (Stream<Path> stream = Files.walk(target)) {
+            stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (java.io.IOException ignored) { }
+            });
+        } catch (java.io.IOException ignored) {
+            // 清理失败不影响导入结果
+        }
+    }
+
     public Preview preview(long workspaceId, long userId, String directory) {
         spaces.requireMember(workspaceId, userId);
         return scan(workspaceId, resolve(directory));
