@@ -594,3 +594,6 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .label-mini-bars { display: grid; gap: 3px; margin-top: 8px; }
 .label-mini { display: grid; grid-template-columns: 16px 1fr 34px; align-items: center; gap: 6px; font-size: 11px; color: #8a97a5; }
 .label-mini i { height: 6px; border-radius: 3px; background: var(--primary); }
+
+.block-toggle { cursor: pointer; user-select: none; }
+.block-toggle h4 { margin: 0; }

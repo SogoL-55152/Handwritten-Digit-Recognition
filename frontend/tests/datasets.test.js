@@ -38,7 +38,6 @@ test('split hints warn about empty splits, writer overlap and too few writers', 
   })
   assert.ok(hints.some((hint) => hint.includes('验证集为空')))
   assert.ok(hints.some((hint) => hint.includes('1 位书写者同时出现在多个划分')))
-  assert.ok(hints.some((hint) => hint.includes('少于 3 位')))
   const healthy = splitHints({ bySplit: [{ key: 'TRAIN', count: 20 }, { key: 'VAL', count: 5 }, { key: 'TEST', count: 5 }], writerLeak: 0, version: { writerCount: 5 } })
   assert.deepEqual(healthy, [])
 })

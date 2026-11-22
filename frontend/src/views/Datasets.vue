@@ -19,6 +19,7 @@ const state = reactive({
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
   importSource: 'server', localPreview: null, picked: null,
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF', sourceQuery: '',
+  labelOpen: false,
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
 })
 const imageUrls = reactive({})
@@ -747,8 +748,11 @@ onBeforeUnmount(releaseImages)
           <p v-for="hint in hints" :key="hint" class="hint-banner">⚠ {{ hint }}</p>
 
           <div class="chart-block">
-            <div class="block-head"><h4>标签分布</h4><span class="muted">共 {{ state.stats.version.sampleCount }} 条</span></div>
-            <div class="label-bars">
+            <div class="block-head block-toggle" @click="state.labelOpen = !state.labelOpen">
+              <h4>{{ state.labelOpen ? '▾' : '▸' }} 标签分布</h4>
+              <span class="muted">共 {{ state.stats.version.sampleCount }} 条 · {{ state.labelOpen ? '点击收起' : '点击展开' }}</span>
+            </div>
+            <div v-show="state.labelOpen" class="label-bars">
               <div v-for="row in labelList" :key="row.label" class="label-bar">
                 <span class="label-name">{{ row.label }}</span>
                 <span class="bar"><i :style="{ width: Math.max(2, row.percent) + '%' }"></i></span>

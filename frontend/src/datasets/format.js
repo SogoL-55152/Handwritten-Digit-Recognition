@@ -57,8 +57,5 @@ export function splitHints(stats) {
   if (empty.length) hints.push(`${empty.join('、')}为空，训练或评测会缺数据`)
   const leak = Number(stats?.writerLeak || 0)
   if (leak > 0) hints.push(`有 ${leak} 位书写者同时出现在多个划分里，评测结果会偏乐观`)
-  if (Number(stats?.version?.writerCount || 0) < 3) {
-    hints.push('当前样本的书写者少于 3 位，只能按样本随机划分')
-  }
   return hints
 }
