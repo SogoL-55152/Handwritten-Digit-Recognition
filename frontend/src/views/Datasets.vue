@@ -26,6 +26,9 @@ const imageUrls = reactive({})
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 
+/** 文件夹选择用的隐藏 input（点击主按钮时触发）。 */
+const folderInput = ref(null)
+
 /** 三种来源各自适配哪些数据集形态（弹窗里直接显示，避免选错入口）。 */
 const SOURCE_NOTES = {
   server: {
