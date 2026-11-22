@@ -139,12 +139,12 @@ async function previewEnhanced() {
   }
 }
 
-// 换图/移除图片时清掉旧预览；选到有效图片就自动跑一次增强预览，不用手动点
-watch(() => state.image?.previewUrl, (url) => {
+// 换图/移除图片时清掉旧预览并收起面板；预处理效果要用户点按钮才看
+watch(() => state.image?.previewUrl, () => {
   if (enhanced.url) URL.revokeObjectURL(enhanced.url)
   enhanced.url = ''
   enhanced.error = ''
-  if (url && !state.validating) void previewEnhanced()
+  enhanced.shown = false
 })
 
 const feedback = reactive({ submitting: false, message: '', error: '', sentFor: null, wrongOpen: false })
