@@ -117,15 +117,21 @@ public class TrainingDataExporter {
             for (Map<String, Object> row : rows) {
                 String label = String.valueOf(row.get("label"));
                 if (!label.matches("[0-9]{1,4}")) continue;
-                byte[] bytes;
+                String name = label + "_" + row.get("sample_id") + ".png";
+                Path source;
                 try {
-                    bytes = collected.readArtifact(String.valueOf(row.get("artifact_path")));
+                    source = collected.artifactPath(String.valueOf(row.get("artifact_path")));
                 } catch (V2Exception missing) {
                     LOG.warn("Skip unreadable sample {} for version {}", row.get("sample_id"), versionId);
                     continue;
                 }
-                String name = label + "_" + row.get("sample_id") + ".png";
-                Files.write(target.resolve(name), bytes);
+                // 同盘优先硬链接：不复制字节，几万张也几乎是秒级
+                try {
+                    if (Files.exists(target.resolve(name))) Files.delete(target.resolve(name));
+                    Files.createLink(target.resolve(name), source);
+                } catch (IOException | UnsupportedOperationException linkFailed) {
+                    Files.write(target.resolve(name), Files.readAllBytes(source));
+                }
                 labels.merge(label, 1, Integer::sum);
                 writers.add(String.valueOf(row.get("writer_key")));
                 written += 1;

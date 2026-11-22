@@ -118,6 +118,16 @@ public class CollectedSampleService {
     }
 
     /** 读取采集样本原图（artifact_path 是相对根目录的路径，校验不逃逸）。 */
+    /** 返回 artifact 的绝对路径（导出训练数据时可直接硬链接，避免逐张读写）。 */
+    public Path artifactPath(String relativePath) {
+        if (relativePath == null || relativePath.isBlank())
+            throw new V2Exception(404, "样本没有保存图片", "IMAGE_NOT_FOUND");
+        Path target = root.resolve(relativePath).normalize();
+        if (!target.startsWith(root) || !Files.isRegularFile(target))
+            throw new V2Exception(404, "样本没有保存图片", "IMAGE_NOT_FOUND");
+        return target;
+    }
+
     public byte[] readArtifact(String relativePath) {
         if (relativePath == null || relativePath.isBlank())
             throw new V2Exception(404, "样本没有保存图片", "IMAGE_NOT_FOUND");

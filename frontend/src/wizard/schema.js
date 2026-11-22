@@ -17,26 +17,54 @@ export const PARAM_SCHEMA = [
         options: { from: 'datasetVersions' }
       },
       {
-        key: 'augment',
-        label: '数据增强',
-        widget: 'switch',
-        help: '旋转 ±15°、平移 0.1。提升手机端真实笔迹的鲁棒性。',
-        detail: '作用：训练时随机旋转 ±15°、平移 0.1，模拟真实手写的位置与角度偏差。\n常规：手机/画板数据保持开启；如果训练集本身已经做过大量增广，可以关掉。\n注意：增广越强越难收敛，必要时多训几轮。',
-      }
-    ]
-  },
-  {
-    id: 'structure',
-    title: '网络结构',
-    items: [
+        key: 'augRotate',
+        label: '旋转增强',
+        widget: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        help: '随机旋转，强度 1 约等于 ±20°。',
+        detail: '作用：训练时随机旋转输入，模拟书写倾斜。\n常规：0.3~0.5；数据本身已很规整可降到 0。\n注意：过大（>0.8）会让 6/9、2/7 这类数字混淆。'
+      },
       {
-        key: 'arch',
-        label: '结构预设',
-        widget: 'select',
-        displayOnly: true,
-        help: '预设只是起点，选中后仍可逐层修改卷积核数量与全连接宽度。',
-        detail: '作用：选择网络结构预设（2Conv / 3Conv 等），决定参数量与表达能力。\n常规：手写数字用默认 CNN 2Conv 足够（42 万参数）；要更高精度可换更深的预设。\n注意：当前训练管线的结构固定，这一项**只参与估算**，不会真的改变网络。',
-        options: { from: 'archPresets' }
+        key: 'augScale',
+        label: '缩放增强',
+        widget: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        help: '随机放大/缩小，强度 1 约等于 ±20%。',
+        detail: '作用：模拟离镜头远近、字写大或写小。\n常规：0.2~0.4。'
+      },
+      {
+        key: 'augBrightness',
+        label: '亮度增强',
+        widget: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        help: '随机变亮/变暗，模拟光照差异。',
+        detail: '作用：模拟拍照时光线不均或偏暗。\n常规：照片数据 0.3~0.6；画板数据 0。'
+      },
+      {
+        key: 'augBlur',
+        label: '模糊增强',
+        widget: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        help: '按概率加高斯模糊，模拟失焦。',
+        detail: '作用：模拟拍照失焦、低分辨率。\n常规：0.2~0.4；画板数据可设 0。'
+      },
+      {
+        key: 'augMosaic',
+        label: '马赛克增强',
+        widget: 'slider',
+        min: 0,
+        max: 1,
+        step: 0.1,
+        help: '按概率做块状降采样，模拟低清/压缩。',
+        detail: '作用：把图像做成块状像素化，迫使模型不依赖细节笔画；对低清摄像头、强压缩图片有帮助。\n常规：0.1~0.3；设太高会明显掉准确率。\n注意：这是「模拟劣化」，不是遮挡，慎用超过 0.5。'
       }
     ]
   },
@@ -216,7 +244,11 @@ export const PARAM_SCHEMA = [
 export function defaultConfig() {
   return {
     datasetVersionId: null,
-    augment: true,
+    augRotate: 0.3,
+    augScale: 0.2,
+    augBrightness: 0,
+    augBlur: 0,
+    augMosaic: 0,
     arch: 'cnn2',
     optimizer: 'adam',
     momentum: 0.9,

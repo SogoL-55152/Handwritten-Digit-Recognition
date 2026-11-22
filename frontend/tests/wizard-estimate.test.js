@@ -124,7 +124,8 @@ test('schema renders dependsOn fields only when the driver matches', () => {
 })
 
 test('schema covers the four groups the design calls for', () => {
-  assert.deepEqual(PARAM_SCHEMA.map((group) => group.id), ['data', 'structure', 'hyper', 'runtime'])
+  assert.deepEqual(PARAM_SCHEMA.map((group) => group.id), ['data', 'hyper', 'runtime'])
+  assert.ok(PARAM_SCHEMA.some((group) => group.items.some((item) => item.key === 'augMosaic')))
   for (const group of PARAM_SCHEMA) {
     for (const item of group.items) {
       assert.ok(item.key && item.label && item.widget)

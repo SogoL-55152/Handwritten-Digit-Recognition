@@ -13,6 +13,7 @@ def params(**overrides):
         "photoRatio": 0.5, "useEmnist": False, "initFrom": None, "datasetVersionId": None,
         "dataDir": None, "earlyStop": False, "patience": 3,
         "trainFrom": "all", "trainableLayers": ["conv1", "conv2", "fc1", "fc2"],
+        "aug": {"rotate": 0.3, "scale": 0, "brightness": 0, "blur": 0, "mosaic": 0},
     }
     base.update(overrides)
     return base

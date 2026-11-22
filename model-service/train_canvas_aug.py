@@ -144,14 +144,51 @@ def photo_style(image28: np.ndarray, rng) -> np.ndarray:
     return canvas
 
 
-def build_inputs(images: np.ndarray, rng, photo_ratio: float) -> tuple[np.ndarray, int]:
+def apply_augments(image_l, rng, aug):
+    """在渲染结果上追加可配置增强；aug 为 0..1 的强度，None 表示不额外增强。"""
+    if not aug:
+        return image_l
+    from PIL import Image, ImageFilter
+    out = image_l
+    rotate = float(aug.get("rotate", 0) or 0)
+    if rotate > 0:
+        angle = float(rng.uniform(-20, 20)) * min(1.0, rotate)
+        if abs(angle) > 0.5:
+            out = out.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=0)
+    scale = float(aug.get("scale", 0) or 0)
+    if scale > 0:
+        factor = 1 + float(rng.uniform(-0.2, 0.2)) * min(1.0, scale)
+        width, height = out.size
+        resized = out.resize((max(8, int(width * factor)), max(8, int(height * factor))),
+                             Image.Resampling.LANCZOS)
+        canvas = Image.new("L", (width, height), 0)
+        canvas.paste(resized, ((width - resized.width) // 2, (height - resized.height) // 2))
+        out = canvas
+    brightness = float(aug.get("brightness", 0) or 0)
+    if brightness > 0:
+        factor = 1 + float(rng.uniform(-0.4, 0.4)) * min(1.0, brightness)
+        values = np.asarray(out).astype(np.float32) * factor
+        out = Image.fromarray(np.clip(values, 0, 255).astype(np.uint8))
+    blur = float(aug.get("blur", 0) or 0)
+    if blur > 0 and rng.random() < min(1.0, blur):
+        out = out.filter(ImageFilter.GaussianBlur(radius=float(rng.uniform(0.5, 2.5)) * min(1.0, blur)))
+    mosaic = float(aug.get("mosaic", 0) or 0)
+    if mosaic > 0 and rng.random() < min(1.0, mosaic):
+        width, height = out.size
+        block = max(2, int(min(width, height) * float(rng.uniform(0.06, 0.30)) * min(1.0, mosaic)))
+        small = out.resize((max(1, width // block), max(1, height // block)), Image.Resampling.NEAREST)
+        out = small.resize((width, height), Image.Resampling.NEAREST)
+    return out
+
+
+def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None) -> tuple[np.ndarray, int]:
     """渲染并走线上同一套 canvas_input；返回输入张量与无法对齐的样本数。"""
     rows = np.zeros((len(images), 1, 28, 28), dtype=np.float32)
     skipped = 0
     for index, image in enumerate(images):
         render = photo_style if rng.random() < photo_ratio else canvas_style
         try:
-            rows[index, 0] = canvas_input(render(image, rng))
+            rows[index, 0] = canvas_input(apply_augments(render(image, rng), rng, aug))
         except InvalidImage:
             skipped += 1
     return rows, skipped
@@ -285,7 +322,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         threads: int | None = None, emnist_zip: Path | None = None,
         on_epoch: "callable | None" = None, extra_dir: Path | None = None,
         early_stop: bool = False, patience: int = 3,
-        trainable_layers: "list[str] | None" = None) -> dict:
+        trainable_layers: "list[str] | None" = None, aug: "dict | None" = None) -> dict:
     """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
@@ -428,6 +465,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
                    "earlyStop": early_stop, "patience": patience,
                    "learning_rate": config.learning_rate, "seed": config.seed,
                    "photo_ratio": config.photo_ratio,
+                   "augment": aug or {},
                    "emnist": str(emnist_zip) if emnist_zip else None,
                    "initialized_from": str(init) if init else None},
         "samples_rendered": int(len(train_inputs) - skipped),

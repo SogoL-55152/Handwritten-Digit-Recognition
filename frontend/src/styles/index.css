@@ -411,14 +411,15 @@ tr.diff td { background: #fdf6e8; }
 .param-group h3 { margin: 0 0 8px; font-size: 14px; }
 .param-group .group-head { padding: 4px 0; border-radius: 6px; }
 .param-group .group-head:hover { background: #f6f8fb; }
-.param-line { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 12px; align-items: center; margin-bottom: 10px; }
+.param-line { display: grid; grid-template-columns: 1fr; gap: 6px; align-items: start; margin-bottom: 14px; }
 .param-line > label { display: inline-flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px;
   font-size: 13px; font-weight: 600; color: #33475e; line-height: 1.4; }
 .param-line > label .help { font-weight: 400; color: #8a9bb0; cursor: help; }
 .param-line select, .param-line input[type='number'], .param-line input[type='text'] { width: 100%; }
 .param-line > label { font-size: 13px; color: #33475e; }
 .help { cursor: help; color: var(--muted); }
-.log-slider { display: grid; grid-template-columns: minmax(0, 1fr) 110px 64px; gap: 8px; align-items: center; }
+.log-slider { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; align-items: center; }
+.log-slider input[type='number'] { display: none; }
 .log-slider small { color: var(--muted); }
 .segmented { display: flex; flex-wrap: wrap; gap: 6px; }
 .segmented button { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-size: 13px; }
@@ -597,3 +598,11 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 
 .block-toggle { cursor: pointer; user-select: none; }
 .block-toggle h4 { margin: 0; }
+
+.live-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; }
+.live-dot { width: 10px; height: 10px; border-radius: 50%; background: #b8c2cf; }
+.live-dot.RUNNING { background: #2f6fd0; box-shadow: 0 0 0 4px rgba(47, 111, 208, .15); }
+.live-dot.SUCCEEDED { background: #2c6e3f; }
+.live-dot.FAILED { background: #a5342a; }
+.live-logs pre { max-height: 220px; overflow: auto; background: #0f1a26; color: #cfe0f0; padding: 10px 12px;
+  border-radius: 8px; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; }

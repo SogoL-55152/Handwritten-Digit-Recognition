@@ -113,7 +113,7 @@ def _validate_form(allow_args=()):
 
 TRAINING_FIELDS = {"epochs", "samples", "batchSize", "learningRate", "seed", "photoRatio",
                    "useEmnist", "initFrom", "datasetVersionId", "dataDir", "earlyStop", "patience",
-                   "trainFrom", "trainableLayers"}
+                   "trainFrom", "trainableLayers", "aug"}
 MAX_TASK_ID = 19
 
 
@@ -130,6 +130,14 @@ def _validate_training_params(params):
         return "trainableLayers 必须是 conv1/conv2/fc1/fc2 的非空子集"
     if "fc2" not in layers:
         return "fc2（最后一层）必须可训练"
+    aug = params.get("aug")
+    allowed_aug = {"rotate", "scale", "brightness", "blur", "mosaic"}
+    if not isinstance(aug, dict) or set(aug) - allowed_aug:
+        return "aug 字段不合法"
+    for key, value in aug.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= float(value) <= 1:
+            return f"aug.{key} 必须在 0..1"
+
 
     epochs, samples, batch = params["epochs"], params["samples"], params["batchSize"]
     if isinstance(epochs, bool) or not isinstance(epochs, int) or not 1 <= epochs <= 5:

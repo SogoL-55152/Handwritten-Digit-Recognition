@@ -30,7 +30,9 @@ public class TrainingService {
     public record CreateRequest(Integer epochs, Integer samples, Integer batchSize, Double learningRate,
                                 Long seed, Double photoRatio, Boolean useEmnist, String initFrom,
                                 Long datasetVersionId, Boolean earlyStop, Integer patience,
-                                      String trainFrom, java.util.List<String> trainableLayers) {}
+                                      String trainFrom, java.util.List<String> trainableLayers,
+                                      Double augRotate, Double augScale, Double augBrightness,
+                                      Double augBlur, Double augMosaic) {}
     public record TaskView(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
@@ -290,6 +292,12 @@ public class TrainingService {
             throw new V2Exception(400, "patience 必须在 1..10", "VALIDATION");
 
         java.util.List<String> layers = resolveTrainableLayers(request.trainFrom(), request.trainableLayers());
+        java.util.Map<String, Double> aug = new java.util.LinkedHashMap<>();
+        aug.put("rotate", augValue(request.augRotate(), "augRotate"));
+        aug.put("scale", augValue(request.augScale(), "augScale"));
+        aug.put("brightness", augValue(request.augBrightness(), "augBrightness"));
+        aug.put("blur", augValue(request.augBlur(), "augBlur"));
+        aug.put("mosaic", augValue(request.augMosaic(), "augMosaic"));
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("epochs", epochs);
         params.put("samples", samples);
@@ -302,6 +310,7 @@ public class TrainingService {
         params.put("patience", request.patience() == null ? 3 : request.patience());
         params.put("trainFrom", request.trainFrom() == null ? "all" : request.trainFrom());
         params.put("trainableLayers", layers);
+        params.put("aug", aug);
         return params;
     }
 
@@ -398,5 +407,12 @@ public class TrainingService {
             }
             default -> throw new V2Exception(400, "trainFrom 只能是 all/fc1/fc2/custom", "VALIDATION");
         };
+    }
+
+    private static double augValue(Double value, String field) {
+        if (value == null) return 0;
+        if (!Double.isFinite(value) || value < 0 || value > 1)
+            throw new V2Exception(400, field + " 必须在 0..1", "VALIDATION");
+        return value;
     }
 }

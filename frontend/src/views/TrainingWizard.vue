@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import { listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
-import { createTask, listTasks } from '@/api/training.js'
+import { createTask, listTasks, trainingLogs } from '@/api/training.js'
 import { listModels } from '@/api/models.js'
 import { taskDetail } from '@/training/detail.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
@@ -19,6 +19,8 @@ const workspace = useWorkspaceStore()
 const STEPS = ['数据集', '参数', '监控', '评估']
 const step = ref(1)
 const config = reactive({ ...defaultConfig(), layers: JSON.parse(JSON.stringify(ARCH_PRESETS[1].layers)) })
+const live = reactive({ logs: '', elapsed: 0 })
+let liveTimer = null
 const state = reactive({
   datasets: [], versions: [], stats: null, samples: [], total: 0,
   tasks: [], taskId: null, hash: '', loading: false, error: '', notice: '',
@@ -338,6 +340,11 @@ async function submitTraining() {
       datasetVersionId: config.datasetVersionId || null,
       earlyStop: Boolean(config.earlyStop),
       patience: Number(config.patience) || 3,
+      augRotate: Number(config.augRotate) || 0,
+      augScale: Number(config.augScale) || 0,
+      augBrightness: Number(config.augBrightness) || 0,
+      augBlur: Number(config.augBlur) || 0,
+      augMosaic: Number(config.augMosaic) || 0,
       trainFrom: config.trainFrom || 'all',
       trainableLayers: config.trainFrom === 'custom' ? (config.trainableLayers || []) : undefined
     }
@@ -351,6 +358,32 @@ async function submitTraining() {
   } finally {
     state.submitting = false
   }
+}
+
+async function loadLiveLogs() {
+  if (!state.taskId) return
+  try {
+    const data = await trainingLogs(user.getSnapshot(), state.taskId)
+    const lines = Array.isArray(data?.lines) ? data.lines : (Array.isArray(data) ? data : [])
+    live.logs = lines.slice(-120).join('\n')
+  } catch (error) {
+    // 日志拉取失败不影响主流程
+  }
+}
+
+function startLive() {
+  if (liveTimer) return
+  liveTimer = setInterval(async () => {
+    const task = selectedTask.value
+    if (!task || !['QUEUED', 'RUNNING'].includes(task.status)) return
+    await loadTasks()
+    await loadLiveLogs()
+    if (task.startedAt) live.elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(task.startedAt)) / 1000))
+  }, 2000)
+}
+
+function stopLive() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null }
 }
 
 async function loadTasks() {
@@ -402,6 +435,7 @@ watch(() => workspace.active?.id, (id) => {
 }, { immediate: true })
 
 onMounted(async () => {
+  startLive()
   await loadModels()
   await loadTasks()
 })
@@ -681,6 +715,18 @@ onBeforeUnmount(releaseImages)
         </label>
       </div>
       <template v-if="selectedTask">
+        <div class="live-strip">
+          <span class="live-dot" :class="selectedTask.status"></span>
+          <strong>{{ selectedTask.status }}</strong>
+          <span v-if="live.elapsed">已运行 {{ live.elapsed }}s</span>
+          <span v-if="taskHistory.length">第 {{ taskHistory.length }} / {{ config.epochs }} 轮</span>
+          <span v-if="selectedTask.status === 'QUEUED'" class="muted">排队中，等待 worker 取任务</span>
+          <span v-if="selectedTask.status === 'RUNNING' && !taskHistory.length" class="muted">准备数据 / 第一轮计算中</span>
+        </div>
+        <div v-if="live.logs" class="live-logs">
+          <div class="block-head"><h4>实时日志（最近 120 行）</h4></div>
+          <pre>{{ live.logs }}</pre>
+        </div>
         <TrainingCurve :task-id="state.taskId" :history="taskHistory" :height="320" />
         <StepCurve v-if="selectedTask?.metrics?.stepSeries?.length" :metrics="selectedTask.metrics" :height="220" />
         <p v-if="overfit?.overfit" class="hint-banner">⚠ {{ overfit.message }}</p>
