@@ -7,6 +7,7 @@ from PIL import Image, ImageFilter
 from services.inference_manifest import (
     BASELINE, IMAGE_MAX_BYTES, IMAGE_MAX_EDGE, IMAGE_MAX_PIXELS,
 )
+from services import mask_clean
 
 
 class InvalidImage(ValueError):
@@ -99,6 +100,9 @@ def foreground_ink(gray):
                     break
     if not mask.any():
         return None
+    mask = mask_clean.clean_mask(mask)
+    if not mask.any():
+        return None
     ink = np.where(mask, deviation * 255.0, 0.0)
     return np.clip(ink, 0, 255).astype(np.uint8)
 
@@ -152,13 +156,55 @@ def gray_from_payload(payload, content_type):
         raise InvalidImage("图片损坏或格式不受支持") from exc
 
 
+def _upscale_small_foreground(gray, enhanced):
+    """若增强后的笔迹只占画面很小一块，裁剪并放大原灰度图，再交给增强。
+
+    低对比 + 小目标时，原图降采样到 28×28 会把笔画压到 1–2 像素；
+    先放大再二值化能让阈值划分和笔画形态都更稳。
+    """
+    import os
+    if os.getenv("HDR_PREPROCESS_UPSCALE", "1") == "0":
+        return gray
+    import numpy as np
+    from PIL import Image
+
+    mask = np.asarray(enhanced) < 128
+    if not mask.any():
+        return gray
+    rows, cols = np.nonzero(mask)
+    top, bottom = int(rows.min()), int(rows.max())
+    left, right = int(cols.min()), int(cols.max())
+    size = max(bottom - top + 1, right - left + 1)
+    if size >= min(gray.shape) * 0.35:
+        return gray
+    pad = int(size * 0.25)
+    y0, y1 = max(0, top - pad), min(gray.shape[0], bottom + pad + 1)
+    x0, x1 = max(0, left - pad), min(gray.shape[1], right + pad + 1)
+    crop = gray[y0:y1, x0:x1]
+    target = max(crop.shape)
+    scale = min(6.0, max(1.0, 640.0 / max(1, target)))
+    if scale <= 1.2:
+        return gray
+    upscaled = Image.fromarray(crop).resize(
+        (max(1, int(crop.shape[1] * scale)), max(1, int(crop.shape[0] * scale))),
+        Image.Resampling.LANCZOS)
+    return np.asarray(upscaled)
+
+
 def preprocess_image(payload, content_type, enhance=False):
     """enhance=True 时先做照片增强（白底黑字 + 加粗），画板路径保持原样。"""
     gray = gray_from_payload(payload, content_type)
     if enhance:
         from services.image_enhance import enhance_photo
         try:
-            gray = enhance_photo(gray)
+            enhanced = enhance_photo(gray)
         except ValueError:
             raise InvalidImage("图片对比度过低，无法分离笔迹", category="BLANK_IMAGE")
+        upscaled = _upscale_small_foreground(gray, enhanced)
+        if upscaled is not gray:
+            try:
+                enhanced = enhance_photo(upscaled)
+            except ValueError:
+                pass
+        gray = enhanced
     return canvas_input(gray)

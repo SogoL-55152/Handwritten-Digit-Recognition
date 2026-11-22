@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 from PIL import Image, ImageFilter
+from services import mask_clean
 
 # 加粗幅度上限（像素，按图片短边比例缩放），避免把 1 和 7 的拐角糊成一片
 MAX_THICKEN_PX = 4
@@ -85,6 +86,7 @@ def enhance_photo(gray: np.ndarray, thicken: int | None = None) -> np.ndarray:
     if int(gray.max()) - int(gray.min()) < 8:
         raise ValueError("LOW_CONTRAST")
     ink = ink_mask(gray)
+    ink = mask_clean.clean_mask(ink)
     ink = _dilate(ink)   # 填掉笔画内部的小孔
     ink = _erode(ink)
     iterations = thicken_iterations(gray.shape) if thicken is None else max(0, thicken)
