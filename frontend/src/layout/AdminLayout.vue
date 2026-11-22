@@ -43,7 +43,7 @@ function logout() {
         <div class="account"><span>{{ user.displayName }}<small v-if="!pilot">{{ user.isSuperAdmin ? 'SUPER_ADMIN · 平台运营' : 'USER · 普通账号' }}</small></span><button @click="logout">退出登录</button></div>
       </header>
       <main class="main-content">
-        <div class="page-heading"><div><p class="eyebrow">{{ pilot ? 'DIGIT STUDIO / 基础体验版' : `DIGIT STUDIO / ${workspace.active?.role || '未选择空间'}` }}</p><h1>{{ route.meta.title }}</h1></div></div>
+        <div class="page-heading"><div><p class="eyebrow">{{ pilot ? 'DIGIT STUDIO / 基础体验版' : `DIGIT STUDIO / ${workspace.active?.role || '未选择空间'}` }}</p><h1>{{ route.meta.title }}</h1></div><div id="page-heading-actions" class="page-heading-actions"></div></div>
         <p v-if="needsWorkspace && (workspace.loading || workspace.selecting)" class="notice" role="status">正在向服务器核验空间成员资格…</p>
         <div v-if="needsWorkspace && workspace.error" class="notice error" role="alert">{{ workspace.error }} <button :disabled="workspace.loading" @click="workspace.load()">重新加载空间</button></div>
         <p v-if="needsWorkspace && !workspace.active && !workspace.loading && !workspace.selecting && route.path !== '/home' && route.path !== '/platform'" class="notice"><template v-if="pilot">默认空间尚未核验通过，暂不可识别。请重新加载或<router-link to="/help">联系维护者</router-link>。</template><template v-else>请选择有效空间后使用此功能。<router-link to="/home">管理我的空间</router-link></template></p>

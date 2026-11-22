@@ -610,3 +610,6 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .inline-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .model-search { min-width: 220px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+
+.page-heading-actions { display: flex; align-items: center; gap: 10px; }
+.page-heading-actions .manual-button { background: #fff; }

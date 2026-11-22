@@ -516,6 +516,9 @@ onBeforeUnmount(releaseImages)
 
 <template>
   <div class="stack wide-gap dataset-page">
+        <Teleport to="#page-heading-actions">
+      <button type="button" class="manual-button" @click="state.manualOpen = true">用户手册</button>
+    </Teleport>
     <header class="panel dataset-hero">
       <div>
         <p class="eyebrow">DATA</p>
@@ -523,7 +526,6 @@ onBeforeUnmount(releaseImages)
         <p class="muted">把采集到的样本整理成可训练、可评测的集合。版本是快照，划分默认按书写者隔离。</p>
       </div>
       <div class="row-actions">
-        <button type="button" @click="state.manualOpen = true">用户手册</button>
         <button :disabled="state.loading || state.busy" @click="loadDatasets">刷新</button>
         <button :disabled="state.busy || !state.selectedId" title="先选中一个数据集" @click="openWizard">导入数据集</button>
         <button class="primary" :disabled="state.busy" @click="state.creating = !state.creating">{{ state.creating ? '取消' : '新建数据集' }}</button>
@@ -825,11 +827,11 @@ onBeforeUnmount(releaseImages)
           <article class="flow-article">
             <h4>整体流程</h4>
             <ol class="flow-list">
-              <li><strong>1. 新建数据集</strong><p>点右上角「新建数据集」，起一个名字；导入的样本会归属到它。</p></li>
-              <li><strong>2. 导入样本</strong><p>选中数据集后点「导入数据集」，选择来源与格式，先「试运行」看统计，再确认导入。</p></li>
-              <li><strong>3. 自动建版本</strong><p>导入成功后会自动生成一个版本（快照）；也可以手动调整划分比例再建。</p></li>
-              <li><strong>4. 巡检多位数</strong><p>点「巡检多位数」把疑似多数字的样本标出来，在样本网格里删除。</p></li>
-              <li><strong>5. 去训练</strong><p>到「训练模型」页选择这个版本，设置参数后开始训练。</p></li>
+              <li><strong>新建数据集</strong><p>点右上角「新建数据集」，起一个名字；导入的样本会归属到它。</p></li>
+              <li><strong>导入样本</strong><p>选中数据集后点「导入数据集」，选择来源与格式，先「试运行」看统计，再确认导入。</p></li>
+              <li><strong>自动建版本</strong><p>导入成功后会自动生成一个版本（快照）；也可以手动调整划分比例再建。</p></li>
+              <li><strong>巡检多位数</strong><p>点「巡检多位数」把疑似多数字的样本标出来，在样本网格里删除。</p></li>
+              <li><strong>去训练</strong><p>到「训练模型」页选择这个版本，设置参数后开始训练。</p></li>
             </ol>
           </article>
 
