@@ -86,6 +86,116 @@ const jsonPreview = computed(() => JSON.stringify(normalizeConfig(config), null,
 const selectedTask = computed(() => state.tasks.find((task) => String(task.id) === String(state.taskId)) || null)
 const taskDetailView = computed(() => taskDetail(selectedTask.value))
 const taskHistory = computed(() => selectedTask.value?.metrics?.history || [])
+const currentDataset = computed(() => state.datasets.find((item) => Number(item.id) === Number(state.datasetId)) || null)
+const currentVersion = computed(() => state.versions.find((item) => Number(item.id) === Number(config.datasetVersionId)) || null)
+const layerParams = computed(() => {
+  const rows = shapes.value.rows || []
+  const conv = rows.filter((row) => row.type === 'conv')
+  const linear = rows.filter((row) => row.type === 'linear')
+  return {
+    conv1: conv[0]?.params || 0,
+    conv2: conv[1]?.params || 0,
+    fc1: linear[0]?.params || 0,
+    fc2: linear[linear.length - 1]?.params || 0
+  }
+})
+const frozenNames = computed(() => {
+  const all = ['conv1', 'conv2', 'fc1', 'fc2']
+  if (config.trainFrom === 'all') return []
+  if (config.trainFrom === 'fc1') return ['conv1', 'conv2']
+  if (config.trainFrom === 'fc2') return ['conv1', 'conv2', 'fc1']
+  const trainable = config.trainableLayers || []
+  return all.filter((name) => !trainable.includes(name))
+})
+const trainableParams = computed(() => {
+  const trainable = config.trainFrom === 'custom'
+    ? (config.trainableLayers || [])
+    : config.trainFrom === 'fc1' ? ['fc1', 'fc2'] : config.trainFrom === 'fc2' ? ['fc2'] : ['conv1', 'conv2', 'fc1', 'fc2']
+  return trainable.reduce((sum, name) => sum + (layerParams.value[name] || 0), 0)
+})
+const trainablePercent = computed(() => shapes.value.totalParams ? Math.round((trainableParams.value / shapes.value.totalParams) * 1000) / 10 : 0)
+const labelRows = computed(() => (state.stats?.byLabel || []).map((row) => ({ label: String(row.key), count: row.count || 0 })))
+const healthChecks = computed(() => {
+  const rows = []
+  const total = splitRows.value.reduce((sum, row) => sum + row.count, 0)
+  const trainCount = splitRows.value.find((row) => row.key === 'TRAIN')?.count || 0
+  if (state.stats) {
+    if (trainCount === 0) rows.push({ level: 'error', text: '该版本训练集为 0，无法训练；请重新生成版本（样本少时把验证/测试比例设为 0）' })
+    if (total > 0 && total < 100) rows.push({ level: 'warn', text: `样本只有 ${total} 条，建议先补到 100 条以上` })
+    const counts = labelRows.value.map((row) => row.count)
+    if (counts.length) {
+      const min = Math.min(...counts)
+      const max = Math.max(...counts)
+      const missing = 10 - labelRows.value.length
+      if (missing > 0) rows.push({ level: 'warn', text: `缺少 ${missing} 个数字类别的样本（0–9 中只有 ${labelRows.value.length} 类）` })
+      if (min < 20) rows.push({ level: 'warn', text: `最少的一类只有 ${min} 条，可能学不稳（建议每类 ≥20）` })
+      if (max > 0 && max / Math.max(1, min) >= 10) rows.push({ level: 'warn', text: `类别不均衡：最多 ${max} 条 / 最少 ${min} 条` })
+    }
+    const writers = state.stats?.version?.writerCount
+    if (writers === 1) rows.push({ level: 'warn', text: '只有 1 位书写者：建议用随机划分，否则版本无法按人划分' })
+    if (!rows.length) rows.push({ level: 'ok', text: '数据检查通过：划分、类别与书写者数量都正常' })
+  } else {
+    rows.push({ level: 'ok', text: '未选择数据版本：将使用内置 MNIST 训练' })
+  }
+  return rows
+})
+const freezeLabel = computed(() => {
+  if (config.trainFrom === 'all') return '不冻结（全量微调）'
+  if (config.trainFrom === 'fc1') return '冻结卷积层，只训全连接'
+  if (config.trainFrom === 'fc2') return '只训最后一层（fc2）'
+  return '自定义'
+})
+const comparableTask = computed(() => {
+  const done = state.tasks.filter((task) => task.status === 'SUCCEEDED' && task.metrics?.history?.length)
+    .sort((a, b) => Number(b.id) - Number(a.id))
+  return done[0] || null
+})
+const comparableText = computed(() => {
+  const task = comparableTask.value
+  if (!task) return ''
+  const history = task.metrics.history
+  const seconds = history.reduce((sum, row) => sum + (row.durationMs || 0), 0) / 1000
+  return `上次同类训练 #${task.id}：${task.metrics.config?.samples || '?'} 样本 · ${history.length} 轮 · 约 ${formatDuration(seconds)}`
+})
+const prepSeconds = computed(() => {
+  const count = trainSamples.value
+  return count * 0.012
+})
+
+function hintFor(item) {
+  const steps = Math.max(1, Math.ceil(Number(config.samples) / Number(config.batchSize)))
+  switch (item.key) {
+    case 'datasetVersionId':
+      return state.stats ? `训练 ${trainSamples.value} 条 · 共 ${state.stats.version?.sampleCount || 0} 条` : '按内置 MNIST 60,000 条估算'
+    case 'samples':
+      return `≈ ${steps} 步/轮（batch ${config.batchSize}）`
+    case 'epochs':
+      return config.earlyStop ? `合计最多 ${steps * Number(config.epochs)} 步；早停可能提前结束` : `合计约 ${steps * Number(config.epochs)} 步`
+    case 'learningRate':
+      return config.initFrom ? '微调建议 1e-4 ~ 5e-4' : '从零训练建议 1e-3 左右'
+    case 'batchSize':
+      return `内存约 ${memory.value.toFixed(2)} GB`
+    case 'photoRatio':
+      return `约 ${Math.round(Number(config.samples) * Number(config.photoRatio)).toLocaleString()} 张/轮走照片模拟`
+    case 'trainFrom':
+      return `可训练 ${trainableParams.value.toLocaleString()} 参数（${trainablePercent.value}%）`
+    case 'trainableLayers':
+      return `已选 ${(config.trainableLayers || []).length} / 4 层`
+    case 'patience':
+      return `最多可省约 ${Math.max(0, Number(config.epochs) - Number(config.patience))} 轮`
+    case 'earlyStop':
+      return config.earlyStop ? `验证不提升连续 ${config.patience} 轮即停` : '不提前结束，按轮数跑满'
+    case 'initFrom':
+      return config.initFrom ? '在已有权重上继续训练' : '不使用起点权重'
+    case 'device':
+      return config.device === 'gpu' ? 'GPU 约为 CPU 的 10 倍速度' : '无 GPU 时按 CPU 估算'
+    case 'seed':
+      return '相同种子 + 相同配置 = 可复现'
+    default:
+      return ''
+  }
+}
+
 const splitRows = computed(() => {
   const rows = state.stats?.bySplit || []
   const total = rows.reduce((sum, row) => sum + (row.count || 0), 0) || 1
@@ -367,6 +477,38 @@ onBeforeUnmount(releaseImages)
 
     <!-- ② 参数 -->
     <section v-if="step === 2" class="wizard-params">
+      <section class="panel summary-card">
+        <h3>本次训练摘要</h3>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <small>数据</small>
+            <strong>{{ currentDataset?.name || '内置 MNIST' }}{{ currentVersion ? ' · ' + currentVersion.version : '' }}</strong>
+            <span v-if="state.stats" class="muted">训练 {{ splitRows[0].count }} · 验证 {{ splitRows[1].count }} · 测试 {{ splitRows[2].count }}</span>
+            <span v-else class="muted">60,000 条内置样本</span>
+          </div>
+          <div class="summary-item">
+            <small>起点</small>
+            <strong>{{ config.initFrom ? '微调 ' + config.initFrom : '从零训练' }}</strong>
+            <span class="muted">{{ freezeLabel }} · 可训练 {{ trainableParams.toLocaleString() }}（{{ trainablePercent }}%）</span>
+          </div>
+          <div class="summary-item">
+            <small>超参</small>
+            <strong>{{ config.samples.toLocaleString() }} 样本 · {{ config.epochs }} 轮</strong>
+            <span class="muted">lr {{ Number(config.learningRate).toExponential(1) }} · batch {{ config.batchSize }} · {{ config.earlyStop ? '早停 ' + config.patience : '无早停' }}</span>
+          </div>
+          <div class="summary-item">
+            <small>预估</small>
+            <strong>{{ formatDuration(timing.epochSeconds) }}/轮 · 合计 {{ formatDuration(timing.totalSeconds) }}</strong>
+            <span class="muted">内存 {{ memory.toFixed(2) }} GB · 数据准备约 {{ formatDuration(prepSeconds) }}</span>
+          </div>
+        </div>
+        <div class="summary-risks">
+          <span v-for="(check, index) in healthChecks.filter((item) => item.level !== 'ok').slice(0, 3)" :key="index"
+                class="risk-chip" :class="'risk-' + check.level">{{ check.text }}</span>
+          <span v-if="!healthChecks.some((item) => item.level !== 'ok')" class="risk-chip risk-ok">✓ 数据与参数检查通过</span>
+        </div>
+      </section>
+
       <div class="panel wizard-form">
         <div class="template-bar">
           <span class="muted">参数模板：</span>
@@ -429,6 +571,7 @@ onBeforeUnmount(releaseImages)
                 <p class="hint">fc2 固定可训练；其余按需勾选。</p>
               </div>
               <input v-else-if="item.widget === 'switch'" :id="'p-' + item.key" type="checkbox" class="switch-input" v-model="config[item.key]" />
+              <p v-if="hintFor(item)" class="param-hint">{{ hintFor(item) }}</p>
             </div>
           </template>
 
@@ -452,7 +595,8 @@ onBeforeUnmount(releaseImages)
       <aside class="stack wizard-side">
         <section class="panel">
           <h3>结构图</h3>
-          <NetDiagram :layers="layers" />
+          <NetDiagram :layers="layers" :frozen="frozenNames" />
+          <p class="muted">🔒 = 已冻结（不更新）· 当前可训练 {{ trainableParams.toLocaleString() }} / {{ shapes.totalParams.toLocaleString() }} 参数</p>
         </section>
         <section class="panel">
           <h3>实时估算</h3>
@@ -464,6 +608,11 @@ onBeforeUnmount(releaseImages)
           </div>
           <p class="muted">单步约 {{ timing.stepMs.toFixed(1) }} ms · {{ timing.steps }} 步/轮 · 训练样本 {{ trainSamples }}</p>
           <p class="muted">{{ timingText }} · FLOPs ≈ {{ flops.toExponential(2) }}</p>
+          <div class="estimate-breakdown">
+            <span>数据准备 ≈ {{ formatDuration(prepSeconds) }}（命中导出缓存更快）</span>
+            <span>产物登记 ≈ 2s</span>
+            <span v-if="comparableText">{{ comparableText }}</span>
+          </div>
           <div class="memory-split">
             <span>权重 {{ memoryParts.weightsGb.toFixed(3) }}</span>
             <span>梯度 {{ memoryParts.gradsGb.toFixed(3) }}</span>
@@ -489,6 +638,22 @@ onBeforeUnmount(releaseImages)
             </li>
           </ul>
         </section>
+        <section class="panel">
+          <h3>数据体检</h3>
+          <ul class="check-list">
+            <li v-for="(check, index) in healthChecks" :key="index" :class="'check-' + check.level">
+              <span>{{ check.level === 'ok' ? '✓' : check.level === 'warn' ? '⚠' : '✗' }}</span>{{ check.text }}
+            </li>
+          </ul>
+          <div v-if="labelRows.length" class="label-mini-bars">
+            <div v-for="row in labelRows" :key="row.label" class="label-mini">
+              <span>{{ row.label }}</span>
+              <i :style="{ width: Math.max(2, (row.count / Math.max(1, ...labelRows.map((item) => item.count))) * 100) + '%' }"></i>
+              <small>{{ row.count }}</small>
+            </div>
+          </div>
+        </section>
+
         <section class="panel">
           <h3>学习率预览</h3>
           <svg class="lr-preview" viewBox="0 0 240 60" preserveAspectRatio="none">
