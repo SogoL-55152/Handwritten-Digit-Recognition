@@ -250,19 +250,26 @@ async function autoBuildVersion() {
   const previous = state.error
   state.error = ''
   try {
-    const payload = buildPayload({ ...state.buildForm, version: state.buildForm.version || nextVersion(state.versions) })
+    // 先刷新版本列表：保证新版本号 = 现有最新版本 + 1，且合并的是当前数据集的全部样本
+    state.versions = await listVersions(snapshot(), state.selectedId)
+    state.buildForm.version = nextVersion(state.versions)
+    const payload = buildPayload({ ...state.buildForm })
     let version
     try {
       version = await buildVersion(snapshot(), state.selectedId, payload)
     } catch (error) {
-      // 只有一位书写者时按人划分会失败，自动回退到随机划分再试一次
-      if (String(error?.message || '').includes('书写者')) {
+      const message = String(error?.message || '')
+      if (message.includes('书写者')) {
+        // 只有一位书写者时按人划分会失败，自动回退到随机划分再试一次
         version = await buildVersion(snapshot(), state.selectedId, { ...payload, splitRule: 'RANDOM' })
+      } else if (message.includes('已存在')) {
+        state.buildForm.version = nextVersion([...state.versions, { version: payload.version }])
+        version = await buildVersion(snapshot(), state.selectedId, { ...payload, version: state.buildForm.version })
       } else {
         throw error
       }
     }
-    state.notice = `已自动生成版本 ${version.version}：${version.sampleCount} 条样本`
+    state.notice = `已合并生成新版本 ${version.version}：共 ${version.sampleCount} 条样本（含本次导入与历史样本）`
     await selectDataset(state.selectedId)
     await selectVersion(version.id)
   } catch (error) {
