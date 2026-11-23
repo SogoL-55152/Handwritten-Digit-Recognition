@@ -22,7 +22,7 @@ const user = useUserStore()
     </header>
     <main class="portal">
       <section class="hero">
-        <p class="eyebrow">手写数字识别 · W2</p>
+        <p class="eyebrow">手写数字识别</p>
         <h1>写下一个数字，<br />看看模型的答案。</h1>
         <p class="hero-copy">在你的工作空间中，用鼠标或触控笔书写 0–9。通过真实的 CNN 基线模型完成识别，查看预测、置信度与使用记录计数。</p>
         <div class="actions"><router-link class="button primary" :to="user.isAuthenticated ? '/recognize' : '/register'">开始识别</router-link><router-link class="button" to="/home">进入工作空间</router-link></div>

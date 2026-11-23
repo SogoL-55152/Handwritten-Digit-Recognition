@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import gzip
+import hashlib
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -145,11 +148,15 @@ def photo_style(image28: np.ndarray, rng) -> np.ndarray:
 
 
 def apply_augments(image_l, rng, aug):
-    """在渲染结果上追加可配置增强；aug 为 0..1 的强度，None 表示不额外增强。"""
+    """在渲染结果上追加可配置增强；aug 为 0..1 的强度，None 表示不额外增强。
+
+    渲染结果是 numpy 灰度图，增强全程用 PIL 完成，出口统一转回 numpy，
+    保证 canvas_input 收到的始终是 ndarray。
+    """
     if not aug:
         return image_l
     from PIL import Image, ImageFilter
-    out = image_l
+    out = image_l if isinstance(image_l, Image.Image) else Image.fromarray(image_l)
     rotate = float(aug.get("rotate", 0) or 0)
     if rotate > 0:
         angle = float(rng.uniform(-20, 20)) * min(1.0, rotate)
@@ -178,19 +185,46 @@ def apply_augments(image_l, rng, aug):
         block = max(2, int(min(width, height) * float(rng.uniform(0.06, 0.30)) * min(1.0, mosaic)))
         small = out.resize((max(1, width // block), max(1, height // block)), Image.Resampling.NEAREST)
         out = small.resize((width, height), Image.Resampling.NEAREST)
+    return np.asarray(out)
     return out
 
 
-def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None) -> tuple[np.ndarray, int]:
-    """渲染并走线上同一套 canvas_input；返回输入张量与无法对齐的样本数。"""
+def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None, on_progress=None) -> tuple[np.ndarray, int]:
+    """渲染并走线上同一套 canvas_input；返回输入张量与无法对齐的样本数。
+
+    多线程渲染（PIL 滤镜会释放 GIL）；每个样本用 spawn 出的独立随机流，
+    同种子下结果仍然可复现。on_progress(0–100) 按块回调。
+    """
     rows = np.zeros((len(images), 1, 28, 28), dtype=np.float32)
-    skipped = 0
-    for index, image in enumerate(images):
-        render = photo_style if rng.random() < photo_ratio else canvas_style
+    if len(images) == 0:
+        if on_progress is not None:
+            on_progress(100)
+        return rows, 0
+    workers = int(os.getenv("TRAINING_PREP_THREADS", "4"))
+    workers = max(1, min(8, workers, len(images)))
+    children = rng.spawn(workers)
+
+    def render_one(pair):
+        index, child_rng = pair
+        render = photo_style if child_rng.random() < photo_ratio else canvas_style
         try:
-            rows[index, 0] = canvas_input(apply_augments(render(image, rng), rng, aug))
+            return index, canvas_input(apply_augments(render(images[index], child_rng), child_rng, aug))
         except InvalidImage:
-            skipped += 1
+            return index, None
+
+    skipped = 0
+    chunk = max(1, (len(images) + 19) // 20)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for start in range(0, len(images), chunk):
+            end = min(len(images), start + chunk)
+            indices = range(start, end)
+            for index, result in pool.map(render_one, ((i, children[i % workers]) for i in indices)):
+                if result is None:
+                    skipped += 1
+                else:
+                    rows[index, 0] = result
+            if on_progress is not None:
+                on_progress(int(round(end * 100.0 / len(images))))
     return rows, skipped
 
 
@@ -262,23 +296,43 @@ def accuracy(model, torch, inputs: np.ndarray, labels: np.ndarray) -> float:
     return round(correct / len(labels), 4)
 
 
-def load_extra_inputs(directory: Path):
-    """读取数据集版本导出的 PNG（文件名形如 7_123.png），返回 (图像, 标签)。"""
+def load_extra_inputs(directory: Path, on_progress=None):
+    """读取数据集版本导出的 PNG（文件名形如 7_123.png），返回 (图像, 标签)。多线程加载。"""
     from PIL import Image
 
     from services.inference_preprocess import canvas_input
 
-    inputs, labels = [], []
-    for path in sorted(directory.glob("*.png")):
+    paths = sorted(directory.glob("*.png"))
+    valid = []
+    for path in paths:
         label = path.name.split("_")[0]
-        if not label.isdigit() or len(label) != 1:
-            continue
+        if label.isdigit() and len(label) == 1:
+            valid.append(path)
+    if not valid:
+        if on_progress is not None:
+            on_progress(100)
+        return np.empty((0, 28, 28), dtype=np.float32), np.empty((0,), dtype=np.int64)
+
+    def load_one(path):
         try:
             normalized = canvas_input(np.asarray(Image.open(path).convert("L")))
+            return int(path.name.split("_")[0]), normalized[0]
         except Exception:
-            continue
-        inputs.append(normalized[0])
-        labels.append(int(label))
+            return None
+
+    workers = max(1, min(8, int(os.getenv("TRAINING_PREP_THREADS", "4")), len(valid)))
+    inputs, labels = [], []
+    chunk = max(1, (len(valid) + 19) // 20)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for start in range(0, len(valid), chunk):
+            for loaded in pool.map(load_one, valid[start:start + chunk]):
+                if loaded is None:
+                    continue
+                label, normalized = loaded
+                labels.append(label)
+                inputs.append(normalized)
+            if on_progress is not None:
+                on_progress(int(round(min(len(valid), start + chunk) * 100.0 / len(valid))))
     if not inputs:
         return np.empty((0, 28, 28), dtype=np.float32), np.empty((0,), dtype=np.int64)
     return np.stack(inputs).astype(np.float32)[:, None, :, :], np.asarray(labels, dtype=np.int64)
@@ -318,12 +372,85 @@ def apply_trainable(model, trainable_layers):
     return [name for name in LAYER_NAMES if name in trainable_layers]
 
 
+def _input_cache_key(config: CanvasAugConfig, data_dir: Path, emnist_zip: Path | None,
+                     extra_dir: Path | None, aug: "dict | None") -> str:
+    """渲染输入缓存键：配置 + 数据文件身份。同配置同数据再次训练直接复用渲染结果。"""
+    payload = {"seed": config.seed, "samples": config.samples,
+               "photo_ratio": config.photo_ratio, "aug": aug or {}}
+    for name in ("train-images-idx3-ubyte", "train-labels-idx1-ubyte"):
+        stat = (data_dir / name).stat()
+        payload[f"{name}:size"] = stat.st_size
+        payload[f"{name}:mtime"] = stat.st_mtime_ns
+    if emnist_zip is not None:
+        stat = emnist_zip.stat()
+        payload["emnist:size"] = stat.st_size
+    if extra_dir is not None:
+        manifest = Path(extra_dir) / "manifest.json"
+        if manifest.is_file():
+            payload["extra:sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def _prepare_inputs(config: CanvasAugConfig, data_dir: Path, rng, emnist_zip: Path | None,
+                    extra_dir: Path | None, aug: "dict | None", on_prepare) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """渲染训练输入（带缓存与进度）；返回 (train_inputs, train_labels, extra_count, skipped)。"""
+    cache_dir = Path(os.getenv("TRAINING_INPUT_CACHE",
+                               str(Path(__file__).resolve().parent / "data" / "input-cache")))
+    cache_key = _input_cache_key(config, data_dir, emnist_zip, extra_dir, aug)
+    cache_path = cache_dir / f"{cache_key}.npz"
+
+    mnist_count = config.samples if emnist_zip is None else config.samples // 2
+    extra_count = 0
+
+    if cache_path.is_file():
+        with np.load(cache_path) as data:
+            train_inputs = data["train_inputs"]
+            train_labels = data["train_labels"]
+        if on_prepare is not None:
+            on_prepare(100)
+        print(json.dumps({"inputCache": "hit", "samples": int(len(train_inputs))}), flush=True)
+        return train_inputs, train_labels, extra_count, 0
+
+    mnist_train = read_idx(data_dir / "train-images-idx3-ubyte", mnist_count)
+    mnist_labels = read_labels(data_dir / "train-labels-idx1-ubyte", mnist_count)
+    if emnist_zip is not None:
+        extra_images, extra_labels = read_emnist_digits(emnist_zip, "train", config.samples - mnist_count)
+        train_images = np.concatenate([mnist_train, extra_images])
+        train_labels = np.concatenate([mnist_labels, extra_labels])
+    else:
+        train_images, train_labels = mnist_train, mnist_labels
+
+    train_inputs, skipped = build_inputs(train_images, rng, config.photo_ratio, aug, on_progress=on_prepare)
+    if extra_dir is not None:
+        # 数据集版本里的样本已是真实画板/照片，接近线上输入，不再叠加照片模拟
+        extra_inputs, extra_labels = load_extra_inputs(Path(extra_dir), on_progress=on_prepare)
+        if len(extra_inputs):
+            train_inputs = np.concatenate([train_inputs, extra_inputs])
+            train_labels = np.concatenate([train_labels, extra_labels])
+            extra_count = int(len(extra_inputs))
+    if not cache_path.parent.exists():
+        cache_path.parent.mkdir(parents=True)
+    temporary = cache_path.with_suffix(".tmp.npz")
+    np.savez_compressed(temporary, train_inputs=train_inputs, train_labels=train_labels)
+    temporary.replace(cache_path)
+    # 缓存只留最近 2 份，避免占满磁盘
+    entries = sorted(cache_path.parent.glob("*.npz"), key=lambda p: p.stat().st_mtime_ns, reverse=True)
+    for stale in entries[2:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    return train_inputs, train_labels, extra_count, skipped
+
+
 def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | None,
         threads: int | None = None, emnist_zip: Path | None = None,
         on_epoch: "callable | None" = None, extra_dir: Path | None = None,
         early_stop: bool = False, patience: int = 3,
-        trainable_layers: "list[str] | None" = None, aug: "dict | None" = None) -> dict:
-    """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
+        trainable_layers: "list[str] | None" = None, aug: "dict | None" = None,
+        on_prepare: "callable | None" = None) -> dict:
+    """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。
+    on_prepare(0–100) 在渲染/加载训练输入时回调，用于上报准备进度。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
     from services.mnist_training import load_checkpoint
@@ -339,31 +466,14 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
     rng = np.random.default_rng(config.seed)
     torch.manual_seed(config.seed)
 
-    mnist_count = config.samples if emnist_zip is None else config.samples // 2
-    mnist_train = read_idx(data_dir / "train-images-idx3-ubyte", mnist_count)
-    mnist_labels = read_labels(data_dir / "train-labels-idx1-ubyte", mnist_count)
-    if emnist_zip is not None:
-        extra_images, extra_labels = read_emnist_digits(emnist_zip, "train", config.samples - mnist_count)
-        train_images = np.concatenate([mnist_train, extra_images])
-        train_labels = np.concatenate([mnist_labels, extra_labels])
-    else:
-        train_images, train_labels = mnist_train, mnist_labels
+    train_inputs, train_labels, extra_count, skipped = _prepare_inputs(
+        config, data_dir, rng, emnist_zip, extra_dir, aug, on_prepare)
 
     test_images = read_idx(data_dir / "t10k-images-idx3-ubyte", 1000)
     test_labels = read_labels(data_dir / "t10k-labels-idx1-ubyte", 1000)
     emnist_test = None
     if emnist_zip is not None:
         emnist_test = read_emnist_digits(emnist_zip, "test", 1000)
-
-    train_inputs, skipped = build_inputs(train_images, rng, config.photo_ratio)
-    extra_count = 0
-    if extra_dir is not None:
-        # 数据集版本里的样本已是真实画板/照片，接近线上输入，不再叠加照片模拟
-        extra_inputs, extra_labels = load_extra_inputs(Path(extra_dir))
-        if len(extra_inputs):
-            train_inputs = np.concatenate([train_inputs, extra_inputs])
-            train_labels = np.concatenate([train_labels, extra_labels])
-            extra_count = int(len(extra_inputs))
     canvas_test, _ = build_inputs(test_images, np.random.default_rng(config.seed + 1), 0.0)
     photo_test, _ = build_inputs(test_images, np.random.default_rng(config.seed + 2), 1.0)
     raw_test = raw_inputs(test_images)

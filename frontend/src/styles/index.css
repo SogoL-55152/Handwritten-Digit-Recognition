@@ -396,16 +396,9 @@ tr.diff td { background: #fdf6e8; }
 .wizard-sample { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px; background: #fff; }
 .wizard-sample img { width: 100%; height: 56px; object-fit: contain; background: #f6f9fd; border-radius: 4px; }
 .wizard-sample figcaption { text-align: center; font-size: 12px; font-weight: 600; }
-.wizard-params { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-/* 左右两栏同款：等宽、吸顶、各自内部滚动 */
-.wizard-form, .wizard-side { position: sticky; top: 16px; align-self: start;
-  max-height: calc(100vh - 120px); overflow: auto; padding-right: 4px; }
-.wizard-form::-webkit-scrollbar, .wizard-side::-webkit-scrollbar { width: 8px; }
-.wizard-form::-webkit-scrollbar-thumb, .wizard-side::-webkit-scrollbar-thumb { background: #d6dee8; border-radius: 8px; }
-.wizard-side .panel { margin-bottom: 14px; }
-.wizard-side .panel:last-child { margin-bottom: 0; }
-@media (max-width: 1100px) { .wizard-params { grid-template-columns: minmax(0, 1fr); }
-  .wizard-form, .wizard-side { position: static; max-height: none; overflow: visible; } }
+.wizard-params { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+/* 单列布局：表单随页面自然滚动，不做吸顶与内部滚动（避免模块里出现多余滑块） */
+.wizard-form { position: static; max-height: none; overflow: visible; }
 .param-group { padding: 10px 0; border-bottom: 1px dashed var(--line); }
 .param-group:last-child { border-bottom: 0; }
 .param-group h3 { margin: 0 0 8px; font-size: 14px; }
@@ -579,13 +572,14 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 
 /* ---------- 训练模型：摘要与体检 ---------- */
 .summary-card { grid-column: 1 / -1; }
-.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 10px; }
-.summary-item { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: #f7f9fc; }
-.summary-item small { color: #8a97a5; font-size: 11px; }
-.summary-item strong { font-size: 14px; }
-.summary-item .muted { font-size: 12px; }
-.summary-risks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.risk-chip { padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+.summary-card h3 { margin-bottom: 2px; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; }
+.summary-item { display: grid; gap: 1px; min-width: 0; padding: 6px 10px; border-radius: 8px; background: #f7f9fc; }
+.summary-item small { color: #8a97a5; font-size: 10px; }
+.summary-item strong { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary-item .muted { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary-risks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.risk-chip { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
 .risk-warn { background: #fff6e6; color: #a76a12; }
 .risk-error { background: #fdeceb; color: #a5342a; }
 .risk-ok { background: #eaf7ed; color: #2c6e3f; }
@@ -618,3 +612,40 @@ button.help:hover { border-color: var(--primary); color: var(--primary); }
 .folder-first .primary { padding: 8px 18px; font-size: 14px; }
 .other-sources { margin: 10px 0; border-top: 1px dashed var(--line); padding-top: 8px; font-size: 13px; }
 .other-sources summary { cursor: pointer; color: #5b6b7f; margin-bottom: 6px; }
+
+/* 训练向导：参数卡片分组（发起训练页） */
+.param-groups { display: grid; gap: 14px; }
+.param-group-card > h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 0 0 10px; font-size: 14px; }
+.param-group-card > h3 small { font-size: 12px; font-weight: 400; }
+.param-group-card .param-line { margin-bottom: 10px; }
+.param-group-card .param-line:last-child { margin-bottom: 0; }
+.wizard-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.lr-preview-inline { margin-top: 4px; }
+.lr-preview-inline .lr-preview { width: 100%; height: 40px; }
+.lr-preview-inline p { margin: 2px 0 0; font-size: 12px; }
+.advanced-card > summary, .collapsible-card > summary { cursor: pointer; font-weight: 600; color: #33475e;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; list-style: none; }
+.advanced-card > summary::-webkit-details-marker, .collapsible-card > summary::-webkit-details-marker { display: none; }
+.advanced-card > summary::before, .collapsible-card > summary::before { content: '▸'; font-size: 12px; color: var(--muted); }
+.advanced-card[open] > summary::before, .collapsible-card[open] > summary::before { content: '▾'; }
+.advanced-card > summary .muted, .collapsible-card > summary .muted { font-size: 11px; font-weight: 400; }
+
+/* 训练向导：数据选择栏与页面下方日志区 */
+.dataset-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 8px; }
+.dataset-bar h3 { margin: 0; font-size: 14px; }
+.dataset-bar .field-row-line { flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+.dataset-bar .field-row-line select { width: auto; min-width: 180px; }
+.dataset-bar .muted { margin: 0; font-size: 12px; }
+.wizard-log { max-height: 320px; min-height: 120px; overflow: auto; background: #0f1a26; color: #cfe0f0;
+  padding: 10px 12px; border-radius: 8px; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; }
+.wizard-panel .wizard-footer { margin-top: 4px; }
+.advanced-sub { margin: 12px 0 8px; font-size: 13px; color: #33475e; }
+.advanced-sub:first-of-type { margin-top: 10px; }
+
+/* 合并到左列的结构图与检查折叠卡 */
+.structure-card .structure-body { display: grid; gap: 4px; margin-bottom: 10px; }
+.structure-card .estimate-cards { margin: 10px 0 6px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.structure-card .estimate-card small { font-size: 12px; }
+.structure-card .estimate-card strong { font-size: 15px; }
+.structure-card > summary, .checks-card > summary { font-weight: 650; }
+.checks-card .check-list { font-size: 13px; }

@@ -28,7 +28,7 @@ onUnmounted(() => { document.removeEventListener('visibilitychange', hideSensiti
     <header class="public-header"><router-link class="brand" to="/"><span class="brand-mark">D</span> Digit Studio</router-link><router-link to="/">返回门户</router-link></header>
     <main class="auth-grid">
       <section v-if="pilot" class="auth-intro"><p class="eyebrow">手写数字识别 · 基础体验版</p><h1>{{ registering ? '创建你的体验账号。' : '欢迎回来。' }}</h1><p>登录后直接进入画板。默认个人空间由服务器核验，无需手动选择。</p><p>注册需向维护者索取体验码；体验码仅用于本次注册，不保存在本地。</p><p><router-link to="/help">使用帮助</router-link> · <router-link to="/privacy">隐私说明与人工支持</router-link></p></section>
-      <section v-else class="auth-intro"><p class="eyebrow">你的数字识别工作空间</p><h1>{{ registering ? '从一个个人空间开始。' : '欢迎回来。' }}</h1><p>一个账号，独立的工作空间。普通用户可以直接书写和识别，空间访问资格由服务器实时确认。</p><p class="muted">W2 提供可信公共基线，不开放私有资产上传或在线训练。</p></section>
+      <section v-else class="auth-intro"><p class="eyebrow">你的数字识别工作空间</p><h1>{{ registering ? '从一个个人空间开始。' : '欢迎回来。' }}</h1><p>一个账号，独立的工作空间。普通用户可以直接书写和识别，空间访问资格由服务器实时确认。</p><p class="muted">内置可信识别模型；私有资产上传与在线训练暂未开放。</p></section>
       <section class="panel auth-panel">
         <h2>{{ registering ? '创建普通账号' : '登录账号' }}</h2>
         <p class="muted">{{ registering ? '注册成功后自动创建个人空间，并校验新会话。' : pilot ? '登录后即可书写和识别。' : '登录后校验 v2 会话，不信任本地缓存角色。' }}</p>

@@ -136,7 +136,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="stack wide-gap">
     <section class="panel">
-      <p class="eyebrow">W5 · 统计</p>
+      <p class="eyebrow">统计</p>
       <h2>识别统计</h2>
       <p class="notice">
         统计只反映系统实际记录到的数据。生产请求没有人工标注，因此这里不给"准确率"——准确率请看离线评测报告。

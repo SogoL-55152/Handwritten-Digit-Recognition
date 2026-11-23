@@ -37,8 +37,8 @@ public class TrainingService {
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String queuedAt, String startedAt,
-                           String finishedAt, String datasetVersionId, JsonNode metrics) {}
-    private static final List<String> STATES = List.of("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED");
+                           String finishedAt, String datasetVersionId, Integer prepareProgress, JsonNode metrics) {}
+    private static final List<String> STATES = List.of("QUEUED", "PREPARING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED");
     private final JdbcTemplate jdbc;
     private final ModelClient client;
     private final ModelAdminService models;
@@ -125,7 +125,8 @@ public class TrainingService {
         return created;
     }
 
-    /** worker 取数：按需导出（有缓存直接复用），并把目录写回任务行。幂等。 */
+    /** worker 取数：按需导出（有缓存直接复用），并把目录写回任务行。幂等。
+     *  导出进度写入 prepare_progress（0–50 区间，后半段留给 Python 的渲染准备）。 */
     @Transactional
     public Map<String, Object> prepareData(long taskId) {
         TaskRow row = requireRow(taskId);
@@ -134,8 +135,10 @@ public class TrainingService {
             return Map.of("dataDir", "", "count", 0, "labels", Map.of(), "writers", 0,
                     "note", "未指定数据版本，使用内置 MNIST");
         }
-        TrainingDataExporter.Exported exported = exporter.export(Long.parseLong(rawVersion));
-        jdbc.update("UPDATE t_v2_training_task SET data_dir=? WHERE id=?", exported.directory(), taskId);
+        TrainingDataExporter.Exported exported = exporter.export(Long.parseLong(rawVersion), percent ->
+                jdbc.update("UPDATE t_v2_training_task SET prepare_progress=? WHERE id=?", percent / 2, taskId));
+        jdbc.update("UPDATE t_v2_training_task SET data_dir=?, prepare_progress=50 WHERE id=?",
+                exported.directory(), taskId);
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("dataDir", exported.directory());
         body.put("count", exported.count());
@@ -155,6 +158,14 @@ public class TrainingService {
         if ("RUNNING".equals(row.status()) && attempt < row.attempt())
             throw new V2Exception(409, "回调 attempt 回退", "TASK_STALE_ATTEMPT");
         switch (state) {
+            case "PREPARING" -> {
+                // 只更新准备进度，不改变任务状态；进度值由 worker 按区间写入。
+                if (!(rest.get("progress") instanceof Number number)
+                        || number.intValue() < 0 || number.intValue() > 100)
+                    throw new V2Exception(400, "PREPARING 回调必须包含 0..100 的 progress", "VALIDATION");
+                jdbc.update("UPDATE t_v2_training_task SET prepare_progress=? WHERE id=?",
+                        number.intValue(), taskId);
+            }
             case "RUNNING" -> {
                 jdbc.update("""
                         UPDATE t_v2_training_task SET status='RUNNING', attempt=GREATEST(attempt,?),
@@ -268,7 +279,7 @@ public class TrainingService {
                 row.batchSize(), row.learningRate(), row.seed(), row.photoRatio(), row.useEmnist(),
                 row.initFrom(), row.targetModelId(), row.modelVersion(), row.artifact(), row.sha256(), row.sizeBytes(),
                 row.errorCategory(), row.errorMessage(), row.queuedAt(), row.startedAt(), row.finishedAt(),
-                row.datasetVersionId(), metrics);
+                row.datasetVersionId(), row.prepareProgress(), metrics);
     }
 
     private static Map<String, Object> validated(CreateRequest request) {
@@ -366,12 +377,13 @@ public class TrainingService {
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String metrics, String queuedAt,
-                           String startedAt, String finishedAt, String datasetVersionId) {
+                           String startedAt, String finishedAt, String datasetVersionId, Integer prepareProgress) {
         String externalId() { return "mnist-cnn-w1"; }
     }
 
     private static TaskRow row(ResultSet rs, int index) throws SQLException {
         Object size = rs.getObject("size_bytes");
+        Object progress = rs.getObject("prepare_progress");
         Timestamp started = rs.getTimestamp("started_at");
         Timestamp finished = rs.getTimestamp("finished_at");
         return new TaskRow(rs.getString("id"), rs.getString("status"), rs.getInt("attempt"),
@@ -384,7 +396,8 @@ public class TrainingService {
                 Instant.ofEpochMilli(rs.getTimestamp("queued_at").getTime()).toString(),
                 started == null ? null : Instant.ofEpochMilli(started.getTime()).toString(),
                 finished == null ? null : Instant.ofEpochMilli(finished.getTime()).toString(),
-                rs.getString("dataset_version_id"));
+                rs.getString("dataset_version_id"),
+                progress == null ? null : ((Number) progress).intValue());
     }
 
     /** 四档冻结策略 → 可训练层列表；自定义时 fc2 必须保留。 */
