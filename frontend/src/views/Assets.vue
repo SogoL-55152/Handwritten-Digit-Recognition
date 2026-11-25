@@ -29,12 +29,10 @@ function percent(value) { return Number.isFinite(value) ? `${(value * 100).toFix
   <div class="stack wide-gap">
     <div class="section-heading">
       <p class="muted">公共资产与当前空间默认引用只读展示。元数据存在不代表推理服务已就绪。</p>
-      <div class="row-actions">
-        <input v-model="query" class="model-search" placeholder="搜索模型 / 数据集 / 版本" aria-label="搜索公共资产" />
-        <router-link class="button" to="/models">去模型管理</router-link>
-        <router-link class="button" to="/datasets">去数据集</router-link>
-        <button :disabled="state.loading" @click="resource.load()">刷新资产</button>
-      </div>
+      <button :disabled="state.loading" @click="resource.load()">刷新资产</button>
+    </div>
+    <div class="asset-search">
+      <input v-model="query" class="model-search" placeholder="搜索模型 / 数据集 / 版本" aria-label="搜索公共资产" />
     </div>
     <p v-if="state.loading" class="notice" role="status">正在加载当前空间的资产…</p>
     <p v-if="state.error" class="notice error" role="alert">{{ state.error }}</p>
