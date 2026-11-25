@@ -212,16 +212,6 @@ def train_one(task_id, attempt, params):
     import contextlib
     import sys
 
-    # 准备进度：Java 导出占前 50%（有数据版本时），Python 渲染/加载占后 50% 或全部
-    prep_offset = 50 if extra_dir is not None else 0
-
-    def report_prepare(pct):
-        try:
-            notify(task_id, {"state": "PREPARING", "attempt": attempt,
-                             "progress": int(round(prep_offset + pct * (100 - prep_offset) / 100.0))})
-        except Exception:  # noqa: BLE001 - 进度上报失败不应中断准备
-            pass
-
     log_sink = _RedisLog(task_id)
     with contextlib.redirect_stdout(_Tee(sys.stdout, log_sink)):
         metrics = run(config, data_root(), attempt_dir, init=_resolve_init(params.get("initFrom")),
@@ -229,8 +219,7 @@ def train_one(task_id, attempt, params):
                       emnist_zip=emnist_zip() if params.get("useEmnist") else None,
                       on_epoch=report_epoch, extra_dir=extra_dir,
                       early_stop=bool(params.get("earlyStop")), patience=int(params.get("patience") or 3),
-                      trainable_layers=params.get("trainableLayers"), aug=params.get("aug"),
-                      on_prepare=report_prepare)
+                      trainable_layers=params.get("trainableLayers"), aug=params.get("aug"))
     log_sink.flush()
     stable = root / "checkpoint.pt"
     shutil.copyfile(attempt_dir / "checkpoint.pt", stable)
