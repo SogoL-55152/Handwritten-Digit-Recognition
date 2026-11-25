@@ -11,7 +11,6 @@ import { isActiveStatus, liveLabel, shouldPoll } from '@/training/live.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
 import StepCurve from '@/training/StepCurve.vue'
-import NetDiagram from '@/wizard/NetDiagram.vue'
 import { ARCH_PRESETS, benchmarkStepMs, configHash, estimateFlops, estimateMemory, estimateTiming, formatDuration, inferShapes, lrPreview, memoryBreakdown, normalizeConfig, overfitSignal, validateConfig } from '@/wizard/estimate.js'
 import { PARAM_SCHEMA, defaultConfig, isVisible } from '@/wizard/schema.js'
 
@@ -641,82 +640,6 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
         </div>
       </div>
 
-      <aside class="stack wizard-side">
-        <section class="panel">
-          <h3>结构图</h3>
-          <NetDiagram :layers="layers" :frozen="frozenNames" />
-          <p class="muted">🔒 = 已冻结（不更新）· 当前可训练 {{ trainableParams.toLocaleString() }} / {{ shapes.totalParams.toLocaleString() }} 参数</p>
-        </section>
-        <section class="panel">
-          <h3>实时估算</h3>
-          <div class="estimate-cards">
-            <div class="estimate-card"><small>参数量</small><strong>{{ shapes.totalParams.toLocaleString() }}</strong></div>
-            <div class="estimate-card"><small>显存</small><strong>{{ memory.toFixed(2) }} GB</strong></div>
-            <div class="estimate-card"><small>单 epoch</small><strong>{{ formatDuration(timing.epochSeconds) }}</strong></div>
-            <div class="estimate-card"><small>总耗时</small><strong>{{ formatDuration(timing.totalSeconds) }}</strong></div>
-          </div>
-          <p class="muted">单步约 {{ timing.stepMs.toFixed(1) }} ms · {{ timing.steps }} 步/轮 · 训练样本 {{ trainSamples }}</p>
-          <p class="muted">{{ timingText }} · FLOPs ≈ {{ flops.toExponential(2) }}</p>
-          <div class="estimate-breakdown">
-            <span>数据准备 ≈ {{ formatDuration(prepSeconds) }}（命中导出缓存更快）</span>
-            <span>产物登记 ≈ 2s</span>
-            <span v-if="comparableText">{{ comparableText }}</span>
-          </div>
-          <div class="memory-split">
-            <span>权重 {{ memoryParts.weightsGb.toFixed(3) }}</span>
-            <span>梯度 {{ memoryParts.gradsGb.toFixed(3) }}</span>
-            <span>优化器 {{ memoryParts.optimizerGb.toFixed(3) }}</span>
-            <span>激活 {{ memoryParts.activationsGb.toFixed(3) }}</span>
-          </div>
-        </section>
-        <section class="panel">
-          <h3>分层参数</h3>
-          <div class="layer-table">
-            <div v-for="row in layerRows" :key="row.index" class="layer-table-row">
-              <span class="layer-table-name">{{ row.label }}</span>
-              <span class="bar"><i :style="{ width: Math.max(1, row.percent) + '%' }"></i></span>
-              <span class="layer-table-value">{{ row.params.toLocaleString() }}（{{ row.percent }}%）</span>
-            </div>
-          </div>
-        </section>
-        <section class="panel">
-          <h3>校验</h3>
-          <ul class="check-list">
-            <li v-for="(check, index) in checks" :key="index" :class="'check-' + check.level">
-              <span>{{ check.level === 'ok' ? '✓' : check.level === 'warn' ? '⚠' : '✗' }}</span>{{ check.text }}
-            </li>
-          </ul>
-        </section>
-        <section class="panel">
-          <h3>数据体检</h3>
-          <ul class="check-list">
-            <li v-for="(check, index) in healthChecks" :key="index" :class="'check-' + check.level">
-              <span>{{ check.level === 'ok' ? '✓' : check.level === 'warn' ? '⚠' : '✗' }}</span>{{ check.text }}
-            </li>
-          </ul>
-          <div v-if="labelRows.length" class="label-mini-bars">
-            <div v-for="row in labelRows" :key="row.label" class="label-mini">
-              <span>{{ row.label }}</span>
-              <i :style="{ width: Math.max(2, (row.count / Math.max(1, ...labelRows.map((item) => item.count))) * 100) + '%' }"></i>
-              <small>{{ row.count }}</small>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h3>学习率预览</h3>
-          <svg class="lr-preview" viewBox="0 0 240 60" preserveAspectRatio="none">
-            <polyline fill="none" stroke="#2f6fd0" stroke-width="2"
-                      :points="lrPoints.map((point, index) => `${(index / Math.max(1, lrPoints.length - 1)) * 240},${60 - (point.lr / Math.max(1e-9, lrPoints[0].lr)) * 56}`).join(' ')" />
-          </svg>
-          <p class="muted">{{ config.scheduler === 'constant' ? '常数学习率' : config.scheduler === 'cosine' ? '余弦退火' : '分段衰减' }}（仅预览）</p>
-        </section>
-        <section class="panel">
-          <h3>配置摘要</h3>
-          <pre class="json-preview">{{ jsonPreview }}</pre>
-          <p class="muted">config_hash: {{ state.hash }}</p>
-        </section>
-      </aside>
     </section>
 
     <!-- ③ 监控 -->

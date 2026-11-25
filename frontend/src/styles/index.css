@@ -464,7 +464,7 @@ tr.diff td { background: #fdf6e8; }
 .wizard-sample { margin: 0; border: 1px solid var(--line); border-radius: 8px; padding: 4px; background: #fff; }
 .wizard-sample img { width: 100%; height: 56px; object-fit: contain; background: #f6f9fd; border-radius: 4px; }
 .wizard-sample figcaption { text-align: center; font-size: 12px; font-weight: 600; }
-.wizard-params { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.wizard-params { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
 /* 左右两栏同款：等宽、吸顶、各自内部滚动 */
 /* 不做页内滚动：整页一起滚动，避免“页面里套一个滚动页面” */
 .wizard-form, .wizard-side { position: static; align-self: start; }
