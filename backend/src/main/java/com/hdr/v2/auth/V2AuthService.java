@@ -84,7 +84,12 @@ public class V2AuthService {
         if (user == null || !validPassword || user.status() != 1 || user.deleted() != 0) {
             throw new V2Exception(401, "用户名或密码错误，或账号已失效");
         }
-        return session(user.id(), user.safe(), workspaces.defaultWorkspaceId(user.id()));
+        String defaultWorkspaceId = workspaces.defaultWorkspaceId(user.id());
+        if (defaultWorkspaceId == null) {
+            // 空库引导管理员没有个人空间：首次登录时补建，避免后续接口拿不到空间
+            defaultWorkspaceId = workspaces.createPersonal(user.id(), user.username()).id();
+        }
+        return session(user.id(), user.safe(), defaultWorkspaceId);
     }
 
     public V2Principal authenticate(String token) {
