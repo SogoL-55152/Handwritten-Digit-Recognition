@@ -525,38 +525,6 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
 
     <!-- ② 参数 -->
     <section v-if="step === 1" class="wizard-params">
-      <section class="panel summary-card">
-        <h3>本次训练摘要</h3>
-        <div class="summary-grid">
-          <div class="summary-item">
-            <small>数据</small>
-            <strong>{{ currentDataset?.name || '内置 MNIST' }}{{ currentVersion ? ' · ' + currentVersion.version : '' }}</strong>
-            <span v-if="state.stats" class="muted">训练 {{ splitRows[0].count }} · 验证 {{ splitRows[1].count }} · 测试 {{ splitRows[2].count }}</span>
-            <span v-else class="muted">60,000 条内置样本</span>
-          </div>
-          <div class="summary-item">
-            <small>起点</small>
-            <strong>{{ config.initFrom ? '微调 ' + config.initFrom : '从零训练' }}</strong>
-            <span class="muted">{{ freezeLabel }} · 可训练 {{ trainableParams.toLocaleString() }}（{{ trainablePercent }}%）</span>
-          </div>
-          <div class="summary-item">
-            <small>超参</small>
-            <strong>{{ config.samples.toLocaleString() }} 样本 · {{ config.epochs }} 轮</strong>
-            <span class="muted">lr {{ Number(config.learningRate).toExponential(1) }} · batch {{ config.batchSize }} · {{ config.earlyStop ? '早停 ' + config.patience : '无早停' }}</span>
-          </div>
-          <div class="summary-item">
-            <small>预估</small>
-            <strong>{{ formatDuration(timing.epochSeconds) }}/轮 · 合计 {{ formatDuration(timing.totalSeconds) }}</strong>
-            <span class="muted">内存 {{ memory.toFixed(2) }} GB · 数据准备约 {{ formatDuration(prepSeconds) }}</span>
-          </div>
-        </div>
-        <div class="summary-risks">
-          <span v-for="(check, index) in healthChecks.filter((item) => item.level !== 'ok').slice(0, 3)" :key="index"
-                class="risk-chip" :class="'risk-' + check.level">{{ check.text }}</span>
-          <span v-if="!healthChecks.some((item) => item.level !== 'ok')" class="risk-chip risk-ok">✓ 数据与参数检查通过</span>
-        </div>
-      </section>
-
       <div class="panel wizard-form">
         <div class="template-bar">
           <span class="muted">参数模板：</span>
