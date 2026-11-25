@@ -244,7 +244,7 @@ onUnmounted(() => { observer?.disconnect(); controller.dispose(); board?.dispose
       <p v-if="state.inputKind !== 'image'" class="muted">{{ !state.hasInk ? '画板为空，请先书写。' : state.drawing ? '书写中，请抬起指针后提交。' : '继续书写或清空会使之前的识别结果失效。' }}</p>
     </section>
     <section class="panel result-panel" aria-live="polite" :aria-busy="state.loading">
-      <p class="eyebrow">真实模型推理</p><h2>识别结果</h2>
+      <p class="eyebrow">LIVE MODEL INFERENCE</p><h2>识别结果</h2>
       <p v-if="state.loading" class="notice">{{ pilot ? '正在识别数字。' : '正在通过 Java 调用模型。' }}请勿重复提交；没有自动重试。</p>
       <p v-else-if="state.error" role="alert" class="notice error">{{ state.error }}</p>
       <template v-else-if="state.result">

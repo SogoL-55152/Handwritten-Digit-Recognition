@@ -133,7 +133,7 @@ onUnmounted(() => {
 <template>
   <div class="stack wide-gap">
     <section class="panel">
-      <p class="eyebrow">W4 · 训练任务</p>
+      <p class="eyebrow">TRAINING · RECORDS</p>
       <h2>训练记录</h2>
       <p class="notice">发起训练已移到「训练模型」页；这里只保留任务列表、曲线回放与评估。</p>
       <div class="row-actions">
