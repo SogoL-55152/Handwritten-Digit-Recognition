@@ -101,12 +101,14 @@ test('development production routes, redirects and SUPER_ADMIN views retain W2 b
   const router = routerFor(session, false)
   await router.push('/app')
   assert.equal(router.currentRoute.value.path, '/home')
-  for (const path of ['/home', '/assets', '/usage', '/training', '/statistics', '/wizard', '/models', '/platform', '/recognize']) {
+  for (const path of ['/home', '/assets', '/usage', '/training', '/statistics', '/models', '/platform', '/recognize']) {
     await router.push(path)
     assert.equal(router.currentRoute.value.path, path)
   }
+  await router.push('/wizard')
+  assert.equal(router.currentRoute.value.path, '/training')
   assert.equal(safeRedirect('/assets', (target) => router.resolve(target)), '/assets')
-  assert.deepEqual(navigationLinks({ superAdmin: true }).map(([path]) => path), ['/home', '/recognize', '/assets', '/datasets', '/usage', '/training', '/statistics', '/wizard', '/models', '/platform'])
+  assert.deepEqual(navigationLinks({ superAdmin: true }).map(([path]) => path), ['/home', '/recognize', '/assets', '/datasets', '/usage', '/training', '/statistics', '/help', '/models', '/platform'])
 })
 
 test('registration and new passwords reject the exact contract whitespace set without trimming', () => {
