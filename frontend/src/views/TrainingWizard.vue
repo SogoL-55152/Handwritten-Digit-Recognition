@@ -522,11 +522,6 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
           <p v-if="!state.samples.length" class="muted inline-hint">选一个版本后显示缩略图</p>
         </div>
       </div>
-      <aside class="panel">
-        <h3>这一步在做什么</h3>
-        <p class="muted">数据集版本是训练的快照，划分（训练/验证/测试）在建版本时已经定好。这里只选，不改。</p>
-        <p class="muted">右侧继续后进入参数配置，所有改动都在浏览器里即时估算，不发请求。</p>
-      </aside>
     </section>
 
     <!-- ② 参数 -->
