@@ -33,13 +33,3 @@ export function errorMessage(error) {
   if (status === 502 || status === 503) return '识别或基础服务暂不可用，请稍后手动重试。'
   return error?.message || '请求失败，请稍后重试。'
 }
-
-/** 预览"预处理后"的图片（白底黑字 + 加粗），不参与识别、不落库。 */
-export async function previewEnhancedImage(snapshot, image) {
-  const form = new FormData()
-  form.append('image', image, image.type === 'image/jpeg' ? 'drawing.jpeg' : 'drawing.png')
-  const response = await request.post(`${workspacePath(snapshot.workspaceId)}/recognitions/preview-image`, form, {
-    authSession: snapshot.session, silent: true, responseType: 'blob'
-  })
-  return response
-}
