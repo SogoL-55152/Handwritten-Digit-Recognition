@@ -18,7 +18,7 @@ import { PARAM_SCHEMA, defaultConfig, isVisible } from '@/wizard/schema.js'
 const user = useUserStore()
 const workspace = useWorkspaceStore()
 
-const STEPS = ['数据集', '参数', '监控', '评估']
+const STEPS = ['数据与参数', '监控与评估']
 const step = ref(1)
 const config = reactive({ ...defaultConfig(), layers: JSON.parse(JSON.stringify(ARCH_PRESETS[1].layers)) })
 const live = reactive({ logs: '', elapsed: 0 })
@@ -372,7 +372,7 @@ async function submitTraining() {
     state.taskId = created.id
     state.notice = `已提交训练任务 #${created.id}（数据准备在后台进行），切换到第③步查看进度`
     await loadTasks()
-    step.value = 3
+    step.value = 2
   } catch (error) {
     state.error = error?.message || '提交训练任务失败'
   } finally {
@@ -437,13 +437,9 @@ watch(() => [config.arch, config.optimizer, config.learningRate, config.batchSiz
 () => { void refreshHash() }, { immediate: true })
 
 function next() {
-  if (step.value === 2 && blocking.value) {
-    state.error = '参数存在错误，请先修正后再继续'
-    return
-  }
   state.error = ''
   step.value = Math.min(STEPS.length, step.value + 1)
-  if (step.value >= 3 && !state.tasks.length) void loadTasks()
+  if (step.value >= 2 && !state.tasks.length) void loadTasks()
 }
 
 function back() {
@@ -534,7 +530,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
     </section>
 
     <!-- ② 参数 -->
-    <section v-if="step === 2" class="wizard-params">
+    <section v-if="step === 1" class="wizard-params">
       <section class="panel summary-card">
         <h3>本次训练摘要</h3>
         <div class="summary-grid">
@@ -729,7 +725,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
     </section>
 
     <!-- ③ 监控 -->
-    <section v-if="step === 3" class="panel">
+    <section v-if="step === 2" class="panel">
       <div class="section-heading">
         <div><h3>训练监控</h3><p class="muted">任务状态走实时推送（SSE），断线时自动退回轮询；日志按需拉取。表格与曲线是逐轮指标的真实数据。</p></div>
         <label>任务
@@ -781,7 +777,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
     </section>
 
     <!-- ④ 评估 -->
-    <section v-if="step === 4" class="panel">
+    <section v-if="step === 2" class="panel">
       <div class="section-heading">
         <div><h3>评估</h3><p class="muted">同一个任务的三域准确率、每类准确率与混淆矩阵。</p></div>
         <label>任务
@@ -805,10 +801,10 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
     <div class="wizard-footer panel">
       <button :disabled="step === 1" @click="back">上一步</button>
       <span class="muted">config_hash {{ state.hash }}</span>
-      <button v-if="step === 2" class="primary" :disabled="state.submitting || blocking || !state.datasetId" @click="submitTraining">
+      <button v-if="step === 1" class="primary" :disabled="state.submitting || blocking || !state.datasetId" @click="submitTraining">
         {{ state.submitting ? '提交中…' : '开始训练' }}
       </button>
-      <button v-if="step < STEPS.length" :disabled="step === 2 && blocking" @click="next">下一步</button>
+      <button v-if="step === 1" :disabled="blocking" @click="next">查看监控</button>
       <button v-else class="primary" @click="step = 1">回到第一步</button>
     </div>
   </div>
