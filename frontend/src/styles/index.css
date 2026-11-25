@@ -466,10 +466,8 @@ tr.diff td { background: #fdf6e8; }
 .wizard-sample figcaption { text-align: center; font-size: 12px; font-weight: 600; }
 .wizard-params { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 /* 左右两栏同款：等宽、吸顶、各自内部滚动 */
-.wizard-form, .wizard-side { position: sticky; top: 16px; align-self: start;
-  max-height: calc(100vh - 120px); overflow: auto; padding-right: 4px; }
-.wizard-form::-webkit-scrollbar, .wizard-side::-webkit-scrollbar { width: 8px; }
-.wizard-form::-webkit-scrollbar-thumb, .wizard-side::-webkit-scrollbar-thumb { background: #d6dee8; border-radius: 8px; }
+/* 不做页内滚动：整页一起滚动，避免“页面里套一个滚动页面” */
+.wizard-form, .wizard-side { position: static; align-self: start; }
 .wizard-side .panel { margin-bottom: 14px; }
 .wizard-side .panel:last-child { margin-bottom: 0; }
 @media (max-width: 1100px) { .wizard-params { grid-template-columns: minmax(0, 1fr); }
