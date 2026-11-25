@@ -136,8 +136,13 @@ onBeforeUnmount(() => {
 <template>
   <div class="stack wide-gap">
     <section class="panel">
-      <p class="eyebrow">W5 · 统计</p>
-      <h2>识别统计</h2>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">STATISTICS</p>
+          <h2>识别统计</h2>
+        </div>
+        <button type="button" :disabled="loading" @click="load">{{ loading ? '加载中…' : '刷新' }}</button>
+      </div>
       <p class="notice">
         统计只反映系统实际记录到的数据。生产请求没有人工标注，因此这里不给"准确率"——准确率请看离线评测报告。
       </p>
@@ -155,7 +160,6 @@ onBeforeUnmount(() => {
             <option :value="90">近 90 天</option>
           </select>
         </label>
-        <button type="button" :disabled="loading" @click="load">{{ loading ? '加载中…' : '刷新' }}</button>
       </div>
       <p v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</p>
       <div v-if="stats" class="stat-cards">
