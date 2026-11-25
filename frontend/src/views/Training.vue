@@ -133,11 +133,11 @@ onUnmounted(() => {
 <template>
   <div class="stack wide-gap">
     <section class="panel">
-      <p class="eyebrow">TRAINING · RECORDS</p>
-      <h2>训练记录</h2>
-      <p class="notice">发起训练已移到「训练模型」页；这里只保留任务列表、曲线回放与评估。</p>
-      <div class="row-actions">
-        <router-link class="button" to="/wizard">去训练模型发起训练</router-link>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">TRAINING · RECORDS</p>
+          <h2>训练记录</h2>
+        </div>
         <button :disabled="loading" @click="refresh">刷新列表</button>
       </div>
       <p v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</p>
