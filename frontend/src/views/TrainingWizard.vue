@@ -511,6 +511,8 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
         <p class="muted" v-if="state.stats">训练样本 {{ trainSamples }} 条，用于耗时估算。</p>
         <p class="muted" v-else>未选版本时按内置 MNIST 60,000 条估算。</p>
 
+      </div>
+      <aside class="panel">
         <h3>样本预览</h3>
         <div class="wizard-samples">
           <figure v-for="item in state.samples" :key="item.id" class="wizard-sample">
@@ -520,7 +522,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
           </figure>
           <p v-if="!state.samples.length" class="muted inline-hint">选一个版本后显示缩略图</p>
         </div>
-      </div>
+      </aside>
     </section>
 
     <!-- ② 参数 -->
