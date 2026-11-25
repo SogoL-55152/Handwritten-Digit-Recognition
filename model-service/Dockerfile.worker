@@ -1,0 +1,26 @@
+# 训练 worker 镜像：在模型服务镜像基础上额外安装 Celery 依赖。
+#
+# 为什么不复用 Dockerfile：
+#   Dockerfile 只装 requirements-inference.txt（torch + waitress），
+#   训练队列还需要 celery/kombu/redis（见 requirements-worker.txt），
+#   把这三者装进 Web 镜像会白白放大在线服务镜像体积。
+#
+# 注意：本文件未在 Docker 中实测（开发机没有 Docker）。保持与
+#   部署手册 2.2 节一致的启动参数（不要加 -I，cwd 必须是 /app）。
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt requirements-inference.txt requirements-worker.txt ./
+RUN python -I -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.6.0+cpu \
+    && python -I -m pip install --no-cache-dir -r requirements-inference.txt \
+    && python -I -m pip install --no-cache-dir -r requirements-worker.txt
+
+COPY . .
+
+ENV OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 65532:65532
+
+# --pool=solo：一个容器同时只跑一个训练任务；要并发就加容器数（见部署手册 4.3）。
+CMD ["python", "-m", "celery", "-A", "celery_app:celery_app", "worker", \
+     "--pool=solo", "-Q", "training", "--loglevel=INFO"]

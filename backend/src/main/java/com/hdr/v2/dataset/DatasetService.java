@@ -23,13 +23,19 @@ import java.util.Set;
 @Service
 public class DatasetService {
     public record Version(String id, String datasetId, String version, String status, String splitRule,
-                          int sampleCount, int writerCount, int valPercent, int testPercent, String createdAt) {}
+                          int sampleCount, int writerCount, int valPercent, int testPercent, String createdAt,
+                          String splitSourceId) {}
     public record Sample(String id, String sampleId, String split, String label, String kind,
                          String writer, String createdAt, boolean multiDigit) {}
     /** 来源：从已有版本挑样本（用于合并/追加）。sources 为空时退回“整池筛选”。 */
     public record Source(Long versionId, List<Integer> labels, Integer limit) {}
+    /**
+     * buildVersion 参数。
+     * preserveSplitFrom 非空时，**该版本里已存在的样本沿用旧划分**，只有新增样本按 valPercent/testPercent 重新分配；
+     * 这样"加了一批数据后重建"不会把原来的测试集洗掉，指标还能跨版本比较。
+     */
     public record BuildCommand(String version, String splitRule, Integer valPercent, Integer testPercent,
-                               Integer label, String kind, List<Source> sources) {}
+                               Integer label, String kind, List<Source> sources, Long preserveSplitFrom) {}
 
     private final JdbcTemplate jdbc;
     private final WorkspaceService spaces;
@@ -84,6 +90,17 @@ public class DatasetService {
                 Integer.class, datasetId, version);
         if (existing != null && existing > 0) throw new V2Exception(409, "该版本已存在", "DATASET_VERSION_EXISTS");
 
+        // 沿用旧划分：来源必须是同一数据集里已就绪的版本，否则宁可报错也不要悄悄重新划分
+        Long preserveSplitFrom = command == null ? null : command.preserveSplitFrom();
+        if (preserveSplitFrom != null) {
+            Integer source = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM t_v2_dataset_version
+                    WHERE id=? AND dataset_id=? AND status='READY'
+                    """, Integer.class, preserveSplitFrom, datasetId);
+            if (source == null || source == 0)
+                throw new V2Exception(400, "沿用的划分来源版本不存在或未就绪（必须属于本数据集）", "SPLIT_SOURCE_INVALID");
+        }
+
         List<Map<String, Object>> selected = selectSamples(workspaceId, datasetId, command);
         if (selected.isEmpty()) throw new V2Exception(400, "没有符合条件的样本，请先在识别页采集", "NO_SAMPLES");
         Set<String> writerKeys = new HashSet<>();
@@ -98,12 +115,18 @@ public class DatasetService {
             val = 0;
             test = 0;
         }
-        long id = insertVersion(datasetId, version, splitRule, val, test, userId);
+        long id = insertVersion(datasetId, version, splitRule, val, test, userId,
+                preserveSplitFrom == null ? null : Long.valueOf(preserveSplitFrom));
+        // 沿用旧划分：只对"来源版本里已有的样本"生效，新增样本仍按比例分配
+        Map<Long, String> inherited = inheritedSplits(datasetId, preserveSplitFrom);
+        int preserved = 0;
         Set<String> writers = new HashSet<>();
         for (Map<String, Object> row : selected) {
             long sampleId = ((Number) row.get("id")).longValue();
             String writer = String.valueOf(row.get("creator_id"));
-            String split = splitOf(datasetId, sampleId, writer, val, test, splitRule);
+            String inheritedSplit = inherited.get(sampleId);
+            String split = resolveSplit(inheritedSplit, datasetId, sampleId, writer, val, test, splitRule);
+            if (inheritedSplit != null) preserved += 1;
             jdbc.update("""
                     INSERT INTO t_v2_dataset_sample(version_id, sample_id, split, label, kind, writer_key)
                     VALUES(?,?,?,?,?,?)
@@ -415,19 +438,23 @@ public class DatasetService {
         return new ArrayList<>(unique.values());
     }
 
-    private long insertVersion(long datasetId, String version, String splitRule, int val, int test, long userId) {
+    private long insertVersion(long datasetId, String version, String splitRule, int val, int test, long userId,
+                               Long splitSourceId) {
         GeneratedKeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             var statement = connection.prepareStatement("""
-                    INSERT INTO t_v2_dataset_version(dataset_id, version, split_rule, val_percent, test_percent, created_by)
-                    VALUES(?,?,?,?,?,?)
+                    INSERT INTO t_v2_dataset_version(dataset_id, version, split_rule, val_percent, test_percent,
+                                                     split_source_id, created_by)
+                    VALUES(?,?,?,?,?,?,?)
                     """, Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, datasetId);
             statement.setString(2, version);
             statement.setString(3, splitRule);
             statement.setInt(4, val);
             statement.setInt(5, test);
-            statement.setLong(6, userId);
+            if (splitSourceId == null) statement.setNull(6, java.sql.Types.BIGINT);
+            else statement.setLong(6, splitSourceId);
+            statement.setLong(7, userId);
             return statement;
         }, keys);
         Number id = keys.getKey();
@@ -435,8 +462,31 @@ public class DatasetService {
         return id.longValue();
     }
 
+    /**
+     * 取来源版本里"样本 → 划分"。只接受同一数据集、状态 READY 的版本，
+     * 避免拿别的数据集的划分来套（那两个集合的样本本来就不是一回事）。
+     */
+    private Map<Long, String> inheritedSplits(long datasetId, Long sourceVersionId) {
+        if (sourceVersionId == null) return Map.of();
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT s.sample_id, s.split FROM t_v2_dataset_sample s
+                JOIN t_v2_dataset_version v ON v.id = s.version_id
+                WHERE s.version_id = ? AND v.dataset_id = ?
+                """, sourceVersionId, datasetId);
+        Map<Long, String> result = new java.util.HashMap<>(rows.size());
+        for (Map<String, Object> row : rows)
+            result.put(((Number) row.get("sample_id")).longValue(), String.valueOf(row.get("split")));
+        return result;
+    }
+
+    /** 有旧划分就沿用，否则按规则算出来。抽成静态方法以便单测（不依赖数据库）。 */
+    static String resolveSplit(String inherited, long datasetId, long sampleId, String writer,
+                               int val, int test, String rule) {
+        return inherited != null ? inherited : splitOf(datasetId, sampleId, writer, val, test, rule);
+    }
+
     /** WRITER 按书写者哈希（同一个人只会落在一个划分）；RANDOM 按样本哈希（用于对比）。 */
-    private String splitOf(long datasetId, long sampleId, String writer, int val, int test, String rule) {
+    static String splitOf(long datasetId, long sampleId, String writer, int val, int test, String rule) {
         String seed = rule.equals("RANDOM") ? sampleId + ":" + datasetId : writer + ":" + datasetId;
         int bucket = Math.floorMod(seed.hashCode(), 100);
         if (bucket < test) return "TEST";
@@ -467,10 +517,13 @@ public class DatasetService {
 
     private Version mapVersion(java.sql.ResultSet rs) {
         try {
+            // wasNull() 只反映"最后一次读的列"，所以先把可空列读出来再构造记录
+            long sourceRaw = rs.getLong("split_source_id");
+            String splitSourceId = rs.wasNull() ? null : String.valueOf(sourceRaw);
             return new Version(rs.getString("id"), rs.getString("dataset_id"), rs.getString("version"),
                     rs.getString("status"), rs.getString("split_rule"), rs.getInt("sample_count"),
                     rs.getInt("writer_count"), rs.getInt("val_percent"), rs.getInt("test_percent"),
-                    rs.getTimestamp("created_at").toInstant().toString());
+                    rs.getTimestamp("created_at").toInstant().toString(), splitSourceId);
         } catch (java.sql.SQLException error) {
             throw new IllegalStateException(error);
         }

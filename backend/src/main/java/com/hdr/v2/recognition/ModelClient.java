@@ -27,8 +27,19 @@ public class ModelClient {
     public record Prediction(int digit,double confidence) {}
     public record RegisteredModel(String modelId,String modelVersion,String preprocessVersion,String sha256,
                                   long sizeBytes,String artifact,boolean verified,boolean loaded,String reason) {}
+    /** 对比用：模型身份（注册表键由 modelId + version + preprocessVersion 三者共同决定）。 */
+    public record CompareSide(String modelId,String version,String preprocessVersion) {}
+    public record CompareRow(int index,int label,int digitA,double confidenceA,
+                             int digitB,double confidenceB,boolean agree) {}
+    public record CompareSummary(int samples,int labelled,int agreement,Double agreementRate,
+                                 Double accuracyA,Double accuracyB,int bothRight,int onlyA,int onlyB,
+                                 int bothWrong,Double meanConfidenceA,Double meanConfidenceB) {}
+    public record CompareResult(CompareSide modelA,CompareSide modelB,CompareSummary summary,
+                                List<CompareRow> rows,long processingMs) {}
     private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(ModelClient.class);
     private final RestClient client;
+    /** 对比要一次跑很多张图，读超时单独放宽，避免沿用单张推理的 10s。 */
+    private final RestClient compareClient;
     private final ObjectMapper mapper;
     private final String internalToken;
 
@@ -40,9 +51,13 @@ public class ModelClient {
         var factory=new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(2000); factory.setReadTimeout(10000);
         this.client=RestClient.builder().baseUrl(url).requestFactory(factory).build();
+        var compareFactory=new SimpleClientHttpRequestFactory();
+        compareFactory.setConnectTimeout(2000); compareFactory.setReadTimeout(180000);
+        this.compareClient=RestClient.builder().baseUrl(url).requestFactory(compareFactory).build();
     }
     public ModelClient(RestClient client,ObjectMapper mapper,String internalToken) {
         this.client=client; this.mapper=mapper; this.internalToken=internalToken;
+        this.compareClient=client;
     }
 
     /** 模型服务本地注册表：只有 verified 的条目允许推理。 */
@@ -112,6 +127,82 @@ public class ModelClient {
                     error.getCause()==null?"none":error.getCause().getClass().getSimpleName());
             throw new V2Exception(502,"模型调用失败或超时，请使用新的请求重试","MODEL_UNAVAILABLE");
         }
+    }
+
+    /** 同一批图片分别喂给两个已注册模型；返回逐张预测、差异与汇总。 */
+    public CompareResult compare(CompareSide a, CompareSide b, java.util.List<byte[]> images,
+                                 java.util.List<Integer> labels) {
+        requireConfigured();
+        if (images.isEmpty() || images.size() != labels.size())
+            throw new V2Exception(400, "对比图片与标签数量必须一致", "VALIDATION");
+        var body = new LinkedMultiValueMap<String, Object>();
+        body.add("modelAId", a.modelId()); body.add("modelAVersion", a.version());
+        body.add("modelAPreprocess", a.preprocessVersion());
+        body.add("modelBId", b.modelId()); body.add("modelBVersion", b.version());
+        body.add("modelBPreprocess", b.preprocessVersion());
+        body.add("labels", labels.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+        for (byte[] bytes : images) {
+            var headers = new HttpHeaders();
+            headers.setContentType(MediaType.IMAGE_PNG);
+            body.add("image", new HttpEntity<>(new ByteArrayResource(bytes) {
+                @Override public String getFilename() { return "sample.png"; }
+            }, headers));
+        }
+        try {
+            JsonNode data = compareClient.post().uri("/internal/v2/compare")
+                    .header("X-HDR-Internal-Token", internalToken)
+                    .contentType(MediaType.MULTIPART_FORM_DATA).body(body)
+                    .exchange((request, response) -> read(response));
+            return parseCompare(data, a, b, images.size());
+        } catch (V2Exception error) {
+            // 单张推理把"模型未注册"映射成 503（对线上识别有意义）；管理员点对比时更该知道是选错了模型
+            if ("MODEL_UNAVAILABLE".equals(error.getCategory()))
+                throw new V2Exception(400, "对比用模型在模型服务注册表中不可用（版本或预处理版本不匹配）",
+                        "MODEL_NOT_ALLOWED");
+            throw error;
+        } catch (Exception error) {
+            LOG.warn("Model compare transport failed ({})", error.getClass().getSimpleName());
+            throw new V2Exception(502, "模型对比调用失败或超时，请减少样本量后重试", "MODEL_UNAVAILABLE");
+        }
+    }
+
+    private CompareResult parseCompare(JsonNode data, CompareSide a, CompareSide b, int expected) {
+        JsonNode sideA = data.path("modelA");
+        JsonNode sideB = data.path("modelB");
+        if (!a.modelId().equals(sideA.path("modelId").asText())
+                || !a.version().equals(sideA.path("modelVersion").asText())
+                || !b.modelId().equals(sideB.path("modelId").asText())
+                || !b.version().equals(sideB.path("modelVersion").asText()))
+            throw new V2Exception(502, "模型对比返回的身份与请求不一致", "MODEL_RESPONSE_INVALID");
+        JsonNode summary = data.path("summary");
+        JsonNode rows = data.path("rows");
+        if (!rows.isArray() || rows.size() != expected) throw invalidResponse();
+        java.util.List<CompareRow> parsed = new ArrayList<>();
+        for (JsonNode row : rows) {
+            int label = row.path("label").asInt(-2);
+            int digitA = row.path("digitA").asInt(-1);
+            int digitB = row.path("digitB").asInt(-1);
+            double confidenceA = row.path("confidenceA").asDouble(Double.NaN);
+            double confidenceB = row.path("confidenceB").asDouble(Double.NaN);
+            if (label < -1 || label > 9 || digitA < 0 || digitA > 9 || digitB < 0 || digitB > 9
+                    || !Double.isFinite(confidenceA) || !Double.isFinite(confidenceB)
+                    || confidenceA < 0 || confidenceA > 1 || confidenceB < 0 || confidenceB > 1)
+                throw invalidResponse();
+            parsed.add(new CompareRow(row.path("index").asInt(parsed.size()), label, digitA, confidenceA,
+                    digitB, confidenceB, digitA == digitB));
+        }
+        CompareSummary parsedSummary = new CompareSummary(
+                summary.path("samples").asInt(0), summary.path("labelled").asInt(0),
+                summary.path("agreement").asInt(0),
+                summary.hasNonNull("agreementRate") ? summary.path("agreementRate").asDouble() : null,
+                summary.hasNonNull("accuracyA") ? summary.path("accuracyA").asDouble() : null,
+                summary.hasNonNull("accuracyB") ? summary.path("accuracyB").asDouble() : null,
+                summary.path("bothRight").asInt(0), summary.path("onlyA").asInt(0),
+                summary.path("onlyB").asInt(0), summary.path("bothWrong").asInt(0),
+                summary.hasNonNull("meanConfidenceA") ? summary.path("meanConfidenceA").asDouble() : null,
+                summary.hasNonNull("meanConfidenceB") ? summary.path("meanConfidenceB").asDouble() : null);
+        return new CompareResult(a, b, parsedSummary, java.util.List.copyOf(parsed),
+                data.path("processingMs").asLong(0));
     }
 
     public Map<String,Object> ready() {
@@ -239,7 +330,7 @@ public class ModelClient {
         int status=response.getStatusCode().value();
         byte[] bytes=response.getBody().readNBytes(65537);
         if(bytes.length>65536) throw invalidResponse();
-        if(status==400) throw new V2Exception(400,"图片未通过模型服务校验","INVALID_IMAGE");
+        if(status==400) throw badRequest(bytes);
         if(status==413) throw new V2Exception(413,"图片超出模型服务限制","IMAGE_TOO_LARGE");
         if(status==422) {
             JsonNode rejected;
@@ -261,6 +352,38 @@ public class ModelClient {
                 || root.path("code").intValue()!=0 || !root.path("data").isObject()) throw invalidResponse();
         return root.path("data");
     }
+    /**
+     * 400 有四种完全不同的原因，不能一律报成"图片不合法"，否则运维会照着错误提示去查图片：
+     *   MODEL_NOT_ALLOWED → 数据库里的生效模型在模型服务注册表里不存在（版本或预处理版本不匹配），属于服务端配置问题；
+     *   BLANK_IMAGE       → 用户没写东西；
+     *   INVALID_REQUEST / VALIDATION → 请求字段与内部接口约定不一致（多半是版本不匹配）。
+     * 未识别的 category 仍按"图片未通过校验"处理，保持历史行为。
+     */
+    private V2Exception badRequest(byte[] bytes) {
+        JsonNode body=null;
+        try { body=bytes.length==0?null:mapper.readTree(bytes); }
+        catch(IOException ignored) { /* 非 JSON 响应按旧行为处理 */ }
+        String category="";
+        String message="";
+        if(body!=null && body.isObject()) {
+            message=body.path("message").asText("");
+            if(body.path("data").isObject()) category=body.path("data").path("category").asText("");
+        }
+        switch(category) {
+            case "MODEL_NOT_ALLOWED":
+                return new V2Exception(503,
+                        "当前生效的模型在模型服务注册表中不存在（版本或预处理版本不匹配），请在模型管理中注册并激活已发布的模型",
+                        "MODEL_UNAVAILABLE");
+            case "BLANK_IMAGE":
+                return new V2Exception(400,message.isBlank()?"请先书写数字，不能识别空白图片":message,"BLANK_IMAGE");
+            case "INVALID_REQUEST":
+            case "VALIDATION":
+                return new V2Exception(400,"请求字段与模型服务内部接口约定不一致","INVALID_REQUEST");
+            default:
+                return new V2Exception(400,"图片未通过模型服务校验","INVALID_IMAGE");
+        }
+    }
+
     private void requireConfigured() {
         if(internalToken.isBlank()) throw new V2Exception(503,"模型内部凭据尚未配置","MODEL_UNAVAILABLE");
     }

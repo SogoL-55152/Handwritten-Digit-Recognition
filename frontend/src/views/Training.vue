@@ -4,6 +4,7 @@ import * as api from '@/api/training.js'
 import { useUserStore } from '@/stores/user.js'
 import { createTrainingBoard, summarizeTask } from '@/training/board.js'
 import { createTrainingEvents } from '@/training/events.js'
+import { liveLabel as labelForLiveStatus, shouldPoll } from '@/training/live.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingDetail from '@/training/TrainingDetail.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
@@ -59,7 +60,6 @@ async function loadAll() {
   errorMessage.value = ''
   try {
     await board.refresh()
-    if (!board.polling()) board.start()
   } catch (failure) {
     errorMessage.value = failure?.message || '加载训练任务失败'
   } finally {
@@ -67,10 +67,14 @@ async function loadAll() {
   }
 }
 
-const liveLabel = computed(() => ({
-  live: '实时推送已连接', connecting: '实时推送连接中', reconnecting: '推送断开，正在重连',
-  unavailable: '实时推送不可用，使用 4 秒轮询', closed: '推送已关闭'
-}[liveStatus.value] || liveStatus.value))
+// 实时推送连着就不轮询；断开/不可用时才用轮询兜底（有排队中/训练中的任务才需要）
+watch([liveStatus, tasks], () => {
+  const active = tasks.value.some(isActiveTask)
+  if (active && shouldPoll(liveStatus.value)) board.start()
+  else board.stop()
+})
+
+const liveLabel = computed(() => labelForLiveStatus(liveStatus.value))
 
 const filteredLogs = computed(() => {
   const query = logQuery.value.trim().toLowerCase()
@@ -141,7 +145,7 @@ onUnmounted(() => {
 
     <section class="panel">
       <h2>训练任务</h2>
-      <p class="muted">{{ liveLabel }} · 有排队中/训练中的任务时每 4 秒轮询兜底；全部结束会停止。</p>
+      <p class="muted">{{ liveLabel }} · 推送连着时不轮询；断开或不可用时每 4 秒轮询兜底，全部任务结束会停止。</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>任务</th><th>状态</th><th>参数</th><th>产物</th><th>指标</th><th></th></tr></thead>

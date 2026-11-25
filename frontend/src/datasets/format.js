@@ -29,7 +29,21 @@ export function buildPayload(form = {}) {
   }
   if (form.label !== undefined && form.label !== null && form.label !== '') payload.label = Number(form.label)
   if (form.kind) payload.kind = form.kind
+  // 沿用某个版本的划分：0/空 表示重新划分
+  const source = Number(form.preserveSplitFrom)
+  if (Number.isFinite(source) && source > 0) payload.preserveSplitFrom = Math.round(source)
   return payload
+}
+
+/** 可选的"沿用划分来源"版本（排除当前要新建的那个名字）。 */
+export function splitSourceOptions(versions = [], currentVersion = '') {
+  return (Array.isArray(versions) ? versions : [])
+    .filter((item) => item && item.id && item.status === 'READY')
+    .filter((item) => String(item.version || '') !== String(currentVersion || ''))
+    .map((item) => ({
+      id: Number(item.id),
+      label: `#${item.id} · ${item.version || ''}（${item.sample_count ?? 0} 样本${item.split_source_id ? '，沿用 #' + item.split_source_id : ''}）`
+    }))
 }
 
 /** 标签分布：按标签排序，带占比（用于条形图）。 */

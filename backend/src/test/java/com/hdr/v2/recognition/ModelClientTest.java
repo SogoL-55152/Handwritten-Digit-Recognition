@@ -199,4 +199,51 @@ class ModelClientTest {
         assertEquals(503, error.getStatus());
         server.verify();
     }
+
+    private void expectError(int status, String body) {
+        server.expect(requestTo("http://model.test/internal/v2/predict"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.valueOf(status))
+                        .contentType(MediaType.APPLICATION_JSON).body(body));
+    }
+
+    /** 注册表里没有该版本时，必须报"模型不可用"，不能报成"图片不合法"。 */
+    @Test
+    void modelNotAllowedIsReportedAsUnavailableNotInvalidImage() {
+        expectError(400, "{\"code\":400,\"message\":\"只允许使用已注册且预处理版本匹配的模型\","
+                + "\"data\":{\"category\":\"MODEL_NOT_ALLOWED\"}}");
+        var error = assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, model, image));
+        assertEquals(503, error.getStatus());
+        assertEquals("MODEL_UNAVAILABLE", error.getCategory());
+        server.verify();
+    }
+
+    @Test
+    void blankImageKeepsItsOwnCategory() {
+        expectError(400, "{\"code\":400,\"message\":\"请先书写数字，不能识别空白图片\","
+                + "\"data\":{\"category\":\"BLANK_IMAGE\"}}");
+        var error = assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, model, image));
+        assertEquals(400, error.getStatus());
+        assertEquals("BLANK_IMAGE", error.getCategory());
+        server.verify();
+    }
+
+    @Test
+    void contractMismatchIsNotBlamedOnTheImage() {
+        expectError(400, "{\"code\":400,\"message\":\"表单字段必须唯一且与内部接口约定一致\","
+                + "\"data\":{\"category\":\"INVALID_REQUEST\"}}");
+        var error = assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, model, image));
+        assertEquals(400, error.getStatus());
+        assertEquals("INVALID_REQUEST", error.getCategory());
+        server.verify();
+    }
+
+    @Test
+    void unknownBadRequestFallsBackToInvalidImage() {
+        expectError(400, "not-a-json-body");
+        var error = assertThrows(V2Exception.class, () -> client.predict(2, REQUEST, model, image));
+        assertEquals(400, error.getStatus());
+        assertEquals("INVALID_IMAGE", error.getCategory());
+        server.verify();
+    }
 }

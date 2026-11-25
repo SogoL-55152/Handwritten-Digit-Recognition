@@ -267,7 +267,7 @@ class IdentityWorkspaceIT {
         long memberId = Long.parseLong(member.user().id());
         jdbc.update("INSERT INTO t_workspace_member(workspace_id,user_id,role) VALUES (?,?,'MEMBER')", wid, memberId);
         ModelClient model = mock(ModelClient.class);
-        when(model.predict(anyLong(), anyString(), any(), any())).thenReturn(new ModelClient.Prediction(7, .98));
+        when(model.predict(anyLong(), anyString(), any(), any(), anyBoolean())).thenReturn(new ModelClient.Prediction(7, .98));
         var service = recognitionService(model);
         String request = UUID.randomUUID().toString();
         var image = new ImageValidator.Image(new byte[]{1}, "a".repeat(64), "image/png");
@@ -280,7 +280,7 @@ class IdentityWorkspaceIT {
         assertEquals("IDEMPOTENCY_CONFLICT", assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "MINIPROGRAM", image)).getCategory());
         assertEquals("IDEMPOTENCY_CONFLICT", assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "WEB",
                 new ImageValidator.Image(new byte[]{2}, "b".repeat(64), "image/png"))).getCategory());
-        verify(model, times(1)).predict(anyLong(), anyString(), any(), any());
+        verify(model, times(1)).predict(anyLong(), anyString(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -288,14 +288,14 @@ class IdentityWorkspaceIT {
         var owner = register();
         long wid = Long.parseLong(owner.defaultWorkspaceId()), uid = Long.parseLong(owner.user().id());
         ModelClient model = mock(ModelClient.class);
-        when(model.predict(anyLong(), anyString(), any(), any())).thenThrow(new V2Exception(503, "not ready"));
+        when(model.predict(anyLong(), anyString(), any(), any(), anyBoolean())).thenThrow(new V2Exception(503, "not ready"));
         var service = recognitionService(model);
         String request = UUID.randomUUID().toString();
         var image = new ImageValidator.Image(new byte[]{1}, "a".repeat(64), "image/png");
         assertEquals(503, assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "WEB", image)).getStatus());
         assertEquals("FAILED", jdbc.queryForObject("SELECT status FROM t_recognition_v2 WHERE workspace_id=?", String.class, wid));
         assertEquals("REQUEST_FAILED", assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "WEB", image)).getCategory());
-        verify(model, times(1)).predict(anyLong(), anyString(), any(), any());
+        verify(model, times(1)).predict(anyLong(), anyString(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -303,7 +303,7 @@ class IdentityWorkspaceIT {
         var owner = register();
         long wid = Long.parseLong(owner.defaultWorkspaceId()), uid = Long.parseLong(owner.user().id());
         ModelClient model = mock(ModelClient.class);
-        when(model.predict(anyLong(), anyString(), any(), any())).thenThrow(new V2Exception(422, "rewrite", "UNRECOGNIZED_INPUT"));
+        when(model.predict(anyLong(), anyString(), any(), any(), anyBoolean())).thenThrow(new V2Exception(422, "rewrite", "UNRECOGNIZED_INPUT"));
         var service = recognitionService(model);
         String request = UUID.randomUUID().toString();
         var image = new ImageValidator.Image(new byte[]{1}, "a".repeat(64), "image/png");
@@ -312,7 +312,7 @@ class IdentityWorkspaceIT {
         assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM t_recognition_v2 WHERE id=? AND status='FAILED' AND digit IS NULL AND confidence IS NULL", Long.class, id));
         assertEquals(404, assertThrows(V2Exception.class, () -> service.get(wid, uid, id)).getStatus());
         assertEquals("REQUEST_FAILED", assertThrows(V2Exception.class, () -> service.predict(wid, uid, request, "WEB", image)).getCategory());
-        verify(model, times(1)).predict(anyLong(), anyString(), any(), any());
+        verify(model, times(1)).predict(anyLong(), anyString(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -321,7 +321,7 @@ class IdentityWorkspaceIT {
         long wid = Long.parseLong(owner.defaultWorkspaceId()), uid = Long.parseLong(owner.user().id());
         ModelClient model = mock(ModelClient.class);
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
-        when(model.predict(anyLong(), anyString(), any(), any())).thenAnswer(invocation -> {
+        when(model.predict(anyLong(), anyString(), any(), any(), anyBoolean())).thenAnswer(invocation -> {
             entered.countDown();
             assertTrue(release.await(10, TimeUnit.SECONDS));
             return new ModelClient.Prediction(3, .9);
@@ -337,7 +337,7 @@ class IdentityWorkspaceIT {
             release.countDown();
             assertEquals(pending.get(10, TimeUnit.SECONDS), service.predict(wid, uid, request, "WEB", image));
         } finally { release.countDown(); executor.shutdownNow(); }
-        verify(model, times(1)).predict(anyLong(), anyString(), any(), any());
+        verify(model, times(1)).predict(anyLong(), anyString(), any(), any(), anyBoolean());
     }
 
     @Test

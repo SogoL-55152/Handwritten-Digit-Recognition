@@ -1,0 +1,14 @@
+# -*- coding: utf-8 -*-
+# 训练 worker（Celery）依赖。Web 进程不需要这些包，见 requirements.txt。
+#
+# 安装：python -m pip install -r requirements-worker.txt
+#
+# 为什么固定版本：
+#   Windows 上可用的 redis-server 是 5.0.14（tporadowski 构建），而 kombu >= 5.7 的
+#   绑定刷新脚本用了 `ZADD key GT score member`（Redis 6.2+ 才支持），worker 一启动就报：
+#     redis.exceptions.ResponseError: Error running script ...: @user_script:5: ERR syntax error
+#   kombu 5.5.x 仍用普通 ZADD，可与 Redis 5 共存，因此把 celery/kombu 固定在这一条线。
+#   换成 Redis >= 6.2（Linux 上的 Redis 7、Memurai 等）后可以放开下面的上限。
+celery==5.5.3
+kombu==5.5.4
+redis>=5,<7

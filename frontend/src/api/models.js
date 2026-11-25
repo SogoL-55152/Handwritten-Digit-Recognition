@@ -9,3 +9,6 @@ export const activateModel = (id, authSession) => request.post(path(id) + '/acti
 export const disableModel = (id, authSession) => request.post(path(id) + '/disable', {}, { authSession, silent: true })
 export const deleteModel = (id, authSession) => request.delete(path(id), { authSession, silent: true })
 export const reloadRegistry = (authSession) => request.post(`${base}/registry/reload`, {}, { authSession, silent: true })
+// 对比要一次跑几十上百张图，沿用默认 20s 超时会截断
+export const compareModels = (payload, authSession) =>
+  request.post(`${base}/compare`, payload, { authSession, silent: true, timeout: 120000 })

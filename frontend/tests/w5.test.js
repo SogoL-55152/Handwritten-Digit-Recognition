@@ -150,6 +150,25 @@ test('recent rows translate outcome, source and failure reason', () => {
   assert.deepEqual(recentRows(null), [])
 })
 
+test('recent rows label the newer failure categories instead of showing raw codes', () => {
+  const codes = {
+    MODEL_UNAVAILABLE: '模型不可用',
+    BLANK_IMAGE: '空白图片',
+    INVALID_REQUEST: '请求字段不符',
+    INVALID_IMAGE: '图片无效',
+    MODEL_BUSY: '模型繁忙',
+    DIGIT_LIMIT: '超出位数上限'
+  }
+  const rows = recentRows(Object.keys(codes).map((code, index) => ({
+    id: String(index), createdAt: '2026-11-25T00:00:00Z', digit: null, confidence: null,
+    processingMs: null, failureCode: code, source: 'WEB'
+  })))
+  Object.entries(codes).forEach(([code, label], index) => {
+    assert.equal(rows[index].outcome, label, `${code} 应显示为「${label}」`)
+    assert.equal(rows[index].success, false)
+  })
+})
+
 test('recent rows prefer the multi-digit string when present', () => {
   const rows = recentRows([{ id: '11', createdAt: '2026-11-12T04:00:00Z', digit: null, resultText: '351',
     accepted: false, confidence: null, processingMs: 90, modelVersion: 'w4-task-8-a1', source: 'WEB' }])

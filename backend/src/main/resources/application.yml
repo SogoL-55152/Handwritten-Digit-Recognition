@@ -70,14 +70,23 @@ hdr:
     bootstrap-username: ${HDR_LEGACY_BOOTSTRAP_USERNAME:}
     bootstrap-password: ${HDR_LEGACY_BOOTSTRAP_PASSWORD:}
   v2:
+    # 空库部署时用这两个变量补一个 SUPER_ADMIN（见部署手册 1.6）；留空则不做任何事
+    bootstrap-admin:
+      username: ${HDR_BOOTSTRAP_ADMIN_USERNAME:}
+      password: ${HDR_BOOTSTRAP_ADMIN_PASSWORD:}
     jwt:
       secret: ${V2_JWT_SECRET:}
       expire-hours: ${V2_JWT_EXPIRE_HOURS:24}
     limits:
       max-workspaces: ${W2_MAX_WORKSPACES:3}
       recognition-per-minute: ${W2_RECOGNITION_PER_MINUTE:60}
+      # 全平台识别上限，历史上写死在 RecognitionService；压测/扩容时在这里调
+      global-recognition-per-minute: ${W2_GLOBAL_RECOGNITION_PER_MINUTE:240}
       max-members: ${W2_MAX_MEMBERS:5}
       daily-recognition-limit: ${W2_DAILY_RECOGNITION_LIMIT:1000}
+      # 注册接口按 IP 的配额（默认 5 次/15 分钟）。只在压测/联调环境放大，生产保持默认。
+      register-per-ip: ${W2_REGISTER_PER_IP:5}
+      register-window-seconds: ${W2_REGISTER_WINDOW_SECONDS:900}
   jwt:
     secret: ${JWT_SECRET:hdr-dev-secret-key-please-change-in-production-0123456789}
     expire-hours: ${JWT_EXPIRE_HOURS:24}

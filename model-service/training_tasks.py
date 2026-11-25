@@ -92,9 +92,20 @@ def _digest(path):
 
 
 def _publish_registry(version, artifact_relative, sha256, size_bytes):
-    """把新模型追加进 registry.json（原子替换），并返回重载后的注册表视图。"""
+    """把新模型追加进 registry.json（原子替换），并返回重载后的注册表视图。
+
+    护栏：同名版本如果已登记过**不同的产物摘要**，直接拒绝，绝不覆盖。
+    训练产物版本号形如 w4-task-<taskId>-a<attempt>，而发布基线也用过
+    w4-task-8-a1 这种名字；早期实现会静默把已发布的基线权重换成新训的模型，
+    数据库摘要与注册表随之不一致（现场表现为模型 verified=false、无法再激活）。
+    """
     path = Path(os.getenv("MODEL_REGISTRY_PATH", weights_dir() / "registry.json"))
     document = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {"models": []}
+    existing = next((entry for entry in document.get("models", []) if entry.get("version") == version), None)
+    if existing is not None and existing.get("sha256") != sha256:
+        raise ValueError(
+            "模型版本 %s 已登记为其它产物（sha256 %s…），训练结果不会覆盖已发布模型；"
+            "请检查版本号是否与发布基线冲突" % (version, str(existing.get("sha256"))[:12]))
     models = [entry for entry in document.get("models", []) if entry.get("version") != version]
     models.append({"modelId": BASELINE.model_id, "version": version,
                    "preprocessVersion": BASELINE.preprocess_version,

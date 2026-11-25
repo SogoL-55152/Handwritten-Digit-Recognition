@@ -21,6 +21,13 @@ FIELDS = frozenset(("workspaceId", "requestId", "modelId", "modelVersion", "prep
 UUID_PATTERN = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\Z")
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
+# 模型对比：一次请求带多张图，分别喂给两个已注册模型
+MAX_COMPARE_IMAGES = 200
+MAX_COMPARE_BYTES = 32 * 1024 * 1024
+COMPARE_FIELDS = frozenset(("modelAId", "modelAVersion", "modelAPreprocess",
+                            "modelBId", "modelBVersion", "modelBPreprocess", "labels"))
+LABELS_PATTERN = re.compile(r"-?[0-9](?:,-?[0-9]){0,%d}\Z" % (MAX_COMPARE_IMAGES - 1))
+
 
 def is_internal_request():
     return request.path == "/internal/v2" or request.path.startswith("/internal/v2/")
@@ -51,6 +58,11 @@ def authenticate_internal():
     request.max_form_memory_size = 128 * 1024
     # 表单字段本身也占 part 数：单字请求是 5 字段 + 1 文件 = 6，留出余量给后续字段。
     request.max_form_parts = 8
+    if request.path == "/internal/v2/compare":
+        # 模型对比一次带多张图：放宽体量、part 数与表单内存上限
+        request.max_content_length = MAX_COMPARE_BYTES
+        request.max_form_memory_size = MAX_COMPARE_BYTES
+        request.max_form_parts = MAX_COMPARE_IMAGES + 16
     return None
 
 
@@ -341,3 +353,123 @@ def enhance_preview():
     buffer = BytesIO()
     Image.fromarray(enhanced).save(buffer, format="PNG")
     return current_app.response_class(buffer.getvalue(), mimetype="image/png")
+
+
+# ---------------------------------------------------------------- 模型对比
+
+
+class _CompareBusy(RuntimeError):
+    """两个模型之一没有空闲推理槽。"""
+
+
+def _validate_compare():
+    if request.mimetype != "multipart/form-data":
+        return error_response(415, "请使用 multipart/form-data", "UNSUPPORTED_MEDIA_TYPE")
+    if set(request.form) != COMPARE_FIELDS or set(request.files) != {"image"}:
+        return error_response(400, "对比表单字段必须与内部接口约定一致", "INVALID_REQUEST")
+    if any(len(request.form.getlist(key)) != 1 for key in COMPARE_FIELDS):
+        return error_response(400, "对比表单字段必须唯一", "INVALID_REQUEST")
+    for prefix in ("modelA", "modelB"):
+        if any(not TOKEN_PATTERN.fullmatch(request.form[prefix + suffix])
+               for suffix in ("Id", "Version", "Preprocess")):
+            return error_response(400, "模型标识格式无效", "INVALID_REQUEST")
+    labels = request.form["labels"]
+    if not LABELS_PATTERN.fullmatch(labels):
+        return error_response(400, "labels 必须是逗号分隔的 -1..9", "INVALID_REQUEST")
+    files = request.files.getlist("image")
+    if not 1 <= len(files) <= MAX_COMPARE_IMAGES:
+        return error_response(400, "对比图片数量必须在 1..%d" % MAX_COMPARE_IMAGES, "INVALID_REQUEST")
+    if len(labels.split(",")) != len(files):
+        return error_response(400, "labels 数量必须与图片数量一致", "INVALID_REQUEST")
+    return None
+
+
+def _compare_prediction(service, normalized):
+    """原始概率下的预测（不经过选择性识别策略）：对比的是模型本身。"""
+    if not service.slots.acquire(blocking=False):
+        raise _CompareBusy()
+    try:
+        probabilities = service.probabilities(normalized)
+    finally:
+        service.slots.release()
+    digit = max(range(len(probabilities)), key=lambda index: probabilities[index])
+    return digit, round(float(probabilities[digit]), 4)
+
+
+def _compare_summary(rows):
+    total = len(rows)
+    agreement = sum(1 for row in rows if row["agree"])
+    labelled = [row for row in rows if row["label"] >= 0]
+    right_a = sum(1 for row in labelled if row["digitA"] == row["label"])
+    right_b = sum(1 for row in labelled if row["digitB"] == row["label"])
+    both_right = sum(1 for row in labelled
+                     if row["digitA"] == row["label"] and row["digitB"] == row["label"])
+    only_a = sum(1 for row in labelled
+                 if row["digitA"] == row["label"] and row["digitB"] != row["label"])
+    only_b = sum(1 for row in labelled
+                 if row["digitB"] == row["label"] and row["digitA"] != row["label"])
+    both_wrong = sum(1 for row in labelled
+                     if row["digitA"] != row["label"] and row["digitB"] != row["label"])
+    return {
+        "samples": total,
+        "labelled": len(labelled),
+        "agreement": agreement,
+        "agreementRate": round(agreement / total, 4) if total else None,
+        "accuracyA": round(right_a / len(labelled), 4) if labelled else None,
+        "accuracyB": round(right_b / len(labelled), 4) if labelled else None,
+        "bothRight": both_right,
+        "onlyA": only_a,
+        "onlyB": only_b,
+        "bothWrong": both_wrong,
+        "meanConfidenceA": round(sum(row["confidenceA"] for row in rows) / total, 4) if total else None,
+        "meanConfidenceB": round(sum(row["confidenceB"] for row in rows) / total, 4) if total else None,
+    }
+
+
+@bp.post("/compare")
+def compare_models():
+    """同一批图片分别喂给两个已注册模型，返回逐张预测、差异样本与汇总。
+
+    调用方（Java 网关）负责提供带标签的样本；这里只做"同一输入、两个模型、逐张对比"，
+    不落库、不影响在线识别，也不改变当前生效模型。
+    """
+    started = time.perf_counter()
+    try:
+        invalid = _validate_compare()
+        if invalid is not None:
+            return invalid
+        labels = [int(value) for value in request.form["labels"].split(",")]
+        files = request.files.getlist("image")
+        try:
+            service_a = registry().service(request.form["modelAId"], request.form["modelAVersion"],
+                                           request.form["modelAPreprocess"])
+            service_b = registry().service(request.form["modelBId"], request.form["modelBVersion"],
+                                           request.form["modelBPreprocess"])
+        except LookupError:
+            return error_response(400, "只允许使用已注册且预处理版本匹配的模型", "MODEL_NOT_ALLOWED")
+        rows = []
+        for index, (image, truth) in enumerate(zip(files, labels)):
+            payload = image.stream.read(IMAGE_MAX_BYTES + 1)
+            normalized = preprocess_image(payload, image.mimetype)
+            try:
+                digit_a, confidence_a = _compare_prediction(service_a, normalized)
+                digit_b, confidence_b = _compare_prediction(service_b, normalized)
+            except _CompareBusy:
+                return error_response(429, "推理并发已满，请稍后重试", "MODEL_BUSY", retry_after=1)
+            rows.append({"index": index, "label": truth,
+                         "digitA": digit_a, "confidenceA": confidence_a,
+                         "digitB": digit_b, "confidenceB": confidence_b,
+                         "agree": digit_a == digit_b})
+        return jsonify({"code": 0, "message": "ok", "data": {
+            "modelA": service_a.artifact.identity(),
+            "modelB": service_b.artifact.identity(),
+            "summary": _compare_summary(rows),
+            "rows": rows,
+            "processingMs": max(0, round((time.perf_counter() - started) * 1000)),
+        }})
+    except InvalidImage as exc:
+        return error_response(exc.status, str(exc), exc.category)
+    except ImportError:
+        return error_response(503, "推理依赖不可用", "MODEL_UNAVAILABLE")
+    except ModelUnavailable as exc:
+        return error_response(503, str(exc), "MODEL_UNAVAILABLE")

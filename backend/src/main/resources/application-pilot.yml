@@ -18,6 +18,7 @@ hdr:
     limits:
       max-workspaces: 1
       recognition-per-minute: ${PILOT_RECOGNITION_PER_MINUTE:10}
+      global-recognition-per-minute: ${PILOT_GLOBAL_RECOGNITION_PER_MINUTE:240}
       max-members: 1
 spring:
   datasource:

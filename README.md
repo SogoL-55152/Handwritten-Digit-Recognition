@@ -57,6 +57,19 @@ npm --prefix miniprogram test
 
 ## 启动应用
 
+> 2026-11-25 更新：新增一键起停脚本与环境模板，推荐直接用它们，不再手抄命令。
+>
+> ```powershell
+> Copy-Item scripts\.env.example scripts\.env   # 首次：改成自己机器上的路径与密码
+> powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1   # 起（MySQL→Redis→模型→后端→worker→前端）
+> powershell -ExecutionPolicy Bypass -File scripts\stop-all.ps1    # 停
+> python scripts\smoke-test.py                                     # 验收：13 项检查
+> ```
+>
+> 完整步骤、一次性初始化（建库、拉权重、备 MNIST、建管理员）与实测故障表见
+> [部署手册（本机实测版）](docs/部署手册-本机实测.md) 与 [P0 交付记录](docs/P0-部署与压测-交付记录.md)。
+> 下面第 1–6 小节是历史手动流程，保留作参考。
+
 > 2026-11-18 更新。以下是本机（Windows）实测可用的启动方式；换机器只需替换路径和私有环境文件。
 
 ### 1. 前置依赖
@@ -128,7 +141,7 @@ Start-Process "D:\Temp\hdr-w4-venv\Scripts\python.exe" -ArgumentList `
   -WorkingDirectory "$PWD\model-service"
 ```
 
-> 首次启动后端会自动跑 Flyway 迁移到最新版本（当前 V17），不需要手动建表。
+> 首次启动后端会自动跑 Flyway 迁移到最新版本（当前 V23），不需要手动建表。
 
 ### 4. 确认启动成功
 
@@ -187,3 +200,49 @@ Docker Compose 骨架（`docker compose up -d --build`）**尚未验证**，交�
     bash scripts/fetch-weights.sh
 
 脚本会下载基线权重并做 sha256 校验。说明见 [docs/权重与产物管理.md](docs/权重与产物管理.md)。
+
+## 快速开始（clone 后一条命令）
+
+### 方式 A：Docker（推荐，只需装 Docker）
+
+`ash
+git clone https://github.com/SogoL-55152/Handwritten-Digit-Recognition.git
+cd Handwritten-Digit-Recognition
+./start.sh          # Windows 双击 start.bat
+`
+
+脚本会自动完成：
+
+1. 生成 .env（随机数据库密码 / JWT 密钥 / 内部 token / 管理员密码）
+2. 下载基线权重并校验 sha256
+3. docker compose up -d --build（首次构建约 2–4 分钟）
+4. 等待服务就绪后自动打开浏览器
+
+访问 http://127.0.0.1:8088，管理员账号与密码会打印在终端里（也写在 .env）。
+
+停止与重置：
+
+`ash
+./stop.sh      # 停止，数据保留
+./reset.sh     # 清空数据重来
+`
+
+### 方式 B：本机运行（无需 Docker）
+
+需要先安装 JDK 17、Node 20+、Python 3.11、MySQL 8、Redis 7，然后：
+
+`powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
+`
+
+停止：scripts\stop-all.ps1。
+
+### 常见问题
+
+| 现象 | 处理 |
+|---|---|
+| 没装 Docker | 用方式 B，或安装 Docker Desktop 后重试 |
+| 8088 被占用 | 修改 .env 里的 WEB_PORT |
+| 首次启动慢 | 首次要构建镜像并下载权重，约 3–6 分钟 |
+| 想看日志 | docker compose logs -f |
+

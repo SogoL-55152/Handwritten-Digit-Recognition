@@ -334,6 +334,74 @@ canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; background:
 .matrix-cell { display: flex; align-items: center; justify-content: center; height: 30px; border-radius: 4px;
   background: #f7f9fc; font-size: 11px; color: #16324f; }
 
+/* 评估域切换 + 每类 P/R/F1 + 错误样本 */
+.domain-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.domain-tab { padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fbfcfe;
+  font-size: 12px; color: #35506e; cursor: pointer; }
+.domain-tab.active { border-color: var(--primary); background: #eef4ff; color: var(--primary); font-weight: 650; }
+.prf-table { display: grid; gap: 2px; max-width: 520px; font-size: 12px; }
+.prf-row { display: grid; grid-template-columns: 44px repeat(5, minmax(0, 1fr)); gap: 4px;
+  padding: 3px 6px; border-radius: 5px; }
+.prf-row > span { text-align: right; }
+.prf-row > span:first-child { text-align: center; }
+.prf-row:nth-child(even) { background: #f7f9fc; }
+.prf-head { color: var(--muted); font-weight: 600; background: transparent; }
+.error-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.error-list li { display: grid; grid-template-columns: 56px minmax(0, 1fr) 110px; gap: 8px;
+  align-items: center; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfe; }
+.error-index { color: var(--muted); font-variant-numeric: tabular-nums; }
+.error-list li .muted { text-align: right; }
+
+/* ---------- 导入向导：异步任务进度 ---------- */
+.import-job { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+.import-job-status { margin: 0 0 8px; font-size: 13px; color: #16324f; }
+.import-job-bad { color: #a02b2b; }
+.import-job-bar { height: 10px; border-radius: 6px; background: #eef2f7; overflow: hidden; }
+.import-job-bar i { display: block; height: 100%; background: linear-gradient(90deg, #6ea8e8, #2f6fd0);
+  transition: width .3s ease; }
+.import-job-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; }
+
+/* ---------- 导入向导：CSV 列映射与多位数切分示意 ---------- */
+.csv-mapping { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+.csv-fields { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.csv-fields label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.csv-fields select { padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; background: #fff; min-width: 140px; }
+.cut-samples { margin-top: 10px; display: grid; gap: 10px; }
+.cut-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: start;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.cut-thumb { width: 60px; height: 60px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.cut-body { display: grid; gap: 6px; }
+.cut-name { margin: 0; font-size: 12px; color: #35506e; }
+.cut-bar { position: relative; height: 26px; border-radius: 8px; background: #eef2f7; overflow: hidden; }
+.cut-seg { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, #6ea8e8, #2f6fd0); color: #fff; font-size: 12px; font-weight: 650;
+  border-right: 1px solid rgba(255, 255, 255, .7); }
+
+/* ---------- 模型对比 ---------- */
+.compare-card { width: min(1080px, 96vw); }
+.compare-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;
+  align-items: end; margin: 12px 0; }
+.compare-form label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.compare-form select, .compare-form input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px;
+  font-size: 13px; background: #fff; }
+.compare-form button { padding: 8px 14px; }
+.compare-verdict { margin: 12px 0; padding: 10px 12px; border-radius: 10px; background: #eef4ff;
+  border: 1px solid #cfe0f8; color: #16324f; font-size: 13px; }
+.compare-diffs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.compare-diffs li { display: grid; grid-template-columns: 44px 64px repeat(3, minmax(0, 1fr)) 68px;
+  gap: 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: #fbfcfe; font-size: 12px; }
+.compare-thumb { width: 40px; height: 40px; object-fit: contain; border: 1px solid var(--line);
+  border-radius: 6px; background: #fff; }
+.diff-id { color: var(--muted); font-variant-numeric: tabular-nums; }
+.diff-who { text-align: center; padding: 2px 6px; border-radius: 999px; font-weight: 650; }
+.who-A { background: #e8f2ff; color: #1c5aa8; }
+.who-B { background: #e9f7ec; color: #1f7a3a; }
+.who-both { background: #eef4ff; color: #35506e; }
+.who-both-wrong { background: #fdeaea; color: #a02b2b; }
+.who-unknown { background: #f2f2f2; color: var(--muted); }
+.link-button { border: none; background: none; color: var(--primary); cursor: pointer; font-size: 13px; padding: 0; }
+
 /* ---------- 可视化页 ---------- */
 .visual-layout { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 980px) { .visual-layout { grid-template-columns: minmax(0, 1fr); } }

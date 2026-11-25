@@ -51,7 +51,7 @@ public class RecognitionService {
         spaces.requireMember(wid,uid);
         List<Existing> previous=existing(wid,uid,requestId);
         if(!previous.isEmpty()) return repeat(wid,uid,previous.get(0),source,image.digest());
-        limiter.check("recognition:global",240,60);
+        limiter.check("recognition:global",limits.globalRecognitionPerMinute(),60);
         limiter.check("recognition:user:"+uid,limits.recognitionPerMinute(),60);
         limiter.check("recognition:space:"+wid,limits.recognitionPerMinute(),60);
         if(!permits.tryAcquire()) throw new V2Exception(429,"推理服务正忙，请稍后重试","CONCURRENCY_LIMIT",2);
@@ -104,7 +104,7 @@ public class RecognitionService {
         spaces.requireMember(wid,uid);
         List<Existing> previous=existing(wid,uid,requestId);
         if(!previous.isEmpty()) return repeatMulti(wid,uid,previous.get(0),source,image.digest());
-        limiter.check("recognition:global",240,60);
+        limiter.check("recognition:global",limits.globalRecognitionPerMinute(),60);
         limiter.check("recognition:user:"+uid,limits.recognitionPerMinute(),60);
         limiter.check("recognition:space:"+wid,limits.recognitionPerMinute(),60);
         if(!permits.tryAcquire()) throw new V2Exception(429,"推理服务正忙，请稍后重试","CONCURRENCY_LIMIT",2);

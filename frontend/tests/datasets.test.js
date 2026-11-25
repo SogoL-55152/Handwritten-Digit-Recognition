@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '../src/datasets/format.js'
+import { buildPayload, labelRows, nextVersion, splitHints, splitRows, splitSourceOptions } from '../src/datasets/format.js'
 
 test('next version skips taken names', () => {
   assert.equal(nextVersion([]), 'v1')
@@ -14,6 +14,28 @@ test('build payload clamps ratios and keeps valid fields only', () => {
   assert.deepEqual(buildPayload({ version: 'v2', splitRule: 'RANDOM', valPercent: '10', testPercent: '20', label: 7 }),
     { version: 'v2', splitRule: 'RANDOM', valPercent: 10, testPercent: 20, label: 7 })
   assert.equal(buildPayload({ version: 'v1', label: '' }).label, undefined)
+})
+
+test('preserve split source is forwarded only when a positive id is chosen', () => {
+  assert.equal(buildPayload({ version: 'v3' }).preserveSplitFrom, undefined)
+  assert.equal(buildPayload({ version: 'v3', preserveSplitFrom: 0 }).preserveSplitFrom, undefined)
+  assert.equal(buildPayload({ version: 'v3', preserveSplitFrom: '' }).preserveSplitFrom, undefined)
+  assert.equal(buildPayload({ version: 'v3', preserveSplitFrom: '7' }).preserveSplitFrom, 7)
+  assert.equal(buildPayload({ version: 'v3', preserveSplitFrom: 12.4 }).preserveSplitFrom, 12)
+})
+
+test('split source options list ready versions except the one being built', () => {
+  const versions = [
+    { id: 5, version: 'v2', status: 'READY', sample_count: 1200 },
+    { id: 6, version: 'v3', status: 'READY', sample_count: 1300, split_source_id: '5' },
+    { id: 7, version: 'v4', status: 'BUILDING', sample_count: 0 }
+  ]
+  const options = splitSourceOptions(versions, 'v5')
+  assert.deepEqual(options.map((item) => item.id), [5, 6])
+  assert.ok(options[1].label.includes('沿用 #5'))
+  // 正在新建的版本名不会出现在来源里
+  assert.deepEqual(splitSourceOptions(versions, 'v2').map((item) => item.id), [6])
+  assert.deepEqual(splitSourceOptions(null, 'v1'), [])
 })
 
 test('label rows carry counts and percentages', () => {

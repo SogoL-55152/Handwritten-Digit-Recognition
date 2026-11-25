@@ -63,8 +63,15 @@ export function trainingCard(stats) {
 const FAILURE_LABEL = {
   UNRECOGNIZED_INPUT: '拒识',
   INVALID_CANVAS: '图片无效',
+  INVALID_IMAGE: '图片无效',
+  BLANK_IMAGE: '空白图片',
+  INVALID_REQUEST: '请求字段不符',
+  IMAGE_TOO_LARGE: '图片过大',
   CONCURRENCY_LIMIT: '并发受限',
-  MODEL_UNAVAILABLE: '模型不可用'
+  MODEL_BUSY: '模型繁忙',
+  MODEL_UNAVAILABLE: '模型不可用',
+  MODEL_RESPONSE_INVALID: '模型返回异常',
+  DIGIT_LIMIT: '超出位数上限'
 }
 
 /** 最近识别记录：把状态/数字/来源翻成可读文本。 */

@@ -78,16 +78,32 @@ export const deleteVersion = (snapshot, datasetId, versionId) =>
   request.delete(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/versions/${encodeURIComponent(versionId)}`,
     { authSession: snapshot.session, silent: true })
 
-export const wizardPreview = (snapshot, directory) =>
-  request.post(`${base(snapshot)}/datasets/import-wizard/preview`, { directory },
+// CSV 导入时 fileColumn/labelColumn 指定列映射；留空则后端按表头自动猜
+export const wizardPreview = (snapshot, directory, mapping = {}) =>
+  request.post(`${base(snapshot)}/datasets/import-wizard/preview`,
+    { directory, fileColumn: mapping.fileColumn || null, labelColumn: mapping.labelColumn || null },
     { authSession: snapshot.session, silent: true })
 
-export const wizardCommit = (snapshot, datasetId, directory) =>
-  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard`, { directory },
+export const wizardCommit = (snapshot, datasetId, directory, mapping = {}) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard`,
+    { directory, fileColumn: mapping.fileColumn || null, labelColumn: mapping.labelColumn || null },
     { authSession: snapshot.session, silent: true, timeout: 600000 })
 
 export const importBatches = (snapshot) =>
   request.get(`${base(snapshot)}/import-batches`, { authSession: snapshot.session, silent: true })
+
+// 异步导入：创建任务后轮询，避免大目录/大 zip 把请求线程占满
+export const createImportJob = (snapshot, datasetId, body) =>
+  request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-jobs`, body,
+    { authSession: snapshot.session, silent: true })
+
+export const importJob = (snapshot, jobId) =>
+  request.get(`${base(snapshot)}/import-jobs/${encodeURIComponent(jobId)}`,
+    { authSession: snapshot.session, silent: true })
+
+export const cancelImportJob = (snapshot, jobId) =>
+  request.post(`${base(snapshot)}/import-jobs/${encodeURIComponent(jobId)}/cancel`, {},
+    { authSession: snapshot.session, silent: true })
 
 export const rollbackBatch = (snapshot, batchId) =>
   request.delete(`${base(snapshot)}/import-batches/${encodeURIComponent(batchId)}`,

@@ -20,16 +20,20 @@ public class DatasetController {
     private final DatasetService datasets;
     private final DatasetImportService imports;
     private final ImportWizardService wizard;
+    private final ImportJobService jobs;
     private final SampleInspectionService inspection;
     private final com.hdr.v2.collection.CollectedSampleService collected;
     private final WorkspaceService spaces;
 
-    public DatasetController(DatasetService datasets, DatasetImportService imports,                              ImportWizardService wizard, SampleInspectionService inspection,
-                              com.hdr.v2.collection.CollectedSampleService collected,
-                              WorkspaceService spaces) {
+    public DatasetController(DatasetService datasets, DatasetImportService imports,
+                             ImportWizardService wizard, ImportJobService jobs,
+                             SampleInspectionService inspection,
+                             com.hdr.v2.collection.CollectedSampleService collected,
+                             WorkspaceService spaces) {
         this.datasets = datasets;
         this.imports = imports;
         this.wizard = wizard;
+        this.jobs = jobs;
         this.inspection = inspection;
         this.collected = collected;
         this.spaces = spaces;
@@ -72,7 +76,15 @@ public class DatasetController {
         return Result.ok(imports.importFiles(workspaceId, user, datasetId, label, files == null ? List.of() : files));
     }
 
-    public record WizardCommand(String directory) {}
+    /**
+     * 服务器目录导入。fileColumn/labelColumn 只对 CSV 生效：留空表示自动按表头关键字猜，
+     * 猜不中时预览会返回 csv.matched=false，前端把这两项变成可手动选择后重新试运行。
+     */
+    public record WizardCommand(String directory, String fileColumn, String labelColumn) {
+        ImportWizardService.CsvMapping mapping() {
+            return new ImportWizardService.CsvMapping(fileColumn, labelColumn);
+        }
+    }
 
     @PostMapping(value = "/datasets/import-wizard/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<Map<String, Object>> wizardUpload(@PathVariable long workspaceId,
@@ -101,7 +113,7 @@ public class DatasetController {
                                                              HttpServletRequest request) {
         long user = authorize(workspaceId, request);
         if (command == null) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
-        return Result.ok(wizard.preview(workspaceId, user, command.directory()));
+        return Result.ok(wizard.preview(workspaceId, user, command.directory(), command.mapping()));
     }
 
     public record WizardToken(String token) {}
@@ -130,11 +142,55 @@ public class DatasetController {
                                                     HttpServletRequest request) {
         long user = authorize(workspaceId, request);
         if (command == null) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
-        return Result.ok(wizard.commit(workspaceId, user, datasetId, command.directory()));
+        return Result.ok(wizard.commit(workspaceId, user, datasetId, command.directory(), command.mapping()));
     }
 
-    /** 清理采集目录里没有被任何样本记录引用的文件（维护用）。 */
-    @PostMapping("/collected/cleanup-orphans")
+    // ---------- 异步导入任务（大目录/大 zip 不再占着请求线程） ----------
+
+    /**
+     * sourceKind：DIRECTORY（服务器目录，用 directory）/ ZIP（已解压的 zip 临时目录，用 token）
+     * / UPLOAD（浏览器上传的临时目录，用 token）。ZIP 与 UPLOAD 的目录在任务结束后自动清理。
+     */
+    public record ImportJobCommand(String directory, String token, String sourceKind,
+                                   String fileColumn, String labelColumn) {}
+
+    @PostMapping("/datasets/{datasetId}/import-jobs")
+    public Result<ImportJobService.JobView> createImportJob(@PathVariable long workspaceId,
+                                                           @PathVariable long datasetId,
+                                                           @RequestBody(required = false) ImportJobCommand command,
+                                                           HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        if (command == null) throw new V2Exception(400, "缺少导入参数", "VALIDATION");
+        ImportWizardService.CsvMapping mapping =
+                new ImportWizardService.CsvMapping(command.fileColumn(), command.labelColumn());
+        return Result.ok(jobs.create(workspaceId, user, datasetId, command.sourceKind(),
+                command.directory(), command.token(), mapping));
+    }
+
+    @GetMapping("/import-jobs/{jobId}")
+    public Result<ImportJobService.JobView> importJob(@PathVariable long workspaceId, @PathVariable long jobId,
+                                                     HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(jobs.get(workspaceId, user, jobId));
+    }
+
+    @PostMapping("/import-jobs/{jobId}/cancel")
+    public Result<ImportJobService.JobView> cancelImportJob(@PathVariable long workspaceId,
+                                                            @PathVariable long jobId,
+                                                            HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(jobs.cancel(workspaceId, user, jobId));
+    }
+
+    @GetMapping("/import-jobs")
+    public Result<List<ImportJobService.JobView>> listImportJobs(@PathVariable long workspaceId,
+                                                                 @RequestParam(defaultValue = "10") int limit,
+                                                                 HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(jobs.recent(workspaceId, user, limit));
+    }
+
+    /** 清理采集目录里没有被任何样本记录引用的文件（维护用）。 */    @PostMapping("/collected/cleanup-orphans")
     public Result<Map<String, Object>> cleanupOrphans(@PathVariable long workspaceId, HttpServletRequest request) {
         long user = authorize(workspaceId, request);
         return Result.ok(collected.cleanupOrphans(workspaceId, user));

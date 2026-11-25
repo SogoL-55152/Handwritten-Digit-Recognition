@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, claimSamples, commitUpload, createDataset, deleteDataset, deleteVersion, importBatches, importSamples, inspectDataset, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardCommit, wizardPreview, wizardZipCommit, wizardZipPreview } from '@/api/datasets.js'
-import { buildPayload, labelRows, nextVersion, splitHints, splitRows } from '@/datasets/format.js'
+import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, deleteDataset, deleteVersion, importBatches, importJob, importSamples, inspectDataset, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
+import { buildPayload, labelRows, nextVersion, splitHints, splitRows, splitSourceOptions } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
+import { jobPercent, isTerminalJob, jobStatusText } from '@/datasets/job.js'
 
 const user = useUserStore()
 const workspace = useWorkspaceStore()
@@ -16,11 +17,11 @@ const state = reactive({
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
-  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0 },
+  wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0, csvMapping: { fileColumn: '', labelColumn: '' }, job: null },
   importSource: 'folder', localPreview: null, picked: null, upload: { busy: false, error: '', token: '', preview: null, detection: '' },
   sources: [], sourceOptions: [], sourceLimit: 20, sourceMode: 'SELF', sourceQuery: '',
   labelOpen: false, manualOpen: false,
-  buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '' }
+  buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '', preserveSplitFrom: 0 }
 })
 const imageUrls = reactive({})
 
@@ -64,6 +65,8 @@ const importBlocked = computed(() => {
 const labelList = computed(() => labelRows(state.stats))
 const splitList = computed(() => splitRows(state.stats))
 const hints = computed(() => splitHints(state.stats))
+/** 可沿用划分的版本（同一个数据集里已就绪的版本，排除正在新建的名字） */
+const splitSources = computed(() => splitSourceOptions(state.versions, state.buildForm.version))
 const pages = computed(() => Math.max(1, Math.ceil(state.total / state.size)))
 const splitClass = (key) => `split-${String(key).toLowerCase()}`
 
@@ -373,6 +376,8 @@ async function openWizard() {
 }
 
 function closeWizard() {
+  stopJobPolling()
+  state.wizard.job = null
   state.wizard.open = false
   state.wizard.preview = null
   state.localPreview = null
@@ -422,21 +427,10 @@ async function uploadSelectedFolder(event) {
   }
 }
 
-async function confirmUpload() {
+/** 浏览器上传的文件夹同样走异步任务（任务结束后自动清理临时目录）。 */
+const confirmUpload = () => {
   if (!state.upload.token || !state.selectedId) return
-  state.wizard.busy = true
-  state.error = ''
-  try {
-    state.wizard.result = await commitUpload(snapshot(), state.selectedId, state.upload.token)
-    state.upload = { busy: false, error: '', token: '', preview: null, detection: '' }
-    state.wizard.preview = null
-    await loadDatasets()
-    await autoBuildVersion()
-  } catch (error) {
-    state.error = error?.message || '导入失败'
-  } finally {
-    state.wizard.busy = false
-  }
+  return startJob({ token: state.upload.token, sourceKind: 'UPLOAD' })
 }
 
 async function previewWizard() {
@@ -445,12 +439,27 @@ async function previewWizard() {
   state.error = ''
   state.wizard.result = null
   try {
-    state.wizard.preview = await wizardPreview(snapshot(), state.wizard.directory.trim())
+    state.wizard.preview = await wizardPreview(snapshot(), state.wizard.directory.trim(), state.wizard.csvMapping)
+    syncCsvMapping()
   } catch (error) {
     state.error = error?.message || '试运行失败'
   } finally {
     state.wizard.busy = false
   }
+}
+
+/** 预览回来后，把后端解析出的列名回填到下拉，用户可改完再试运行。 */
+function syncCsvMapping() {
+  const csv = state.wizard.preview?.csv
+  if (!csv) return
+  state.wizard.csvMapping = {
+    fileColumn: csv.fileColumn || state.wizard.csvMapping.fileColumn || '',
+    labelColumn: csv.labelColumn || state.wizard.csvMapping.labelColumn || ''
+  }
+}
+
+function resetCsvMapping() {
+  state.wizard.csvMapping = { fileColumn: '', labelColumn: '' }
 }
 
 async function previewZip(event) {
@@ -481,40 +490,84 @@ async function previewZip(event) {
   }
 }
 
-async function commitZip() {
-  if (!state.selectedId || !state.wizard.preview?.token) return
+// ---------- 异步导入任务：创建 → 轮询进度 → 可取消 ----------
+let jobTimer = null
+
+function stopJobPolling() {
+  if (jobTimer) { clearInterval(jobTimer); jobTimer = null }
+}
+
+async function startJob(body) {
+  stopJobPolling()
   state.wizard.busy = true
   state.error = ''
+  state.wizard.result = null
   try {
-    const result = await wizardZipCommit(snapshot(), state.selectedId, state.wizard.preview.token)
-    state.wizard.result = result
-    state.notice = `导入数据集（zip）：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
-    state.wizard.preview = null
-    await loadDatasets()
-    await loadBatches()
+    state.wizard.job = await createImportJob(snapshot(), state.selectedId, body)
+    jobTimer = setInterval(pollJob, 1000)
   } catch (error) {
-    state.error = error?.message === 'Network Error' ? 'zip 导入失败：连接中断或文件过大' : (error?.message || 'zip 导入失败')
-  } finally {
     state.wizard.busy = false
+    state.error = error?.message || '创建导入任务失败'
   }
 }
 
-async function commitWizard() {
-  if (!state.selectedId || !state.wizard.preview) return
-  state.wizard.busy = true
-  state.error = ''
+async function pollJob() {
+  const current = state.wizard.job
+  if (!current) { stopJobPolling(); return }
   try {
-    const result = await wizardCommit(snapshot(), state.selectedId, state.wizard.directory.trim())
-    state.wizard.result = result
-    state.notice = `导入数据集：成功 ${result.imported} · 重复 ${result.duplicates} · 失败 ${result.failed}`
-    state.wizard.preview = null
-    await loadDatasets()
-    await loadBatches()
+    const job = await importJob(snapshot(), current.id)
+    state.wizard.job = job
+    if (isTerminalJob(job.status)) {
+      stopJobPolling()
+      await settleJob(job)
+    }
   } catch (error) {
-    state.error = error?.message || '导入失败'
-  } finally {
+    stopJobPolling()
     state.wizard.busy = false
+    state.error = error?.message || '查询导入进度失败'
   }
+}
+
+async function settleJob(job) {
+  state.wizard.busy = false
+  if (job.status === 'FAILED') {
+    state.error = job.errorMessage || '导入失败'
+    return
+  }
+  state.wizard.result = { imported: job.imported, duplicates: job.duplicates, failed: job.failed }
+  state.notice = jobStatusText(job)
+  if (job.sourceKind === 'UPLOAD') {
+    state.upload = { busy: false, error: '', token: '', preview: null, detection: '' }
+  }
+  state.wizard.preview = null
+  await loadDatasets()
+  await loadBatches()
+  // 与原来的"上传文件夹后自动建版本"保持一致，目录/zip 仍由用户手动建版本
+  if (job.sourceKind === 'UPLOAD' && job.status === 'SUCCEEDED') await autoBuildVersion()
+}
+
+async function cancelJob() {
+  if (!state.wizard.job) return
+  try {
+    state.wizard.job = await cancelImportJob(snapshot(), state.wizard.job.id)
+  } catch (error) {
+    state.error = error?.message || '取消失败'
+  }
+}
+
+const commitZip = () => {
+  if (!state.selectedId || !state.wizard.preview?.token) return
+  return startJob({ token: state.wizard.preview.token, sourceKind: 'ZIP' })
+}
+
+const commitWizard = () => {
+  if (!state.selectedId || !state.wizard.preview) return
+  return startJob({
+    directory: state.wizard.directory.trim(),
+    sourceKind: 'DIRECTORY',
+    fileColumn: state.wizard.csvMapping.fileColumn || null,
+    labelColumn: state.wizard.csvMapping.labelColumn || null
+  })
 }
 
 async function rollback(batch) {
@@ -574,7 +627,7 @@ watch(() => workspace.active?.id, (id) => {
   if (id) void loadDatasets()
 }, { immediate: true })
 
-onBeforeUnmount(releaseImages)
+onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
 </script>
 
 <template>
@@ -667,7 +720,67 @@ onBeforeUnmount(releaseImages)
             <p v-if="preview.skippedDetail" class="hint">
               跳过原因：<template v-for="(value, key) in preview.skippedDetail" :key="key">{{ key }} {{ value }} ｜ </template>
             </p>
+
+            <div v-if="preview.csv" class="csv-mapping">
+              <p class="hint">
+                CSV：{{ preview.csv.fileName }}（{{ preview.csv.rows }} 行）
+                <template v-if="!preview.csv.matched"> ｜ <b>表头没匹配上，请手动选择下面两列</b></template>
+                <template v-else-if="preview.csv.unmatched"> ｜ {{ preview.csv.unmatched }} 行标签不是 0–9，会被跳过</template>
+              </p>
+              <div class="csv-fields">
+                <label>文件列
+                  <select v-model="state.wizard.csvMapping.fileColumn">
+                    <option value="">自动识别</option>
+                    <option v-for="column in preview.csv.columns" :key="'f' + column" :value="column">{{ column }}</option>
+                  </select>
+                </label>
+                <label>标签列
+                  <select v-model="state.wizard.csvMapping.labelColumn">
+                    <option value="">自动识别</option>
+                    <option v-for="column in preview.csv.columns" :key="'l' + column" :value="column">{{ column }}</option>
+                  </select>
+                </label>
+                <button :disabled="state.wizard.busy" @click="previewWizard">用这个映射重新试运行</button>
+                <button :disabled="state.wizard.busy" @click="resetCsvMapping">恢复自动识别</button>
+              </div>
+            </div>
+
+            <div v-if="preview.cutSamples?.length" class="cut-samples">
+              <p class="hint-banner self-check-bad">
+                ⚠ 下面这几张图里有两个以上数字，导入后会按单字存、标签必然错；先裁成单字再导入。
+              </p>
+              <div v-for="sample in preview.cutSamples" :key="sample.sample" class="cut-row">
+                <img v-if="sample.thumbnail" :src="sample.thumbnail" :alt="sample.sample" class="cut-thumb" />
+                <div class="cut-body">
+                  <p class="cut-name">{{ sample.sample }}<template v-if="sample.text"> → 判读为 {{ sample.text }}</template></p>
+                  <div class="cut-bar">
+                    <span v-for="(digit, index) in sample.digits" :key="index" class="cut-seg"
+                          :style="{ left: (digit.from * 100) + '%', width: Math.max(2, (digit.to - digit.from) * 100) + '%' }"
+                          :title="`第 ${index + 1} 段：${digit.digit}（置信度 ${(digit.confidence * 100).toFixed(1)}%）`">
+                      {{ digit.digit }}
+                    </span>
+                  </div>
+                  <p class="hint">
+                    按检测到的相对宽度示意（不是原图叠加框）：{{ sample.digits.map((d) => d.digit).join(' / ') }}
+                  </p>
+                </div>
+              </div>
+            </div>
           </template>
+        </div>
+
+        <div v-if="state.wizard.job" class="import-job">
+          <p class="import-job-status" :class="{ 'import-job-bad': state.wizard.job.status === 'FAILED' }">
+            {{ jobStatusText(state.wizard.job) }}
+          </p>
+          <div v-if="jobPercent(state.wizard.job) !== null" class="import-job-bar"
+               role="progressbar" :aria-valuenow="jobPercent(state.wizard.job)" aria-valuemin="0" aria-valuemax="100">
+            <i :style="{ width: jobPercent(state.wizard.job) + '%' }"></i>
+          </div>
+          <div class="import-job-actions">
+            <span class="muted">任务 #{{ state.wizard.job.id }} · {{ state.wizard.job.sourceKind }}</span>
+            <button v-if="canCancelJob(state.wizard.job)" @click="cancelJob">取消导入</button>
+          </div>
         </div>
 
         <p v-if="state.wizard.result" class="hint">
@@ -750,6 +863,9 @@ onBeforeUnmount(releaseImages)
             <button v-for="version in state.versions" :key="version.id" type="button"
                     :class="{ active: version.id === state.selectedVersionId }" @click="selectVersion(version.id)">
               <strong>{{ version.version }}</strong><span>{{ version.sampleCount }} 条</span>
+              <em v-if="version.splitSourceId" class="cell-detail" :title="`划分沿用自版本 #${version.splitSourceId}`">
+                沿用#{{ version.splitSourceId }}
+              </em>
             </button>
           </div>
 
@@ -759,9 +875,19 @@ onBeforeUnmount(releaseImages)
               <label class="field"><span>验证集 %</span><input v-model.number="state.buildForm.valPercent" type="number" min="0" max="50" /></label>
               <label class="field"><span>测试集 %</span><input v-model.number="state.buildForm.testPercent" type="number" min="0" max="50" /></label>
               <label class="field"><span>只看标签</span><input v-model="state.buildForm.label" type="number" min="0" max="9" placeholder="全部" /></label>
+              <label class="field"><span>划分来源</span>
+                <select v-model.number="state.buildForm.preserveSplitFrom">
+                  <option :value="0">重新划分（默认）</option>
+                  <option v-for="item in splitSources" :key="item.id" :value="item.id">{{ item.label }}</option>
+                </select>
+              </label>
               <button class="primary build-action" :disabled="state.busy" @click="build">{{ state.busy ? '生成中…' : '生成版本' }}</button>
             </div>
             <p class="hint">版本只包含导入到本数据集（或归入本数据集）的样本；其他数据集的样本不会混进来。版本一旦生成即为快照。</p>
+            <p v-if="state.buildForm.preserveSplitFrom" class="hint-banner">
+              沿用版本 #{{ state.buildForm.preserveSplitFrom }} 的划分：该版本里已有的样本保持原来的训练/验证/测试归属，
+              只有这次新增的样本按上面的百分比重新分配。适合"补数据后重建"——测试集不会被洗掉，指标可跨版本比较。
+            </p>
             <div class="source-picker">
               <div class="block-head"><h4>样本来源</h4><span class="muted">只加入你选中的内容；选「指定版本」时至少要勾一个版本</span></div>
               <div class="source-mode">

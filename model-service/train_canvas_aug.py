@@ -227,29 +227,126 @@ def read_emnist_digits(archive: Path, split: str, limit: int | None = None) -> t
     return grayscale[:limit], labels[8:][:limit]
 
 
-def detailed_metrics(model, torch, inputs: np.ndarray, labels: np.ndarray) -> dict:
-    """每类准确率与 10×10 混淆矩阵：行=真实标签，列=预测标签。"""
+def _confusion_and_errors(model, torch, inputs: np.ndarray, labels: np.ndarray, max_errors: int = 20):
+    """跑一遍评估集：返回混淆矩阵、置信度最高的错误样本、以及错误总数。"""
     model.eval()
     confusion = [[0] * 10 for _ in range(10)]
+    errors: list[dict] = []
     with torch.inference_mode():
         for start in range(0, len(inputs), 512):
             batch = torch.from_numpy(inputs[start:start + 512])
-            predicted = model(batch).argmax(dim=1).numpy()
-            for truth, guess in zip(labels[start:start + 512], predicted):
-                if 0 <= int(truth) < 10 and 0 <= int(guess) < 10:
-                    confusion[int(truth)][int(guess)] += 1
+            probabilities = torch.softmax(model(batch), dim=1)
+            confidence, predicted = probabilities.max(dim=1)
+            for offset, (truth, guess, score) in enumerate(
+                    zip(labels[start:start + 512], predicted.numpy(), confidence.numpy())):
+                true_label, guessed = int(truth), int(guess)
+                if not (0 <= true_label < 10 and 0 <= guessed < 10):
+                    continue
+                confusion[true_label][guessed] += 1
+                if true_label != guessed:
+                    errors.append({"index": start + offset, "truth": true_label,
+                                   "predicted": guessed, "confidence": round(float(score), 4)})
+    # 置信度最高的错误最值得回溯：模型"很确定但错了"，通常指向标签噪声或分布偏移
+    errors.sort(key=lambda item: item["confidence"], reverse=True)
+    return confusion, errors[:max_errors], len(errors)
+
+
+def _write_error_sheet(inputs: np.ndarray, errors: list[dict], path: Path,
+                       thumb: int = 56, columns: int = 6) -> None:
+    """把错误样本拼成一张 PNG 联络表，方便人工回看（不参与接口返回）。"""
+    if not errors:
+        return
+    rows = (len(errors) + columns - 1) // columns
+    gap = 6
+    width = columns * thumb + (columns + 1) * gap
+    height = rows * thumb + (rows + 1) * gap
+    sheet = Image.new("L", (width, height), 255)
+    for position, error in enumerate(errors):
+        index = int(error["index"])
+        if not (0 <= index < len(inputs)):
+            continue
+        pixels = np.asarray(inputs[index]).reshape(28, 28)
+        pixels = (np.clip(pixels, 0.0, 1.0) * 255).astype(np.uint8)
+        tile = Image.fromarray(pixels, mode="L").resize((thumb, thumb), Image.NEAREST)
+        column, row = position % columns, position // columns
+        sheet.paste(tile, (gap + column * (thumb + gap), gap + row * (thumb + gap)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.convert("RGB").save(path)
+
+
+def detailed_metrics(model, torch, inputs: np.ndarray, labels: np.ndarray,
+                     domain: str = "canvas_simulated", output_dir: Path | None = None,
+                     max_errors: int = 20) -> dict:
+    """单个评估域的完整指标：混淆矩阵 + 每类 P/R/F1 + 宏/加权平均 + 错误样本回溯。
+
+    行=真实标签、列=预测标签。某类的 precision/recall 在分母为 0 时为 None（不是 0），
+    避免"这个类根本没出现过"被误读成"这个类全错"。
+    """
+    confusion, errors, error_total = _confusion_and_errors(model, torch, inputs, labels, max_errors)
+
     per_class = []
+    macro_precision: list[float] = []
+    macro_recall: list[float] = []
+    macro_f1: list[float] = []
+    weighted_f1_sum = 0.0
+    support_total = 0
+    correct_total = 0
     for label in range(10):
-        row = confusion[label]
-        total = sum(row)
-        correct = row[label]
-        per_class.append({"label": label, "correct": correct, "total": total,
-                          "accuracy": round(correct / total, 4) if total else None})
-    worst = sorted([item for item in per_class if item["total"]],
-                   key=lambda item: item["accuracy"])[:3]
-    return {"perClass": per_class,
-            "confusion": confusion,
-            "worst": [{"label": item["label"], "accuracy": item["accuracy"]} for item in worst]}
+        support = sum(confusion[label])                      # 真实是该类的样本数
+        predicted = sum(row[label] for row in confusion)      # 被判成该类的样本数
+        correct = confusion[label][label]
+        precision = round(correct / predicted, 4) if predicted else None
+        recall = round(correct / support, 4) if support else None
+        if precision is None or recall is None:
+            f1 = None
+        elif precision + recall == 0:
+            f1 = 0.0
+        else:
+            f1 = round(2 * precision * recall / (precision + recall), 4)
+        per_class.append({"label": label, "support": support, "predicted": predicted,
+                          "correct": correct, "precision": precision, "recall": recall, "f1": f1,
+                          "accuracy": round(correct / support, 4) if support else None})
+        support_total += support
+        correct_total += correct
+        if support or predicted:
+            if precision is not None:
+                macro_precision.append(precision)
+            if recall is not None:
+                macro_recall.append(recall)
+            if f1 is not None:
+                macro_f1.append(f1)
+        if support and f1 is not None:
+            weighted_f1_sum += f1 * support
+
+    def average(values: list[float]):
+        return round(sum(values) / len(values), 4) if values else None
+
+    measured = [item for item in per_class if item["support"] > 0]
+    worst = sorted(measured, key=lambda item: (item["f1"] if item["f1"] is not None else 1.0))[:3]
+
+    report = {
+        "domain": domain,
+        "total": support_total,
+        "correct": correct_total,
+        "accuracy": round(correct_total / support_total, 4) if support_total else None,
+        "perClass": per_class,
+        "macro": {"precision": average(macro_precision), "recall": average(macro_recall),
+                  "f1": average(macro_f1), "classes": len(macro_f1)},
+        "weighted": {"f1": round(weighted_f1_sum / support_total, 4) if support_total else None},
+        "confusion": confusion,
+        "worst": [{"label": item["label"], "f1": item["f1"], "recall": item["recall"],
+                   "precision": item["precision"], "support": item["support"]} for item in worst],
+        "errorCount": error_total,
+        "errors": errors,
+    }
+    if output_dir is not None and errors:
+        sheet = Path(output_dir) / f"errors-{domain}.png"
+        try:
+            _write_error_sheet(inputs, errors, sheet)
+            report["errorSheet"] = sheet.name
+        except OSError:
+            report["errorSheet"] = None
+    return report
 
 
 def accuracy(model, torch, inputs: np.ndarray, labels: np.ndarray) -> float:
@@ -459,6 +556,15 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         "checkpoint_selection": "final_epoch",
         "state_dict": {key: value.detach().cpu() for key, value in model.state_dict().items()},
     }, output_dir / "checkpoint.pt")
+    # 三个评估域都出完整报告（混淆矩阵 + 每类 P/R/F1 + 错误样本），不再只算画板域
+    detailed = {}
+    for domain, domain_inputs in (("raw_mnist", raw_test),
+                                  ("canvas_simulated", canvas_test),
+                                  ("photo_simulated", photo_test)):
+        detailed[domain] = detailed_metrics(model, torch, domain_inputs, test_labels, domain, output_dir)
+    after = {"raw_mnist_1000": detailed["raw_mnist"]["accuracy"],
+             "canvas_simulated_1000": detailed["canvas_simulated"]["accuracy"],
+             "photo_simulated_1000": detailed["photo_simulated"]["accuracy"]}
     metrics = {
         "recipe": "production canvas_input geometry + canvas & photo augmentation",
         "config": {"epochs": config.epochs, "samples": config.samples, "batch": config.batch,
@@ -478,10 +584,10 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         "totalParams": total_params,
         "stepSeries": step_series,
         "before": before,
-        "after": {"raw_mnist_1000": accuracy(model, torch, raw_test, test_labels),
-                  "canvas_simulated_1000": accuracy(model, torch, canvas_test, test_labels),
-                  "photo_simulated_1000": accuracy(model, torch, photo_test, test_labels)},
-        "detailed_canvas": detailed_metrics(model, torch, canvas_test, test_labels),
+        "after": after,
+        "detailed": detailed,
+        # 兼容旧前端/旧记录：detailed_canvas 仍指向画板域
+        "detailed_canvas": detailed["canvas_simulated"],
         "history": history,
         "limitations": [
             "canvas/photo simulated sets share the generator family with training; they are optimistic.",

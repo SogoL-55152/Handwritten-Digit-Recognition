@@ -283,11 +283,12 @@ public class TrainingService {
                 || !Double.isFinite(request.learningRate()))
             throw new V2Exception(400, "learningRate 必须在 (0, 0.1]", "VALIDATION");
         if (request.seed() == null || request.seed() < 0 || request.seed() > 4294967295L)
-            throw new V2Exception(400, "seed 必须是 0..4294967295 的整数", "VALIDATION");
+            throw new V2Exception(400, "seed 必须是 0..4294967295 的整数（该字段没有服务端默认值，必须显式传入）", "VALIDATION");
         if (request.photoRatio() == null || !Double.isFinite(request.photoRatio())
                 || request.photoRatio() < 0 || request.photoRatio() > 1)
-            throw new V2Exception(400, "photoRatio 必须在 0..1", "VALIDATION");
-        if (request.useEmnist() == null) throw new V2Exception(400, "useEmnist 必须是布尔值", "VALIDATION");
+            throw new V2Exception(400, "photoRatio 必须在 0..1（该字段没有服务端默认值，必须显式传入，例如 0）", "VALIDATION");
+        if (request.useEmnist() == null)
+            throw new V2Exception(400, "useEmnist 必须是布尔值（该字段没有服务端默认值，必须显式传入）", "VALIDATION");
         if (request.patience() != null && (request.patience() < 1 || request.patience() > 10))
             throw new V2Exception(400, "patience 必须在 1..10", "VALIDATION");
 
@@ -327,7 +328,8 @@ public class TrainingService {
     }
 
     private static int require(Integer value, String field) {
-        if (value == null) throw new V2Exception(400, "缺少 " + field, "VALIDATION");
+        if (value == null)
+            throw new V2Exception(400, "缺少 " + field + "（该字段没有服务端默认值，必须显式传入）", "VALIDATION");
         return value;
     }
 

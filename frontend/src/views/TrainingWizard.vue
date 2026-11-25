@@ -3,9 +3,11 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
 import { listDatasets, listVersions, sampleImage, versionSamples, versionStats } from '@/api/datasets.js'
-import { createTask, listTasks, trainingLogs } from '@/api/training.js'
+import { createTask, eventsTicket, listTasks, trainingLogs } from '@/api/training.js'
 import { listModels } from '@/api/models.js'
 import { taskDetail } from '@/training/detail.js'
+import { createTrainingEvents } from '@/training/events.js'
+import { isActiveStatus, liveLabel, shouldPoll } from '@/training/live.js'
 import TrainingCurve from '@/training/TrainingCurve.vue'
 import TrainingMatrix from '@/training/TrainingMatrix.vue'
 import StepCurve from '@/training/StepCurve.vue'
@@ -21,6 +23,24 @@ const step = ref(1)
 const config = reactive({ ...defaultConfig(), layers: JSON.parse(JSON.stringify(ARCH_PRESETS[1].layers)) })
 const live = reactive({ logs: '', elapsed: 0 })
 let liveTimer = null
+const liveStatus = ref('connecting')
+
+/** SSE 推来的任务按 id 覆盖；新任务插到最前面（与训练记录页同一套规则）。 */
+function mergeLiveTask(incoming) {
+  if (!incoming || !incoming.id) return
+  const index = state.tasks.findIndex((item) => String(item.id) === String(incoming.id))
+  if (index >= 0) state.tasks.splice(index, 1, incoming)
+  else state.tasks.unshift(incoming)
+  state.tasks = [...state.tasks].sort((a, b) => Number(b.id) - Number(a.id))
+}
+
+const events = createTrainingEvents({
+  api: { eventsTicket },
+  getSession: () => user.getSnapshot(),
+  onTask: (task) => mergeLiveTask(task),
+  onStatus: (status) => { liveStatus.value = status }
+})
+const liveStateLabel = computed(() => liveLabel(liveStatus.value))
 const state = reactive({
   datasets: [], versions: [], stats: null, samples: [], total: 0,
   tasks: [], taskId: null, hash: '', loading: false, error: '', notice: '',
@@ -375,11 +395,12 @@ function startLive() {
   if (liveTimer) return
   liveTimer = setInterval(async () => {
     const task = selectedTask.value
-    if (!task || !['QUEUED', 'RUNNING'].includes(task.status)) return
-    await loadTasks()
+    if (!task || !isActiveStatus(task.status)) return
+    // 任务状态走 SSE；只有推送没连上时才退回轮询。日志仍要按需拉取（SSE 不推日志）。
+    if (shouldPoll(liveStatus.value)) await loadTasks()
     await loadLiveLogs()
     if (task.startedAt) live.elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(task.startedAt)) / 1000))
-  }, 2000)
+  }, 3000)
 }
 
 function stopLive() {
@@ -439,7 +460,7 @@ onMounted(async () => {
   await loadModels()
   await loadTasks()
 })
-onBeforeUnmount(releaseImages)
+onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
 </script>
 
 <template>
@@ -710,7 +731,7 @@ onBeforeUnmount(releaseImages)
     <!-- ③ 监控 -->
     <section v-if="step === 3" class="panel">
       <div class="section-heading">
-        <div><h3>训练监控</h3><p class="muted">复用真实训练任务的逐轮指标；这是历史任务回放，不是实时推送。</p></div>
+        <div><h3>训练监控</h3><p class="muted">任务状态走实时推送（SSE），断线时自动退回轮询；日志按需拉取。表格与曲线是逐轮指标的真实数据。</p></div>
         <label>任务
           <select v-model="state.taskId">
             <option v-for="task in state.tasks" :key="task.id" :value="task.id">#{{ task.id }} · {{ task.status }}</option>
@@ -725,6 +746,7 @@ onBeforeUnmount(releaseImages)
           <span v-if="taskHistory.length">第 {{ taskHistory.length }} / {{ config.epochs }} 轮</span>
           <span v-if="selectedTask.status === 'QUEUED'" class="muted">排队中，等待 worker 取任务</span>
           <span v-if="selectedTask.status === 'RUNNING' && !taskHistory.length" class="muted">准备数据 / 第一轮计算中</span>
+          <span class="muted">{{ liveStateLabel }}</span>
         </div>
         <div v-if="live.logs" class="live-logs">
           <div class="block-head"><h4>实时日志（最近 120 行）</h4></div>

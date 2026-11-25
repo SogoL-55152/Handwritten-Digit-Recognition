@@ -16,13 +16,17 @@ services:
       timeout: 5s
       retries: 10
 
-  # Reserved for later training/queue work; not required or reported UP in W2.
+  # 训练队列。没有 worker 时训练任务会一直停在 QUEUED，所以默认就起。
   redis:
     image: redis:7-alpine
-    profiles: [future-training]
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   model-service:
     build: ./model-service
@@ -56,12 +60,51 @@ services:
       HDR_LEGACY_BOOTSTRAP_ENABLED: "false"
       W2_MAX_WORKSPACES: ${W2_MAX_WORKSPACES:-3}
       W2_RECOGNITION_PER_MINUTE: ${W2_RECOGNITION_PER_MINUTE:-60}
+      W2_GLOBAL_RECOGNITION_PER_MINUTE: ${W2_GLOBAL_RECOGNITION_PER_MINUTE:-240}
       W2_MAX_MEMBERS: ${W2_MAX_MEMBERS:-5}
       W2_DAILY_RECOGNITION_LIMIT: ${W2_DAILY_RECOGNITION_LIMIT:-1000}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://redis:6379/0
+      # 训练导出目录；与 worker 共用同一个数据卷，路径必须完全一致
+      HDR_TRAINING_DATA_DIR: /training-data
+    volumes:
+      - training-data:/training-data
     depends_on:
       mysql:
         condition: service_healthy
       model-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  # 训练 worker：一个容器同时只跑一个任务（--pool=solo）；要并发就扩副本。
+  worker:
+    build:
+      context: ./model-service
+      dockerfile: Dockerfile.worker
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MODEL_INTERNAL_TOKEN: ${MODEL_INTERNAL_TOKEN:?Set the internal model credential}
+      TRAINING_CALLBACK_URL: http://backend:8080
+      WEIGHTS_DIR: /weights
+      MODEL_REGISTRY_PATH: /weights/registry.json
+      # MNIST 原始 IDX 需要事先放进这个卷的 MNIST/raw 子目录（见部署手册 1.5）
+      TRAINING_DATA_DIR: /training-data/MNIST/raw
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    volumes:
+      # worker 要写 checkpoint 与新模型版本，所以不能只读
+      - type: bind
+        source: ${MODEL_WEIGHTS_DIR:?Set an absolute path to the directory holding registry.json and verified checkpoints}
+        target: /weights
+        bind:
+          create_host_path: false
+      - training-data:/training-data
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
         condition: service_started
 
   frontend:
@@ -74,3 +117,4 @@ services:
 volumes:
   mysql-w2-data:
   redis-data:
+  training-data:
