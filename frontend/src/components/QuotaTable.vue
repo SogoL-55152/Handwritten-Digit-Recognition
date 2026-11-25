@@ -3,7 +3,7 @@ defineProps({ limits: { type: Object, required: true } })
 </script>
 
 <template>
-  <div class="table-wrap"><table><caption>限额与功能配置（只读）</caption><thead><tr><th>项目</th><th>配置值</th><th>执行 / 计量状态</th></tr></thead><tbody>
+  <div class="table-wrap"><table><caption>限额与功能配置</caption><thead><tr><th>项目</th><th>配置值</th><th>执行 / 计量状态</th></tr></thead><tbody>
     <tr><td>每账号创建空间上限</td><td>{{ limits.maxWorkspaces ?? '未提供' }}</td><td>服务器限制，含个人空间</td></tr>
     <tr><td>每空间成员上限</td><td>{{ limits.maxMembers ?? '未提供' }}</td><td>配置保留；W2 未开放邀请</td></tr>
     <tr><td>单图上传上限</td><td>{{ limits.imageMaxBytes ?? '未提供' }} bytes</td><td>已执行；请求另受 6 MiB 上限约束</td></tr>
