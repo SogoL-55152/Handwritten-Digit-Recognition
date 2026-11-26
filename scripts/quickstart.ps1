@@ -115,10 +115,15 @@ if (-not (Test-Path $registry)) {
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if (-not $docker) {
     Write-Step '未检测到 Docker'
-    Write-Warn2 '改用本机脚本 scripts/start-all.ps1（需要 JDK/Node/Python/MySQL/Redis）'
-    $local = Join-Path $PSScriptRoot 'start-all.ps1'
-    if (-not (Test-Path $local)) { throw '缺少 scripts/start-all.ps1，无法在本机模式下启动。请安装 Docker Desktop 后重试。' }
-    & $local
+    Write-Warn2 '改用一键部署 scripts/deploy.ps1（需要 JDK/Node/Python/MySQL/Redis）'
+    $deploy = Join-Path $PSScriptRoot 'deploy.ps1'
+    if (Test-Path $deploy) {
+        & powershell -ExecutionPolicy Bypass -File $deploy
+    } else {
+        $local = Join-Path $PSScriptRoot 'start-all.ps1'
+        if (-not (Test-Path $local)) { throw '缺少 scripts/deploy.ps1 与 scripts/start-all.ps1。请安装 Docker Desktop 后重试。' }
+        & $local
+    }
     if ($LASTEXITCODE -ne 0) { throw '本机启动失败，请查看控制台输出与日志。' }
     Write-Host ''
     Write-Host "启动完成：http://127.0.0.1:5173/login" -ForegroundColor Green

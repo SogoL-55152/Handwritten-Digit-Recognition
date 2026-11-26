@@ -1,4 +1,4 @@
-# 手写数字识别系统
+﻿# 手写数字识别系统
 
 基于深度学习的手写数字识别系统：手机端微信小程序负责手写交互，PC 端 Vue 后台负责管理功能，Spring Boot 作为统一业务网关，Python 负责模型。真实手写场景识别准确率 **≥90% 是项目目标，并非当前实测结论**。
 
@@ -229,11 +229,20 @@ cd Handwritten-Digit-Recognition
 
 ### 方式 B：本机运行（无需 Docker）
 
-需要先安装 JDK 17、Node 20+、Python 3.11、MySQL 8、Redis 7，然后：
+需要先安装 JDK 17、Node 20+、Python 3.11、MySQL 8、Redis 7，然后一条命令：
 
-`powershell
+```bat
+deploy.bat
+```
+
+脚本会检测环境、生成 `scripts/.env`、建库、装 Python 依赖、准备权重与构建，再启动全部服务。
+详见 [docs/一键部署.md](docs/一键部署.md)。
+
+已部署过时，也可以直接：
+
+```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
-`
+```
 
 停止：scripts\stop-all.ps1。
 
