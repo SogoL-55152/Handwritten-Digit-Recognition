@@ -241,7 +241,17 @@ cd Handwritten-Digit-Recognition
 | MySQL | 8.0 | 需要 `mysqld.exe` / `mysql.exe` |
 | Redis | 7 | 需要 `redis-server.exe` |
 
-缺哪个，脚本会停下并打印安装命令。装了 Docker 的机器建议用方式 A，两者不要同时跑。
+缺哪个，脚本会停下并打印安装命令。也可以让脚本自动装：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-deps.ps1        # 先看要装什么（-DryRun）
+powershell -ExecutionPolicy Bypass -File scripts\install-deps.ps1 -Yes   # 自动安装
+```
+
+`install-deps.ps1` 用 winget 安装 JDK 17 / Node LTS / Python 3.11 / Redis，Maven 下载官方 zip；
+MySQL 需要单独安装并配置数据目录与端口（脚本会打印步骤）。
+
+装了 Docker 的机器建议用方式 A，两者不要同时跑。
 
 #### B.2 启动
 
@@ -303,6 +313,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
 | `-Database <name>` | 改数据库名 |
 | `-Port <n>` | 改前端端口 |
 | `-MysqlRootPassword <pwd>` | MySQL root 密码（建库/建用户时需要） |
+| `-InstallMissing` | 检测到缺依赖时调用 `install-deps.ps1` 自动安装 |
 
 示例：
 

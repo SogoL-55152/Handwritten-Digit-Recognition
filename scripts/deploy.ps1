@@ -33,6 +33,7 @@ param(
     [switch]$SkipFrontend,
     [switch]$CheckOnly,
     [switch]$NoOpen,
+    [switch]$InstallMissing,
     [string]$EnvFile,
     [string]$Database = 'hdr_w2_it_live',
     [string]$MysqlRootPassword,
@@ -247,7 +248,15 @@ if ($nodeModules) { Write-Ok '前端依赖已存在' } else { Write-Warn2 '缺�
 
 if ($script:Problems.Count -gt 0) {
     Write-Host ''
-    Write-Host '环境不满足，已停止。请按提示安装缺失运行时后重试。' -ForegroundColor Red
+    if ($InstallMissing) {
+        Write-Host '尝试安装缺失依赖（scripts/install-deps.ps1）...' -ForegroundColor Yellow
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-deps.ps1') -Yes
+        Write-Host ''
+        Write-Host '安装完成后请重新运行 deploy.bat（新装的 PATH 需要新终端生效）。' -ForegroundColor Yellow
+        exit 0
+    }
+    Write-Host '环境不满足，已停止。' -ForegroundColor Red
+    Write-Host '可以运行 scripts\install-deps.ps1 自动安装，或加 -InstallMissing 参数重跑本脚本。' -ForegroundColor Yellow
     exit 2
 }
 
