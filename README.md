@@ -205,11 +205,11 @@ Docker Compose 骨架（`docker compose up -d --build`）**尚未验证**，交�
 
 ### 方式 A：Docker（推荐，只需装 Docker）
 
-`ash
+```bash
 git clone https://github.com/SogoL-55152/Handwritten-Digit-Recognition.git
 cd Handwritten-Digit-Recognition
 ./start.sh          # Windows 双击 start.bat
-`
+```
 
 脚本会自动完成：
 
@@ -222,36 +222,117 @@ cd Handwritten-Digit-Recognition
 
 停止与重置：
 
-`ash
+```bash
 ./stop.sh      # 停止，数据保留
 ./reset.sh     # 清空数据重来
-`
+```
 
-### 方式 B：本机运行（无需 Docker）
+### 方式 B：本机一键部署（无需 Docker）
 
-需要先安装 JDK 17、Node 20+、Python 3.11、MySQL 8、Redis 7，然后一条命令：
+入口：仓库根目录的 `deploy.bat`（内部调用 `scripts/deploy.ps1`）。脚本只检测环境、不自动安装。
+
+#### B.1 前置条件
+
+| 依赖 | 版本 | 检查 |
+|---|---|---|
+| JDK | 17 | `java -version` |
+| Node | 20–22 | `node -v` |
+| Python | 3.11 | `python --version` |
+| MySQL | 8.0 | 需要 `mysqld.exe` / `mysql.exe` |
+| Redis | 7 | 需要 `redis-server.exe` |
+
+缺哪个，脚本会停下并打印安装命令。装了 Docker 的机器建议用方式 A，两者不要同时跑。
+
+#### B.2 启动
 
 ```bat
+git clone https://github.com/SogoL-55152/Handwritten-Digit-Recognition.git
+cd Handwritten-Digit-Recognition
 deploy.bat
 ```
 
-脚本会检测环境、生成 `scripts/.env`、建库、装 Python 依赖、准备权重与构建，再启动全部服务。
-详见 [docs/一键部署.md](docs/一键部署.md)。
+或：
 
-已部署过时，也可以直接：
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
+```
+
+#### B.3 首次运行会做什么
+
+1. 检测 JDK / Node / Python / Maven / MySQL / Redis 与端口占用
+2. 生成 `scripts/.env`（随机数据库密码、JWT、内部 token、管理员密码）
+3. 启动 MySQL / Redis；数据目录为空时先初始化
+4. 创建数据库（默认 `hdr_w2_it_live`）与用户 `hdr` 并授权
+5. 创建 `.venv` 并安装依赖（含 torch，约 200 MB）
+6. 检查权重（缺则下载）；缺 jar 则 `mvn package`，缺 node_modules 则 `npm ci`
+7. 调用 `scripts/start-all.ps1` 启动 6 个服务并做健康检查
+8. 打印访问地址、账号、密码
+
+首次约 10–25 分钟（主要花在 torch / 权重 / npm），之后 30–60 秒。
+
+#### B.4 完成后
+
+```
+访问：http://127.0.0.1:5173/login
+账号：admin
+密码：见 scripts/.env 的 HDR_BOOTSTRAP_ADMIN_PASSWORD
+```
+
+停止：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stop-all.ps1
+```
+
+已部署过时，也可以跳过准备工作直接启动：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
 ```
 
-停止：scripts\stop-all.ps1。
+#### B.5 常用参数
+
+| 参数 | 说明 |
+|---|---|
+| `-CheckOnly` | 只检测环境，不写文件、不启动 |
+| `-SkipDeps` | 跳过 Python 与权重准备（已装过时用） |
+| `-SkipBuild` | 跳过打包与 `npm ci` |
+| `-SkipFrontend` | 不启动前端 |
+| `-Force` | 重新生成 `.env`、重建 `.venv` |
+| `-NoOpen` | 不自动打开浏览器 |
+| `-Database <name>` | 改数据库名 |
+| `-Port <n>` | 改前端端口 |
+| `-MysqlRootPassword <pwd>` | MySQL root 密码（建库/建用户时需要） |
+
+示例：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -CheckOnly
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -SkipDeps -NoOpen
+```
+
+#### B.6 数据库行为
+
+| 情况 | 行为 |
+|---|---|
+| 库已存在且 `hdr` 用户可登录 | 直接复用，不会删数据 |
+| 库不存在 | 用 root 建库、建用户并授权 |
+| root 密码未知 | 用 `-MysqlRootPassword` 传入，或写入 `scripts/.env` 的 `MYSQL_ADMIN_PASSWORD` |
+| 空密码 root | 脚本设置随机密码并写回 `scripts/.env` |
+
+复用 `hdr_w2_it_live` 会保留原有模型、数据集与训练任务；全新机器自动建空库，Flyway 启动时迁移到最新版本（自带一个基线模型）。
 
 ### 常见问题
 
 | 现象 | 处理 |
 |---|---|
-| 没装 Docker | 用方式 B，或安装 Docker Desktop 后重试 |
+| 没装 Docker | 用方式 B（`deploy.bat`），或安装 Docker Desktop 后重试 |
 | 8088 被占用 | 修改 .env 里的 WEB_PORT |
-| 首次启动慢 | 首次要构建镜像并下载权重，约 3–6 分钟 |
-| 想看日志 | docker compose logs -f |
-
+| 首次启动慢 | 首次要构建镜像并下载权重，约 3–6 分钟（本机模式要装 torch，更久） |
+| 想看日志 | Docker：`docker compose logs -f`；本机：`D:\HDR-runtime\logs` |
+| 提示缺 JDK/Node/Python | 按提示用 winget 安装，或把路径写进 `scripts/.env` |
+| 端口被占用 | 先 `scripts\stop-all.ps1`，或换端口 |
+| 权重下载失败 | 手动放到 `model-service/weights/`，再用 `-SkipDeps` 重跑 |
+| torch 安装失败 | 重跑（会续用缓存），或配置 pip 镜像 |
+| 数据库连接失败 | 改 `scripts/.env` 的 `DB_PASSWORD`，或用 `-MysqlRootPassword` 让脚本重置 |
+| 启动后页面打不开 | 看 `D:\HDR-runtime\logs\web.err.log` |
