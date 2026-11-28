@@ -28,8 +28,10 @@ export function createRoutes({ pilot = false } = {}) {
 export function navigationLinks({ pilot = false, superAdmin = false } = {}) {
   if (pilot) return [['/recognize', '画板'], ['/account', '账号'], ['/help', '帮助'], ['/privacy', '隐私说明']]
   return [
-    ['/home', '工作空间'], ['/recognize', '手写识别'], ['/assets', '公共资产'], ['/datasets', '数据集'],
-    ['/usage', '我的用量'], ['/training', '训练任务'], ['/statistics', '统计'],
-    ...(superAdmin ? [['/wizard', '训练模型'], ['/models', '模型管理'], ['/platform', '平台运行状态']] : [])
+    ['/home', '工作空间'], ['/recognize', '手写识别'], ['/datasets', '数据集'], ['/training', '训练任务'],
+    ...(superAdmin ? [['/wizard', '训练模型'], ['/models', '模型管理']] : []),
+    // 以下四项固定放在侧边栏最下面
+    ['/assets', '公共资产'], ['/usage', '我的用量'], ['/statistics', '统计'],
+    ...(superAdmin ? [['/platform', '平台运行状态']] : [])
   ]
 }
