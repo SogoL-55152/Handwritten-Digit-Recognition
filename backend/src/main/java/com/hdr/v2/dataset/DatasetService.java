@@ -45,13 +45,16 @@ public class DatasetService {
     private final WorkspaceService spaces;
     private final CollectedSampleService collected;
     private final Path trainingRoot;
+    private final Path recognitionRoot;
 
     public DatasetService(JdbcTemplate jdbc, WorkspaceService spaces, CollectedSampleService collected,
-                          @Value("${hdr.training.data-dir:training-data}") String trainingDir) {
+                          @Value("${hdr.training.data-dir:training-data}") String trainingDir,
+                          @Value("${hdr.recognition.dir:recognition-images}") String recognitionDir) {
         this.jdbc = jdbc;
         this.spaces = spaces;
         this.collected = collected;
         this.trainingRoot = Path.of(trainingDir).toAbsolutePath().normalize();
+        this.recognitionRoot = Path.of(recognitionDir).toAbsolutePath().normalize();
     }
 
     /** 建数据集（工作空间级）。版本由后续 buildVersion 生成，建集时样本数为 0。 */
@@ -366,18 +369,35 @@ public class DatasetService {
     public byte[] image(long workspaceId, long versionId, long sampleId) {
         requireVersion(workspaceId, versionId);
         List<String[]> rows = jdbc.query("""
-                SELECT c.artifact_path, s.sample_id FROM t_v2_dataset_sample s
+                SELECT c.artifact_path, s.sample_id, c.image_digest FROM t_v2_dataset_sample s
                 JOIN t_collected_sample c ON c.id = s.sample_id
                 WHERE s.version_id=? AND s.id=?
-                """, (rs, i) -> new String[]{rs.getString(1), rs.getString(2)}, versionId, sampleId);
+                """, (rs, i) -> new String[]{rs.getString(1), rs.getString(2), rs.getString(3)}, versionId, sampleId);
         if (rows.isEmpty()) throw new V2Exception(404, "样本不存在");
         try {
             return collected.readArtifact(rows.get(0)[0]);
         } catch (V2Exception missing) {
-            // 原图文件可能已被清理；训练导出目录里通常还留有同名副本（<label>_<sampleId>.png）
+            // 原图文件可能已被清理：先找训练导出副本，再按摘要找识别服务保存的原图
             byte[] fallback = trainingCopy(versionId, rows.get(0)[1]);
             if (fallback != null) return fallback;
+            byte[] recognized = recognitionCopy(rows.get(0)[2]);
+            if (recognized != null) return recognized;
             throw missing;
+        }
+    }
+
+    private byte[] recognitionCopy(String digest) {
+        if (digest == null || digest.isBlank()) return null;
+        List<String> paths = jdbc.query(
+                "SELECT image_path FROM t_recognition_v2 WHERE image_digest=? AND image_path IS NOT NULL ORDER BY id DESC LIMIT 1",
+                (rs, i) -> rs.getString(1), digest);
+        if (paths.isEmpty() || paths.get(0) == null || paths.get(0).isBlank()) return null;
+        Path target = recognitionRoot.resolve(paths.get(0)).normalize();
+        if (!target.startsWith(recognitionRoot) || !Files.isRegularFile(target)) return null;
+        try {
+            return Files.readAllBytes(target);
+        } catch (IOException error) {
+            return null;
         }
     }
 

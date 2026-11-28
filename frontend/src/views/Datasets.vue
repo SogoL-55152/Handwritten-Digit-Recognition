@@ -24,6 +24,7 @@ const state = reactive({
   buildForm: { version: 'v1', splitRule: 'RANDOM', valPercent: 15, testPercent: 15, label: '', kind: '', preserveSplitFrom: 0 }
 })
 const imageUrls = reactive({})
+const imageFailed = reactive({})
 
 const snapshot = () => ({ workspaceId: Number(workspace.active?.id || 0), session: user.getSnapshot() })
 
@@ -73,6 +74,7 @@ const splitClass = (key) => `split-${String(key).toLowerCase()}`
 function releaseImages() {
   Object.values(imageUrls).forEach((url) => URL.revokeObjectURL(url))
   Object.keys(imageUrls).forEach((key) => delete imageUrls[key])
+  Object.keys(imageFailed).forEach((key) => delete imageFailed[key])
 }
 
 async function loadImages(items) {
@@ -81,8 +83,9 @@ async function loadImages(items) {
     try {
       const blob = await sampleImage(snap, state.selectedVersionId, item.id)
       imageUrls[item.id] = URL.createObjectURL(blob)
+      delete imageFailed[item.id]
     } catch (error) {
-      /* 单张失败不影响其它缩略图 */
+      imageFailed[item.id] = true
     }
   }
 }
@@ -945,6 +948,7 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
               <figure v-for="item in state.samples" :key="item.id" class="sample-card">
                 <div class="thumb">
                   <img v-if="imageUrls[item.id]" :src="imageUrls[item.id]" :alt="'样本 ' + item.label" />
+                  <span v-else-if="imageFailed[item.id]" class="sample-placeholder" title="原图已丢失，无法预览">原图缺失</span>
                   <span v-else class="sample-placeholder">无图</span>
                   <span class="split-badge" :class="splitClass(item.split)">{{ item.split }}</span>
                   <button class="sample-delete" type="button" :disabled="state.busy"

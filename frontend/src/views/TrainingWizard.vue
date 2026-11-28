@@ -46,6 +46,7 @@ const state = reactive({
   datasetId: null, models: [], submitting: false
 })
 const imageUrls = reactive({})
+const imageFailed = reactive({})
 const errors = ref([])
 const openGroups = reactive({ data: true, structure: true, hyper: true, runtime: true })
 const help = reactive({ open: false, item: null })
@@ -292,7 +293,10 @@ async function selectVersion(versionId) {
       try {
         const blob = await sampleImage(snapshot(), versionId, item.id)
         imageUrls[item.id] = URL.createObjectURL(blob)
-      } catch (error) { /* 单张失败不影响其它 */ }
+        delete imageFailed[item.id]
+      } catch (error) {
+        imageFailed[item.id] = true
+      }
     }
   } catch (error) {
     state.error = error?.message || '版本数据加载失败'
@@ -526,6 +530,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
         <div class="wizard-samples">
           <figure v-for="item in state.samples" :key="item.id" class="wizard-sample">
             <img v-if="imageUrls[item.id]" :src="imageUrls[item.id]" :alt="'样本 ' + item.label" />
+            <span v-else-if="imageFailed[item.id]" class="sample-placeholder" title="原图已丢失，无法预览">原图缺失</span>
             <span v-else class="sample-placeholder">无图</span>
             <figcaption>{{ item.label }}</figcaption>
           </figure>
