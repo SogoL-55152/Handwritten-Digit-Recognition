@@ -33,6 +33,18 @@ public class InternalTrainingController {
         return Result.ok(service.prepareData(id));
     }
 
+    @PostMapping("/{id}/progress")
+    public Result<Void> progress(@PathVariable long id,
+                                 @RequestBody(required = false) Map<String, Object> body,
+                                 HttpServletRequest request) {
+        requireInternal(request);
+        Object value = body == null ? null : body.get("progress");
+        if (!(value instanceof Number number))
+            throw new V2Exception(400, "回调必须包含 progress", "VALIDATION");
+        service.recordProgress(id, number.intValue());
+        return Result.ok(null);
+    }
+
     @PostMapping("/{id}/state")
     public Result<TrainingService.TaskView> state(@PathVariable long id,
                                                   @RequestBody(required = false) Map<String, Object> body,

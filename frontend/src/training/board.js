@@ -13,9 +13,11 @@ export function sortTasks(tasks) {
 }
 
 export function summarizeTask(task) {
-  const statusLabel = {
-    QUEUED: '排队中', RUNNING: '训练中', SUCCEEDED: '已完成', FAILED: '失败', CANCELED: '已取消'
-  }[task.status] || task.status
+  const preparing = task.status === 'RUNNING' && !(task.metrics?.history || []).length
+    && typeof task.prepareProgress === 'number'
+  const statusLabel = preparing
+    ? `准备数据 ${task.prepareProgress}%`
+    : ({ QUEUED: '排队中', RUNNING: '训练中', SUCCEEDED: '已完成', FAILED: '失败', CANCELED: '已取消' }[task.status] || task.status)
   const duration = task.startedAt && task.finishedAt
     ? Math.max(0, (Date.parse(task.finishedAt) - Date.parse(task.startedAt)) / 1000)
     : null

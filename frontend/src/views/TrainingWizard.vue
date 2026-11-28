@@ -629,7 +629,9 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
           <span v-if="live.elapsed">已运行 {{ live.elapsed }}s</span>
           <span v-if="taskHistory.length">第 {{ taskHistory.length }} / {{ config.epochs }} 轮</span>
           <span v-if="selectedTask.status === 'QUEUED'" class="muted">排队中，等待 worker 取任务</span>
-          <span v-if="selectedTask.status === 'RUNNING' && !taskHistory.length" class="muted">准备数据 / 第一轮计算中</span>
+          <span v-if="selectedTask.status === 'RUNNING' && !taskHistory.length" class="muted">
+            准备数据{{ typeof selectedTask.prepareProgress === 'number' ? ` ${selectedTask.prepareProgress}%` : ' / 第一轮计算中' }}
+          </span>
           <span class="muted">{{ liveStateLabel }}</span>
         </div>
         <div v-if="live.logs" class="live-logs">

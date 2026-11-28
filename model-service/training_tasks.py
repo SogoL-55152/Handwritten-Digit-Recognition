@@ -83,6 +83,29 @@ def notify(task_id, payload):
         raise RuntimeError(f"callback failed: {error.code} {detail}") from error
 
 
+_progress_sent = {}
+
+
+def notify_progress(task_id, percent):
+    """准备阶段进度：尽力而为，失败不影响训练。"""
+    try:
+        value = int(max(0, min(100, percent)))
+        if value <= _progress_sent.get(str(task_id), -1):
+            return
+        _progress_sent[str(task_id)] = value
+        token = os.getenv("MODEL_INTERNAL_TOKEN", "")
+        if not token.strip():
+            return
+        body = json.dumps({"progress": value}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{callback_base()}/internal/v2/training/{task_id}/progress", data=body, method="POST",
+            headers={"Content-Type": "application/json", "X-HDR-Internal-Token": token})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            response.read()
+    except Exception:
+        pass
+
+
 def _digest(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -219,7 +242,10 @@ def train_one(task_id, attempt, params):
                       emnist_zip=emnist_zip() if params.get("useEmnist") else None,
                       on_epoch=report_epoch, extra_dir=extra_dir,
                       early_stop=bool(params.get("earlyStop")), patience=int(params.get("patience") or 3),
-                      trainable_layers=params.get("trainableLayers"), aug=params.get("aug"))
+                      trainable_layers=params.get("trainableLayers"), aug=params.get("aug"),
+                      on_progress=lambda stage, done, total: notify_progress(
+                          task_id, int(done * (85 if stage == "train" else 15) / max(1, total))
+                          + (0 if stage == "train" else 85)))
     log_sink.flush()
     stable = root / "checkpoint.pt"
     shutil.copyfile(attempt_dir / "checkpoint.pt", stable)

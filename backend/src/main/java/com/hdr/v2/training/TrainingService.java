@@ -37,7 +37,7 @@ public class TrainingService {
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
                            String errorCategory, String errorMessage, String queuedAt, String startedAt,
-                           String finishedAt, String datasetVersionId, JsonNode metrics) {}
+                           String finishedAt, String datasetVersionId, Integer prepareProgress, JsonNode metrics) {}
     private static final List<String> STATES = List.of("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED");
     private final JdbcTemplate jdbc;
     private final ModelClient client;
@@ -135,13 +135,24 @@ public class TrainingService {
                     "note", "未指定数据版本，使用内置 MNIST");
         }
         TrainingDataExporter.Exported exported = exporter.export(Long.parseLong(rawVersion));
-        jdbc.update("UPDATE t_v2_training_task SET data_dir=? WHERE id=?", exported.directory(), taskId);
+        jdbc.update("UPDATE t_v2_training_task SET data_dir=?, prepare_progress=0 WHERE id=?",
+                exported.directory(), taskId);
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("dataDir", exported.directory());
         body.put("count", exported.count());
         body.put("labels", exported.labels());
         body.put("writers", exported.writers());
         return body;
+    }
+
+    /** worker 尽力上报的准备进度：只做范围校验，终态任务直接忽略。 */
+    @Transactional
+    public void recordProgress(long taskId, int progress) {
+        if (progress < 0 || progress > 100) throw new V2Exception(400, "progress 必须在 0..100", "VALIDATION");
+        TaskRow row = requireRow(taskId);
+        if ("SUCCEEDED".equals(row.status()) || "FAILED".equals(row.status()) || "CANCELED".equals(row.status()))
+            return;
+        jdbc.update("UPDATE t_v2_training_task SET prepare_progress=? WHERE id=?", progress, taskId);
     }
 
     /** Python 回调：推进状态并（成功时）登记模型。回调只能前进，不能把已成功改回运行。 */
@@ -268,7 +279,7 @@ public class TrainingService {
                 row.batchSize(), row.learningRate(), row.seed(), row.photoRatio(), row.useEmnist(),
                 row.initFrom(), row.targetModelId(), row.modelVersion(), row.artifact(), row.sha256(), row.sizeBytes(),
                 row.errorCategory(), row.errorMessage(), row.queuedAt(), row.startedAt(), row.finishedAt(),
-                row.datasetVersionId(), metrics);
+                row.datasetVersionId(), row.prepareProgress(), metrics);
     }
 
     private static Map<String, Object> validated(CreateRequest request) {
@@ -367,7 +378,7 @@ public class TrainingService {
     private record TaskRow(String id, String status, int attempt, String celeryTaskId, int epochs, int samples,
                            int batchSize, double learningRate, long seed, double photoRatio, boolean useEmnist,
                            String initFrom, String targetModelId, String modelVersion, String artifact, String sha256, Long sizeBytes,
-                           String errorCategory, String errorMessage, String metrics, String queuedAt,
+                           String errorCategory, String errorMessage, String metrics, Integer prepareProgress, String queuedAt,
                            String startedAt, String finishedAt, String datasetVersionId) {
         String externalId() { return "mnist-cnn-w1"; }
     }
@@ -383,6 +394,7 @@ public class TrainingService {
                 rs.getString("target_model_id"), rs.getString("model_version"),
                 rs.getString("artifact"), rs.getString("sha256"), size == null ? null : ((Number) size).longValue(),
                 rs.getString("error_category"), rs.getString("error_message"), rs.getString("metrics"),
+                (Integer) rs.getObject("prepare_progress", Integer.class),
                 Instant.ofEpochMilli(rs.getTimestamp("queued_at").getTime()).toString(),
                 started == null ? null : Instant.ofEpochMilli(started.getTime()).toString(),
                 finished == null ? null : Instant.ofEpochMilli(finished.getTime()).toString(),

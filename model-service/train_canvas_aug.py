@@ -22,8 +22,11 @@ import argparse
 from collections.abc import Iterable
 from dataclasses import dataclass
 import gzip
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
+import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -54,8 +57,8 @@ class CanvasAugConfig:
     photo_ratio: float = 0.5
 
     def __post_init__(self):
-        if not 1 <= self.epochs <= 20:
-            raise ValueError("epochs must be within 1..20")
+        if not 1 <= self.epochs <= 100:
+            raise ValueError("epochs must be within 1..100")
         if not 1000 <= self.samples <= 200000:
             raise ValueError("samples must be within 1000..200000")
         if self.batch not in (32, 64, 128):
@@ -181,8 +184,9 @@ def apply_augments(image_l, rng, aug):
     return out
 
 
-def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None) -> tuple[np.ndarray, int]:
-    """渲染并走线上同一套 canvas_input；返回输入张量与无法对齐的样本数。"""
+def _render_chunk(args):
+    images, seed, photo_ratio, aug = args
+    rng = np.random.default_rng(seed)
     rows = np.zeros((len(images), 1, 28, 28), dtype=np.float32)
     skipped = 0
     for index, image in enumerate(images):
@@ -192,6 +196,72 @@ def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None) -> tuple
         except InvalidImage:
             skipped += 1
     return rows, skipped
+
+
+def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None, workers: int = 1,
+                 seed: int | None = None, progress=None) -> tuple[np.ndarray, int]:
+    """渲染并走线上同一套 canvas_input；返回输入张量与无法对齐的样本数。
+
+    workers > 1 时按块并行（PIL 渲染主要释放 GIL）；progress(done, total) 用于上报进度。
+    """
+    total = len(images)
+    if total == 0:
+        return np.zeros((0, 1, 28, 28), dtype=np.float32), 0
+    workers = max(1, int(workers or 1))
+    if workers == 1:
+        rows, skipped = _render_chunk((images, rng, photo_ratio, aug))
+        if progress:
+            progress(total, total)
+        return rows, skipped
+
+    if seed is None:
+        seed = int(rng.integers(0, 2**31 - 1))
+    chunk = max(1, (total + workers * 8 - 1) // (workers * 8))
+    jobs = []
+    for index, start in enumerate(range(0, total, chunk)):
+        jobs.append((images[start:start + chunk], seed + index * 101, photo_ratio, aug))
+    rows = np.zeros((total, 1, 28, 28), dtype=np.float32)
+    skipped = 0
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for start, (part, part_skipped) in zip(range(0, total, chunk), pool.map(_render_chunk, jobs)):
+            rows[start:start + len(part)] = part
+            skipped += part_skipped
+            done += len(part)
+            if progress:
+                progress(done, total)
+    return rows, skipped
+
+
+def _render_cache_root(fallback: Path) -> Path:
+    override = os.environ.get("HDR_RENDER_CACHE_DIR")
+    if override:
+        return Path(override)
+    return Path(fallback) / "render-cache"
+
+
+def _render_key(parts: dict) -> str:
+    text = json.dumps(parts, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+
+
+def _load_cached(path: Path):
+    if not path.is_file():
+        return None
+    try:
+        with np.load(path) as data:
+            return data["inputs"], int(data["skipped"][0])
+    except Exception:
+        return None
+
+
+def _save_cached(path: Path, inputs: np.ndarray, skipped: int) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(path, inputs=inputs, skipped=np.array([skipped], dtype=np.int64))
+    except Exception:
+        pass
+
 
 
 def raw_inputs(images: np.ndarray) -> np.ndarray:
@@ -419,7 +489,8 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         threads: int | None = None, emnist_zip: Path | None = None,
         on_epoch: "callable | None" = None, extra_dir: Path | None = None,
         early_stop: bool = False, patience: int = 3,
-        trainable_layers: "list[str] | None" = None, aug: "dict | None" = None) -> dict:
+        trainable_layers: "list[str] | None" = None, aug: "dict | None" = None,
+        on_progress: "callable | None" = None) -> dict:
     """on_epoch(metrics) 在每轮评估后被调用，用于把实时指标推给上层；回调异常不影响训练。"""
     import torch
     from models.cnn import ARCHITECTURE, DigitCNN
@@ -452,7 +523,34 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
     if emnist_zip is not None:
         emnist_test = read_emnist_digits(emnist_zip, "test", 1000)
 
-    train_inputs, skipped = build_inputs(train_images, rng, config.photo_ratio)
+    workers = int(os.environ.get("HDR_RENDER_WORKERS", "0") or 0) or min(4, os.cpu_count() or 1)
+    cache_base = Path(extra_dir).parent if extra_dir else data_dir
+    cache_root = _render_cache_root(cache_base)
+
+    def report(stage, done, total):
+        if on_progress is None or not total:
+            return
+        try:
+            on_progress(stage, done, total)
+        except Exception:
+            pass
+
+    def render_cached(kind, images, seed, photo_ratio, aug_value, cache_name, base_seed):
+        key = _render_key({"kind": kind, "n": int(len(images)), "seed": int(seed),
+                           "photo": float(photo_ratio), "aug": aug_value})
+        cache_file = cache_root / f"{cache_name}_{key}.npz"
+        cached = _load_cached(cache_file)
+        if cached is not None:
+            report(kind, 1, 1)
+            return cached
+        rendered, lost = build_inputs(images, np.random.default_rng(base_seed), photo_ratio,
+                                      aug=aug_value, workers=workers, seed=seed,
+                                      progress=lambda done, total: report(kind, done, total))
+        _save_cached(cache_file, rendered, lost)
+        return rendered, lost
+
+    train_inputs, skipped = render_cached("train", train_images, config.seed, config.photo_ratio,
+                                          aug, "train", config.seed)
     extra_count = 0
     if extra_dir is not None:
         # 数据集版本里的样本已是真实画板/照片，接近线上输入，不再叠加照片模拟
@@ -461,8 +559,10 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
             train_inputs = np.concatenate([train_inputs, extra_inputs])
             train_labels = np.concatenate([train_labels, extra_labels])
             extra_count = int(len(extra_inputs))
-    canvas_test, _ = build_inputs(test_images, np.random.default_rng(config.seed + 1), 0.0)
-    photo_test, _ = build_inputs(test_images, np.random.default_rng(config.seed + 2), 1.0)
+    canvas_test, _ = render_cached("test-canvas", test_images, config.seed + 1, 0.0, None,
+                                   "test_canvas", config.seed + 1)
+    photo_test, _ = render_cached("test-photo", test_images, config.seed + 2, 1.0, None,
+                                  "test_photo", config.seed + 2)
     raw_test = raw_inputs(test_images)
 
     model = DigitCNN()
