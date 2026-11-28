@@ -23,6 +23,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 import gzip
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from io import BytesIO
 import hashlib
 import json
@@ -184,6 +185,13 @@ def apply_augments(image_l, rng, aug):
     return out
 
 
+def _to_pil(image):
+    """photo_style 返回 ndarray，canvas_style 返回 PIL；统一成 PIL 再叠加增强。"""
+    if isinstance(image, np.ndarray):
+        return Image.fromarray(np.clip(image, 0, 255).astype(np.uint8))
+    return image
+
+
 def _render_chunk(args):
     images, seed, photo_ratio, aug = args
     rng = np.random.default_rng(seed)
@@ -192,7 +200,8 @@ def _render_chunk(args):
     for index, image in enumerate(images):
         render = photo_style if rng.random() < photo_ratio else canvas_style
         try:
-            rows[index, 0] = canvas_input(apply_augments(render(image, rng), rng, aug))
+            rendered = _to_pil(render(image, rng))
+            rows[index, 0] = canvas_input(np.asarray(apply_augments(rendered, rng, aug)))
         except InvalidImage:
             skipped += 1
     return rows, skipped
@@ -230,6 +239,110 @@ def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None, workers:
             done += len(part)
             if progress:
                 progress(done, total)
+    return rows, skipped
+
+
+class StreamingRenderer:
+    """后台线程按块渲染，训练循环按需等待；首轮渲染与训练重叠。
+
+    每个样本用独立随机种子（seed + index），因此等待顺序不影响结果，也便于部分命中。
+    渲染完成后把整份张量写入缓存，后续任务直接命中。
+    """
+
+    def __init__(self, images, seed, photo_ratio, aug, cache_file: Path, progress, workers: int):
+        self.images = images
+        self.n = len(images)
+        self.inputs = np.zeros((self.n, 1, 28, 28), dtype=np.float32)
+        self.done = np.zeros(self.n, dtype=bool)
+        self.skipped = 0
+        self.cache_file = Path(cache_file)
+        self._progress = progress
+        self._condition = threading.Condition()
+        self._thread = None
+
+        cached = _load_cached(self.cache_file)
+        if cached is not None:
+            array, lost = cached
+            if len(array) == self.n:
+                self.inputs[:] = array
+                self.done[:] = True
+                self.skipped = lost
+                if self._progress:
+                    self._progress(self.n, self.n)
+                return
+
+        self.seed = seed
+        self.photo_ratio = photo_ratio
+        self.aug = aug
+        self.workers = workers
+
+    def start(self, order):
+        """按训练顺序（通常是第一轮 shuffle 后的下标）启动后台渲染。"""
+        if self._thread is not None or bool(self.done.all()):
+            if self._progress:
+                self._progress(self.n, self.n)
+            return
+        order = np.asarray(order, dtype=np.int64)
+        order = order[order < self.n]
+        chunk = max(1, min(1024, (self.n + self.workers * 8 - 1) // (self.workers * 8)))
+        if not len(order):
+            if self._progress:
+                self._progress(self.n, self.n)
+            return
+        jobs = [(order[start:start + chunk], self.seed + start * 17)
+                for start in range(0, len(order), chunk)]
+        self._thread = threading.Thread(target=self._run, args=(jobs,), daemon=True)
+        self._thread.start()
+
+    def _run(self, jobs):
+        done_total = 0
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            futures = []
+            for indices, rng_seed in jobs:
+                futures.append((indices, pool.submit(_render_indices, self.images, indices,
+                                                     rng_seed, self.photo_ratio, self.aug)))
+            for indices, future in futures:
+                array, lost = future.result()
+                with self._condition:
+                    self.inputs[indices] = array
+                    self.done[indices] = True
+                    self.skipped += lost
+                    done_total += len(indices)
+                    self._condition.notify_all()
+                if self._progress:
+                    self._progress(done_total, self.n)
+
+    def wait(self, indices):
+        """阻塞到给定下标全部渲染完成（只处理本次渲染范围内的下标）。"""
+        if self._thread is None or not len(indices):
+            return
+        target = np.asarray(indices)
+        target = target[target < self.n]
+        if not len(target):
+            return
+        with self._condition:
+            while not bool(self.done[target].all()):
+                self._condition.wait(timeout=0.5)
+
+    def finish(self) -> int:
+        if self._thread is not None:
+            self._thread.join()
+        if not self.cache_file.exists():
+            _save_cached(self.cache_file, self.inputs, self.skipped)
+        return self.skipped
+
+
+def _render_indices(images, indices, seed, photo_ratio, aug):
+    rng = np.random.default_rng(seed)
+    rows = np.zeros((len(indices), 1, 28, 28), dtype=np.float32)
+    skipped = 0
+    for offset, index in enumerate(indices):
+        render = photo_style if rng.random() < photo_ratio else canvas_style
+        try:
+            rendered = _to_pil(render(images[index], rng))
+            rows[offset, 0] = canvas_input(np.asarray(apply_augments(rendered, rng, aug)))
+        except InvalidImage:
+            skipped += 1
     return rows, skipped
 
 
@@ -549,8 +662,13 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         _save_cached(cache_file, rendered, lost)
         return rendered, lost
 
-    train_inputs, skipped = render_cached("train", train_images, config.seed, config.photo_ratio,
-                                          aug, "train", config.seed)
+    train_key = _render_key({"kind": "train", "n": int(len(train_images)), "seed": int(config.seed),
+                             "photo": float(config.photo_ratio), "aug": aug, "scheme": "stream-v2"})
+    renderer = StreamingRenderer(train_images, config.seed, config.photo_ratio, aug,
+                                 cache_root / f"train_{train_key}.npz",
+                                 lambda done, total: report("train", done, total), workers)
+    train_inputs = renderer.inputs
+    skipped = 0
     extra_count = 0
     if extra_dir is not None:
         # 数据集版本里的样本已是真实画板/照片，接近线上输入，不再叠加照片模拟
@@ -593,9 +711,12 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         epoch_started = time.perf_counter()
         model.train()
         order = torch.randperm(len(train_inputs))
+        if epoch == 0:
+            renderer.start(order.numpy())
         total, seen = 0.0, 0
         for start in range(0, len(order), config.batch):
             index = order[start:start + config.batch]
+            renderer.wait(index.numpy())
             optimizer.zero_grad()
             loss = loss_fn(model(torch.from_numpy(train_inputs[index.numpy()])), labels[index])
             loss.backward()
@@ -613,6 +734,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
         elapsed = max(0.001, time.perf_counter() - epoch_started)
         # 训练集准确率取一小段（最多 1000 个）算，避免每轮额外跑全量
         train_probe = min(1000, len(train_inputs))
+        renderer.wait(np.arange(train_probe))
         metrics = {"epoch": epoch + 1, "loss": round(total / seen, 5),
                    "durationMs": int(round(elapsed * 1000)),
                    "lr": float(optimizer.param_groups[0]["lr"]),
@@ -643,6 +765,7 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
             except Exception:  # noqa: BLE001 - 上报失败不能中断训练
                 pass
 
+    skipped = renderer.finish()
     output_dir.mkdir(parents=True)
     torch.save({
         "format_version": 1,
