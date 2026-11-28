@@ -23,6 +23,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 import gzip
 from concurrent.futures import ThreadPoolExecutor
+import subprocess
+import tempfile
 import threading
 from io import BytesIO
 import hashlib
@@ -240,6 +242,57 @@ def build_inputs(images: np.ndarray, rng, photo_ratio: float, aug=None, workers:
             if progress:
                 progress(done, total)
     return rows, skipped
+
+
+def _render_with_processes(images, order, seed, photo_ratio, aug_value, workers, cache_file, progress):
+    """多进程渲染：每个子进程负责一段下标，避免 GIL 限制。返回 (inputs, skipped)。"""
+    import shutil
+    n = len(images)
+    workers = max(1, int(workers))
+    script = Path(__file__).with_name("render_worker.py")
+    order = np.asarray(order, dtype=np.int64)
+    order = order[order < n]
+    if not len(order):
+        return np.zeros((0, 1, 28, 28), dtype=np.float32), 0
+    tmp = Path(tempfile.mkdtemp(prefix="hdr-render-"))
+    try:
+        np.save(tmp / "images.npy", np.asarray(images, dtype=np.uint8))
+        chunks = [chunk for chunk in np.array_split(order, min(workers, max(1, len(order)))) if len(chunk)]
+        procs = []
+        aug_json = json.dumps(aug_value or {})
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
+        for index, chunk in enumerate(chunks):
+            (tmp / f"idx{index}.json").write_text(json.dumps(chunk.tolist()), encoding="utf-8")
+            command = [sys.executable, "-I", str(script),
+                       "--images", str(tmp / "images.npy"),
+                       "--indices", str(tmp / f"idx{index}.json"),
+                       "--out", str(tmp / f"out{index}.npz"),
+                       "--seed", str(seed + index * 17),
+                       "--photo-ratio", str(photo_ratio),
+                       "--aug", aug_json]
+            procs.append(subprocess.Popen(command, stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.PIPE, env=env))
+        for index, proc in enumerate(procs):
+            _, error = proc.communicate()
+            if proc.returncode != 0:
+                detail = (error or b"").decode("utf-8", errors="replace")[-300:]
+                raise RuntimeError(f"render worker failed: {detail}")
+        result = np.zeros((n, 1, 28, 28), dtype=np.float32)
+        skipped = 0
+        done = 0
+        for index, chunk in enumerate(chunks):
+            with np.load(tmp / f"out{index}.npz") as data:
+                part = data["inputs"]
+                skipped += int(data["skipped"][0])
+            result[np.asarray(chunk)] = part
+            done += len(chunk)
+            if progress:
+                progress(done, len(order))
+        _save_cached(cache_file, result, skipped)
+        return result, skipped
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 class StreamingRenderer:
@@ -726,6 +779,17 @@ def run(config: CanvasAugConfig, data_dir: Path, output_dir: Path, init: Path | 
                                  lambda done, total: report("train", done, total), workers)
     train_inputs = renderer.inputs
     skipped = 0
+    if (workers > 1 and not bool(renderer.done.all()) and len(train_images) >= 2000):
+        render_order = np.arange(len(train_images))
+        rendered, lost = _render_with_processes(train_images, render_order, config.seed,
+                                                config.photo_ratio, aug, workers,
+                                                renderer.cache_file,
+                                                lambda done, total: report("train", done, total))
+        renderer = StreamingRenderer(train_images, config.seed, config.photo_ratio, aug,
+                                     renderer.cache_file,
+                                     lambda done, total: report("train", done, total), workers)
+        train_inputs = renderer.inputs
+        skipped = lost
     extra_count = 0
     if extra_dir is not None:
         # 数据集版本里的样本已是真实画板/照片，接近线上输入，不再叠加照片模拟
