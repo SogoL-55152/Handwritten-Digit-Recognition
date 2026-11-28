@@ -247,6 +247,14 @@ public class DatasetController {
         return Result.ok(inspection.inspect(workspaceId, user, datasetId, limit));
     }
 
+    /** 删除被拒绝时用：哪些训练任务引用了该数据集。 */
+    @GetMapping("/datasets/{datasetId}/references")
+    public Result<List<Map<String, Object>>> references(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                         HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        return Result.ok(datasets.references(workspaceId, user, datasetId));
+    }
+
     @GetMapping("/datasets/{datasetId}/versions")
     public Result<List<DatasetService.Version>> versions(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                          HttpServletRequest request) {

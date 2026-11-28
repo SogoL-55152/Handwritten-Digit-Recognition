@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, deleteDataset, deleteVersion, importBatches, importJob, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
+import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, datasetReferences, deleteDataset, deleteVersion, importBatches, importJob, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows, splitSourceOptions } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 import { jobPercent, isTerminalJob, jobStatusText } from '@/datasets/job.js'
@@ -16,6 +16,7 @@ const state = reactive({
   versions: [], selectedVersionId: null,
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
+  deleteBlocked: '', refsOpen: false, refsLoading: false, refs: [],
   folder: { busy: false, progress: '', result: null },
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0, csvMapping: { fileColumn: '', labelColumn: '' }, job: null },
   importSource: 'folder', localPreview: null, picked: null, upload: { busy: false, error: '', token: '', preview: null, detection: '' },
@@ -302,7 +303,22 @@ async function removeDataset() {
     releaseImages()
     await loadDatasets()
   } catch (error) {
-    state.error = error?.message || '删除失败'
+    const message = error?.message || '删除失败'
+    if (message.includes('训练任务引用')) {
+      state.deleteBlocked = message
+      state.refsOpen = true
+      state.refsLoading = true
+      state.refs = []
+      try {
+        state.refs = await datasetReferences(snapshot(), dataset.id)
+      } catch (loadError) {
+        state.refs = []
+      } finally {
+        state.refsLoading = false
+      }
+    } else {
+      state.error = message
+    }
   } finally {
     state.busy = false
   }
@@ -645,6 +661,28 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
       </div>
     </section>
 
+    <div v-if="state.refsOpen" class="modal-mask" @click.self="state.refsOpen = false">
+      <section class="modal-card">
+        <header class="modal-head">
+          <div><h3>引用该数据集的训练任务</h3><p class="muted">{{ state.deleteBlocked }}</p></div>
+          <button class="link" @click="state.refsOpen = false">关闭</button>
+        </header>
+        <p v-if="state.refsLoading" class="muted">加载中…</p>
+        <div v-else class="table-wrap">
+          <table>
+            <thead><tr><th>任务</th><th>状态</th><th>数据版本</th><th>轮数</th><th>样本</th><th>提交时间</th></tr></thead>
+            <tbody>
+              <tr v-for="task in state.refs" :key="task.id">
+                <td>#{{ task.id }}</td><td>{{ task.status }}</td><td>{{ task.version }}</td>
+                <td>{{ task.epochs }}</td><td>{{ task.samples }}</td><td>{{ task.queued_at }}</td>
+              </tr>
+              <tr v-if="!state.refs.length"><td colspan="6">没有找到引用记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
     <div v-if="state.wizard.open" class="modal-mask" @click.self="closeWizard">
       <section class="modal-card import-modal">
         <header class="modal-head">
@@ -806,6 +844,10 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
       · 失败 {{ state.folder.result.failed }}<template v-if="state.folder.result.ignored"> · 跳过非图片 {{ state.folder.result.ignored }}</template><template v-if="state.folder.result.noLabel"> · 无标签目录 {{ state.folder.result.noLabel }}</template>）
     </p>
     <p v-if="!workspace.active?.id" class="notice" role="status">正在核验空间…</p>
+    <p v-if="state.deleteBlocked" class="notice error" role="alert">
+      {{ state.deleteBlocked }}
+      <button type="button" class="link" @click="state.refsOpen = true">详情</button>
+    </p>
     <p v-if="state.error" class="notice error" role="alert">{{ state.error }}</p>
     <p v-if="state.notice" class="notice" role="status">{{ state.notice }}</p>
 

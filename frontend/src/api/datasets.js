@@ -125,6 +125,10 @@ export const wizardZipCommit = (snapshot, datasetId, token) =>
   request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard/zip`, { token },
     { authSession: snapshot.session, silent: true, timeout: 600000 })
 
+export const datasetReferences = (snapshot, datasetId) =>
+  request.get(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/references`,
+    { authSession: snapshot.session, silent: true })
+
 export const uploadFolder = (snapshot, files, paths) => {
   const form = new FormData()
   files.forEach((file, index) => {

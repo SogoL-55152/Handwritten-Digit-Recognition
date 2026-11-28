@@ -117,9 +117,11 @@ final class IdxReader {
                 labels.readFully(labelBytes);
 
                 if (images.readInt() != MAGIC_IMAGES) throw new IOException("images magic");
+                int imageCount = images.readInt();
                 int rows = images.readInt();
                 int cols = images.readInt();
-                for (int index = 0; index < count; index += 1) {
+                int limit = Math.min(count, imageCount);
+                for (int index = 0; index < limit; index += 1) {
                     byte[] pixels = new byte[rows * cols];
                     images.readFully(pixels);
                     int label = labelOf(labelBytes[index] & 0xFF, pair);

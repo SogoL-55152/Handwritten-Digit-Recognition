@@ -274,6 +274,22 @@ public class DatasetService {
                         rs.getString("created_at"), rs.getInt("multi_digit") == 1), args.toArray());
     }
 
+    /** 删除被拒绝时展示：列出引用过该数据集版本的训练任务。 */
+    public List<Map<String, Object>> references(long workspaceId, long userId, long datasetId) {
+        spaces.requireMember(workspaceId, userId);
+        Long exists = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_dataset WHERE id=? AND workspace_id=?",
+                Long.class, datasetId, workspaceId);
+        if (exists == null || exists == 0) throw new V2Exception(404, "数据集不存在", "DATASET_NOT_FOUND");
+        return jdbc.queryForList("""
+                SELECT t.id, t.status, t.epochs, t.samples, t.queued_at, t.finished_at, v.version
+                FROM t_v2_training_task t
+                JOIN t_v2_dataset_version v ON v.id = t.dataset_version_id
+                WHERE v.dataset_id = ?
+                ORDER BY t.id DESC
+                """, datasetId);
+    }
+
     /** 删除版本：有训练任务引用时拒绝；删完刷新数据集统计。 */
     @Transactional
     public void deleteVersion(long workspaceId, long userId, long datasetId, long versionId) {
