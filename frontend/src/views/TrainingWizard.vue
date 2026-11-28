@@ -718,7 +718,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
             <ol class="flow-list">
               <li>
                 <strong>准备数据</strong>
-                <p>数据集页 → 新建数据集 → 导入数据集（文件夹 / CSV / 文件名 / zip / 带框多位数 / IDX）。导入成功后会自动生成一个版本。</p>
+                <p>数据集页 → 新建数据集 → 导入数据集（文件夹 / CSV / 文件名 / zip / IDX）。导入成功后会自动生成一个版本。</p>
                 <p><router-link to="/datasets">去数据集页</router-link></p>
               </li>
               <li>

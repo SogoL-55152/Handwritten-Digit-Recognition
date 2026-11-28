@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, deleteDataset, deleteVersion, importBatches, importJob, importSamples, inspectDataset, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
+import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, deleteDataset, deleteVersion, importBatches, importJob, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows, splitSourceOptions } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 import { jobPercent, isTerminalJob, jobStatusText } from '@/datasets/job.js'
@@ -33,16 +33,16 @@ const folderInput = ref(null)
 /** 三种来源各自适配哪些数据集形态（弹窗里直接显示，避免选错入口）。 */
 const SOURCE_NOTES = {
   server: {
-    suits: ['按 0–9 分文件夹', 'CSV（name,label）', '文件名带标签', '带框多位数（digitStruct.mat）', 'IDX（MNIST / EMNIST）'],
-    limits: '数据在服务器磁盘上；不受 5MB/张、200 张/批限制，几万张也能导；IDX 与带框多位数只有这个入口支持。'
+    suits: ['按 0–9 分文件夹', 'CSV（name,label）', '文件名带标签', 'IDX（MNIST / EMNIST）'],
+    limits: '数据在服务器磁盘上；不受 5MB/张、200 张/批限制，几万张也能导；IDX 只有这个入口支持。'
   },
   zip: {
-    suits: ['按 0–9 分文件夹', 'CSV（name,label）', '文件名带标签', '带框多位数（digitStruct.mat）', 'IDX（MNIST / EMNIST）'],
+    suits: ['按 0–9 分文件夹', 'CSV（name,label）', '文件名带标签', 'IDX（MNIST / EMNIST）'],
     limits: '数据在别的机器上，需要打包上传；zip ≤500MB，解压后按目录结构自动识别；文件多时上传较慢。'
   },
   folder: {
     suits: ['按 0–9 分文件夹（只支持这一种）'],
-    limits: '浏览器直接读取本机文件夹；单张 ≤5MB、单批 20 张、一次最多 200 张；不支持 CSV / 文件名标签 / 带框多位数 / IDX。'
+    limits: '浏览器直接读取本机文件夹；单张 ≤5MB、单批 20 张、一次最多 200 张；不支持 CSV / 文件名标签 / IDX。'
   }
 }
 const selectedDataset = computed(() => state.datasets.find((item) => item.id === state.selectedId) || null)
@@ -235,21 +235,6 @@ async function uploadPickedFolder() {
   }
 }
 
-async function inspectSamples() {
-  if (!state.selectedId) return
-  state.busy = true
-  state.error = ''
-  try {
-    const result = await inspectDataset(snapshot(), state.selectedId, 50)
-    state.notice = `巡检完成：本轮检查 ${result.checked} 张，发现多位数 ${result.multi} 张；剩余未巡检 ${result.remaining} 张`
-    await loadVersionData()
-  } catch (error) {
-    state.error = error?.message || '巡检失败'
-  } finally {
-    state.busy = false
-  }
-}
-
 /** 导入成功后自动生成一个版本；失败不影响导入结果，只提示。 */
 async function autoBuildVersion() {
   if (!state.selectedId) return
@@ -396,11 +381,9 @@ function detectLocal(files) {
   const names = files.map((file) => (file.webkitRelativePath || file.name).replace(/\\/g, '/'))
   const hasDirs = names.some((name) => /(^|\/)[0-9]\/[^/]+$/.test(name))
   const hasCsv = names.some((name) => /\.csv$/i.test(name))
-  const hasMat = names.some((name) => /digitstruct\.mat$/i.test(name))
   const hasIdx = names.some((name) => /-images-idx3-ubyte(\.gz)?$/i.test(name))
     && names.some((name) => /-labels-idx1-ubyte(\.gz)?$/i.test(name))
   if (hasDirs) return '按 0–9 分文件夹'
-  if (hasMat) return '带框多位数（digitStruct.mat）'
   if (hasIdx) return 'IDX（MNIST / EMNIST）'
   if (hasCsv) return 'CSV 标签'
   if (names.some((name) => /(^|[^0-9])[0-9]([^0-9]|$)/.test(name.split('/').pop()))) return '文件名带标签'
@@ -664,7 +647,7 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
         <header class="modal-head">
           <div>
             <h3>导入数据集</h3>
-            <p class="muted">直接选文件夹即可：自动识别 0–9 子目录 / CSV / 文件名 / 带框多位数 / IDX</p>
+            <p class="muted">直接选文件夹即可：自动识别 0–9 子目录 / CSV / 文件名 / IDX</p>
           </div>
           <button class="link" @click="closeWizard">关闭</button>
         </header>
@@ -851,7 +834,6 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
             </div>
             <div class="row-actions dataset-actions">
               <span class="tag">{{ state.versions.length }} 个版本</span>
-              <button :disabled="state.busy" title="跑一次多位数检测，把疑似多数字的样本标出来" @click="inspectSamples">巡检多位数</button>
               <button v-if="user.isSuperAdmin" :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
               <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
             </div>
@@ -965,7 +947,6 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
                   <img v-if="imageUrls[item.id]" :src="imageUrls[item.id]" :alt="'样本 ' + item.label" />
                   <span v-else class="sample-placeholder">无图</span>
                   <span class="split-badge" :class="splitClass(item.split)">{{ item.split }}</span>
-                  <span v-if="item.multiDigit" class="multi-badge" title="巡检怀疑这张图里有多个数字，建议删除">多位数?</span>
                   <button class="sample-delete" type="button" :disabled="state.busy"
                           title="从版本中删除该样本" @click.stop="removeSample(item)">×</button>
                 </div>
@@ -1008,7 +989,6 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
               <li><strong>新建数据集</strong><p>点右上角「新建数据集」，起一个名字；导入的样本会归属到它。</p></li>
               <li><strong>导入样本</strong><p>选中数据集后点「导入数据集」，选择来源与格式，先「试运行」看统计，再确认导入。</p></li>
               <li><strong>自动建版本</strong><p>导入成功后会自动生成一个版本（快照）；也可以手动调整划分比例再建。</p></li>
-              <li><strong>巡检多位数</strong><p>点「巡检多位数」把疑似多数字的样本标出来，在样本网格里删除。</p></li>
               <li><strong>去训练</strong><p>到「训练模型」页选择这个版本，设置参数后开始训练。</p></li>
             </ol>
           </article>
@@ -1018,7 +998,6 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
             <div class="help-row"><div class="help-row-head"><strong>按 0–9 分文件夹</strong></div><p>目录下每个子目录名是 0–9，图片放里面。</p></div>
             <div class="help-row"><div class="help-row-head"><strong>CSV 标签</strong></div><p>平铺图片 + <code>labels.csv</code>，两列为文件名与标签（0–9）。</p></div>
             <div class="help-row"><div class="help-row-head"><strong>文件名带标签</strong></div><p>取文件名里第一个孤立数字，如 <code>3_001.png</code>；<code>IMG_0001</code> 这类会被跳过。</p></div>
-            <div class="help-row"><div class="help-row-head"><strong>带框多位数</strong></div><p>SVHN 风格的 <code>digitStruct.mat</code>，按框自动裁成单字。</p></div>
             <div class="help-row"><div class="help-row-head"><strong>IDX（MNIST / EMNIST）</strong></div><p>目录里有 <code>*-images-idx3-ubyte</code> 与 <code>*-labels-idx1-ubyte</code>（.gz 也支持）。</p></div>
             <div class="help-row"><div class="help-row-head"><strong>本机文件夹</strong></div><p>浏览器上传，只支持 0–9 子目录；单张 ≤5MB、单批 20 张、单次 ≤200 张。</p></div>
           </article>
