@@ -35,7 +35,7 @@ export function createTrainingEvents({
       const ticket = issued && issued.ticket
       if (!ticket) throw new Error('未取得订阅票据')
       if (closed) return
-      source = new EventSourceImpl(`/api/v2/admin/training/events?ticket=${encodeURIComponent(ticket)}`)
+      source = new EventSourceImpl(`/api/v2/admin/training/tasks/events?ticket=${encodeURIComponent(ticket)}`)
       source.addEventListener('ready', () => onStatus('live'))
       source.addEventListener('task', (event) => {
         try {
