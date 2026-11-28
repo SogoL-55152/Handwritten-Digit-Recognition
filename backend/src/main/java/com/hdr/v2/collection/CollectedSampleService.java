@@ -41,6 +41,21 @@ public class CollectedSampleService {
     }
 
     /**
+     * 孤儿文件不直接删除，先移到采集目录下的 .trash/，避免误删（例如同一数据目录被多个数据库轮流使用）。
+     */
+    private boolean isInTrash(Path file) {
+        return file.normalize().startsWith(root.resolve(".trash"));
+    }
+
+    private long quarantine(Path file) throws IOException {
+        Path relative = root.relativize(file);
+        Path target = root.resolve(".trash").resolve(relative);
+        Files.createDirectories(target.getParent());
+        Files.move(file, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        return Files.size(target);
+    }
+
+    /**
      * 自动清理孤儿文件：服务启动 1 分钟后跑一次，之后按 hdr.collected.sweep-ms（默认 6 小时）重复。
      * 只处理 30 分钟前的文件，避免删掉「刚写完、记录尚未提交」的图片。
      */
@@ -53,6 +68,7 @@ public class CollectedSampleService {
         long cutoff = System.currentTimeMillis() - java.time.Duration.ofMinutes(30).toMillis();
         try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
             for (Path file : stream.filter(Files::isRegularFile).toList()) {
+                if (isInTrash(file)) continue;
                 try {
                     if (Files.getLastModifiedTime(file).toMillis() > cutoff) continue;
                 } catch (IOException ignored) {
@@ -63,8 +79,9 @@ public class CollectedSampleService {
                         "SELECT COUNT(*) FROM t_collected_sample WHERE artifact_path=?", Long.class, relative);
                 if (refs != null && refs > 0) continue;
                 try {
-                    freed += Files.size(file);
-                    Files.deleteIfExists(file);
+                    long size = quarantine(file);
+                    if (size < 0) continue;
+                    freed += size;
                     deleted += 1;
                 } catch (IOException error) {
                     LOG.warn("自动清理孤儿文件失败 ({})", error.getClass().getSimpleName());
@@ -84,13 +101,15 @@ public class CollectedSampleService {
         long freed = 0;
         try (java.util.stream.Stream<Path> stream = Files.walk(root)) {
             for (Path file : stream.filter(Files::isRegularFile).toList()) {
+                if (isInTrash(file)) continue;
                 String relative = root.relativize(file).toString().replace('\\', '/');
                 Long refs = jdbc.queryForObject(
                         "SELECT COUNT(*) FROM t_collected_sample WHERE artifact_path=?", Long.class, relative);
                 if (refs != null && refs > 0) continue;
                 try {
-                    freed += Files.size(file);
-                    Files.deleteIfExists(file);
+                    long size = quarantine(file);
+                    if (size < 0) continue;
+                    freed += size;
                     deleted += 1;
                 } catch (IOException error) {
                     LOG.warn("删除孤儿文件失败 ({})", error.getClass().getSimpleName());

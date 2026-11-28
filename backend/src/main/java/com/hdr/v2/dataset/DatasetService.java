@@ -3,11 +3,15 @@ package com.hdr.v2.dataset;
 import com.hdr.v2.V2Exception;
 import com.hdr.v2.collection.CollectedSampleService;
 import com.hdr.v2.workspace.WorkspaceService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -40,11 +44,14 @@ public class DatasetService {
     private final JdbcTemplate jdbc;
     private final WorkspaceService spaces;
     private final CollectedSampleService collected;
+    private final Path trainingRoot;
 
-    public DatasetService(JdbcTemplate jdbc, WorkspaceService spaces, CollectedSampleService collected) {
+    public DatasetService(JdbcTemplate jdbc, WorkspaceService spaces, CollectedSampleService collected,
+                          @Value("${hdr.training.data-dir:training-data}") String trainingDir) {
         this.jdbc = jdbc;
         this.spaces = spaces;
         this.collected = collected;
+        this.trainingRoot = Path.of(trainingDir).toAbsolutePath().normalize();
     }
 
     /** 建数据集（工作空间级）。版本由后续 buildVersion 生成，建集时样本数为 0。 */
@@ -358,13 +365,34 @@ public class DatasetService {
     /** 读取样本原图（采集库相对路径），供前端缩略图。 */
     public byte[] image(long workspaceId, long versionId, long sampleId) {
         requireVersion(workspaceId, versionId);
-        List<String> paths = jdbc.query("""
-                SELECT c.artifact_path FROM t_v2_dataset_sample s
+        List<String[]> rows = jdbc.query("""
+                SELECT c.artifact_path, s.sample_id FROM t_v2_dataset_sample s
                 JOIN t_collected_sample c ON c.id = s.sample_id
                 WHERE s.version_id=? AND s.id=?
-                """, (rs, i) -> rs.getString(1), versionId, sampleId);
-        if (paths.isEmpty()) throw new V2Exception(404, "样本不存在");
-        return collected.readArtifact(paths.get(0));
+                """, (rs, i) -> new String[]{rs.getString(1), rs.getString(2)}, versionId, sampleId);
+        if (rows.isEmpty()) throw new V2Exception(404, "样本不存在");
+        try {
+            return collected.readArtifact(rows.get(0)[0]);
+        } catch (V2Exception missing) {
+            // 原图文件可能已被清理；训练导出目录里通常还留有同名副本（<label>_<sampleId>.png）
+            byte[] fallback = trainingCopy(versionId, rows.get(0)[1]);
+            if (fallback != null) return fallback;
+            throw missing;
+        }
+    }
+
+    private byte[] trainingCopy(long versionId, String collectedSampleId) {
+        if (collectedSampleId == null) return null;
+        Path dir = trainingRoot.resolve("v" + versionId);
+        if (!Files.isDirectory(dir)) return null;
+        String suffix = "_" + collectedSampleId + ".png";
+        try (var files = Files.list(dir)) {
+            Path hit = files.filter(path -> path.getFileName().toString().endsWith(suffix)).findFirst().orElse(null);
+            if (hit == null || !Files.isRegularFile(hit)) return null;
+            return Files.readAllBytes(hit);
+        } catch (IOException error) {
+            return null;
+        }
     }
 
     // ---------- 内部 ----------
