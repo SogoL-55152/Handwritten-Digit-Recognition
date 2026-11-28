@@ -34,6 +34,7 @@ param(
     [switch]$CheckOnly,
     [switch]$NoOpen,
     [switch]$InstallMissing,
+    [switch]$ClearRenderCache,
     [string]$EnvFile,
     [string]$Database = 'hdr_w2_it_live',
     [string]$MysqlRootPassword,
@@ -456,6 +457,18 @@ if (-not $SkipBuild -and -not (Test-Path (Join-Path $script:RepoRoot 'frontend\n
         Pop-Location
     }
     Write-Ok '前端依赖安装完成'
+}
+
+if ($ClearRenderCache) {
+    $cache = Join-Path $script:RepoRoot 'training-data\render-cache'
+    if (Test-Path -LiteralPath $cache) {
+        $files = Get-ChildItem -LiteralPath $cache -Filter '*.npz' -File -ErrorAction SilentlyContinue
+        $size = if ($files) { ($files | Measure-Object Length -Sum).Sum } else { 0 }
+        Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Ok ("已清理渲染缓存：{0} 个文件，{1} MB" -f $files.Count, [math]::Round($size / 1MB, 2))
+    } else {
+        Write-Ok '没有渲染缓存需要清理'
+    }
 }
 
 # ---------------------------------------------------------------- ⑥ 启动

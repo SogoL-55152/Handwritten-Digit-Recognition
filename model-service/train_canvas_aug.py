@@ -363,15 +363,72 @@ def _load_cached(path: Path):
         return None
     try:
         with np.load(path) as data:
-            return data["inputs"], int(data["skipped"][0])
+            result = data["inputs"], int(data["skipped"][0])
+        # 命中即刷新访问时间，供 LRU 清理判断“最近使用”
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass
+        return result
     except Exception:
         return None
+
+
+def _cache_files(root: Path):
+    if not root.is_dir():
+        return []
+    return [item for item in root.glob("*.npz") if item.is_file()]
+
+
+def _prune_render_cache(root: Path) -> None:
+    """缓存清理：总大小超过 HDR_RENDER_CACHE_MAX_MB（默认 1024）时按最久未用删除。
+
+    HDR_RENDER_CACHE_TTL_DAYS > 0 时再按时间兜底（默认关闭）。
+    只删缓存，不影响数据集、样本与已训练模型。
+    """
+    try:
+        files = _cache_files(root)
+        if not files:
+            return
+        ttl_days = float(os.environ.get("HDR_RENDER_CACHE_TTL_DAYS", "0") or 0)
+        now = time.time()
+        expired = []
+        if ttl_days > 0:
+            expired = [item for item in files if now - item.stat().st_mtime > ttl_days * 86400]
+        for item in expired:
+            try:
+                item.unlink()
+            except OSError:
+                pass
+        if expired:
+            files = [item for item in files if item.exists()]
+        max_mb = float(os.environ.get("HDR_RENDER_CACHE_MAX_MB", "1024") or 1024)
+        if max_mb <= 0 or not files:
+            return
+        sizes = {item: item.stat().st_size for item in files}
+        total = sum(sizes.values())
+        limit = max_mb * 1024 * 1024
+        if total <= limit:
+            return
+        target = limit * 0.8
+        for item in sorted(files, key=lambda entry: entry.stat().st_mtime):
+            if total <= target:
+                break
+            try:
+                size = sizes.get(item, item.stat().st_size)
+                item.unlink()
+                total -= size
+            except OSError:
+                pass
+    except Exception:
+        pass
 
 
 def _save_cached(path: Path, inputs: np.ndarray, skipped: int) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(path, inputs=inputs, skipped=np.array([skipped], dtype=np.int64))
+        _prune_render_cache(path.parent)
     except Exception:
         pass
 

@@ -314,6 +314,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
 | `-Port <n>` | 改前端端口 |
 | `-MysqlRootPassword <pwd>` | MySQL root 密码（建库/建用户时需要） |
 | `-InstallMissing` | 检测到缺依赖时调用 `install-deps.ps1` 自动安装 |
+| `-ClearRenderCache` | 启动前清空训练渲染缓存 |
 
 示例：
 
@@ -332,6 +333,16 @@ powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -SkipDeps -NoOpen
 | 空密码 root | 脚本设置随机密码并写回 `scripts/.env` |
 
 复用 `hdr_w2_it_live` 会保留原有模型、数据集与训练任务；全新机器自动建空库，Flyway 启动时迁移到最新版本（自带一个基线模型）。
+
+### 训练渲染缓存
+
+训练前会把渲染好的样本缓存到 `training-data/render-cache/`，重复训练可跳过渲染（10000 样本约省 30 秒）。
+
+| 项 | 说明 |
+|---|---|
+| 上限 | `HDR_RENDER_CACHE_MAX_MB`（默认 1024）；超过按最久未用删除到 80% |
+| 时间兜底 | `HDR_RENDER_CACHE_TTL_DAYS`（默认 0，不按时间删） |
+| 手动清空 | `deploy.bat -ClearRenderCache` 或 `scripts\clear-render-cache.ps1` |
 
 ### 常见问题
 
