@@ -125,6 +125,10 @@ export const wizardZipCommit = (snapshot, datasetId, token) =>
   request.post(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/import-wizard/zip`, { token },
     { authSession: snapshot.session, silent: true, timeout: 600000 })
 
+export const updateDataset = (snapshot, datasetId, payload) =>
+  request.patch(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}`, payload,
+    { authSession: snapshot.session })
+
 export const datasetReferences = (snapshot, datasetId) =>
   request.get(`${base(snapshot)}/datasets/${encodeURIComponent(datasetId)}/references`,
     { authSession: snapshot.session, silent: true })

@@ -170,6 +170,34 @@ public class DatasetService {
                 """, datasetId, workspaceId);
     }
 
+    /** 改名/改描述：只允许工作空间数据集，名称在空间内保持唯一。 */
+    @Transactional
+    public Map<String, Object> updateDataset(long workspaceId, long userId, long datasetId,
+                                             String name, String description) {
+        spaces.requireMember(workspaceId, userId);
+        requireDataset(workspaceId, datasetId);
+        List<String> scopes = jdbc.query("SELECT scope FROM t_v2_dataset WHERE id=?",
+                (rs, i) -> rs.getString(1), datasetId);
+        if (!scopes.isEmpty() && "PUBLIC".equals(scopes.get(0)))
+            throw new V2Exception(409, "公共数据集不能修改", "DATASET_PUBLIC");
+        if (name == null || name.isBlank() || name.length() > 64)
+            throw new V2Exception(400, "数据集名称必须为 1–64 个字符", "VALIDATION");
+        String text = description == null ? "" : description.trim();
+        if (text.length() > 255) throw new V2Exception(400, "描述最多 255 个字符", "VALIDATION");
+        Integer duplicated = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_v2_dataset WHERE workspace_id=? AND name=? AND status='ACTIVE' AND id<>?",
+                Integer.class, workspaceId, name.trim(), datasetId);
+        if (duplicated != null && duplicated > 0)
+            throw new V2Exception(409, "同名数据集已存在", "DATASET_EXISTS");
+        jdbc.update("UPDATE t_v2_dataset SET name=?, description=? WHERE id=?",
+                name.trim(), text, datasetId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", Long.toString(datasetId));
+        body.put("name", name.trim());
+        body.put("description", text);
+        return body;
+    }
+
     /**
      * 删除数据集：连同版本与版本内样本归属一起删。
      * 采集池里的图片不删（它们可能被别的数据集版本引用），只解除这个数据集的归属。

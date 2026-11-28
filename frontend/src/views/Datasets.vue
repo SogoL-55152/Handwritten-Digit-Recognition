@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user.js'
 import { useWorkspaceStore } from '@/stores/workspace.js'
-import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, datasetReferences, deleteDataset, deleteVersion, importBatches, importJob, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
+import { allVersions, buildVersion, cancelImportJob, claimSamples, createDataset, createImportJob, datasetReferences, deleteDataset, deleteVersion, importBatches, importJob, importSamples, listDatasets, listVersions, removeVersionSample, rollbackBatch, sampleImage, updateDataset, uploadFolder, versionSamples, versionStats, wizardPreview, wizardZipPreview } from '@/api/datasets.js'
 import { buildPayload, labelRows, nextVersion, splitHints, splitRows, splitSourceOptions } from '@/datasets/format.js'
 import { batchOf, groupByFolder, importSummary, progressText } from '@/datasets/import.js'
 import { jobPercent, isTerminalJob, jobStatusText } from '@/datasets/job.js'
@@ -17,6 +17,7 @@ const state = reactive({
   stats: null, samples: [], total: 0, page: 1, size: 12, split: '', label: '',
   creating: false, createForm: { name: '', description: '' },
   deleteBlocked: '', refsOpen: false, refsLoading: false, refs: [],
+  editing: false, editForm: { name: '', description: '' },
   folder: { busy: false, progress: '', result: null },
   wizard: { open: false, busy: false, directory: '', preview: null, result: null, batches: [], zipFile: null, progress: 0, csvMapping: { fileColumn: '', labelColumn: '' }, job: null },
   importSource: 'folder', localPreview: null, picked: null, upload: { busy: false, error: '', token: '', preview: null, detection: '' },
@@ -282,6 +283,35 @@ async function claimRecognition() {
     await loadDatasets()
   } catch (error) {
     state.error = error?.message || '归入失败'
+  } finally {
+    state.busy = false
+  }
+}
+
+function openEdit() {
+  const dataset = selectedDataset.value
+  if (!dataset) return
+  state.editForm = { name: dataset.name || '', description: dataset.description || '' }
+  state.editing = true
+  state.error = ''
+}
+
+async function saveEdit() {
+  const dataset = selectedDataset.value
+  if (!dataset || state.busy) return
+  state.busy = true
+  state.error = ''
+  try {
+    const updated = await updateDataset(snapshot(), dataset.id, {
+      name: String(state.editForm.name || '').trim(),
+      description: String(state.editForm.description || '').trim()
+    })
+    state.notice = `已保存「${updated.name}」`
+    state.editing = false
+    await loadDatasets()
+    await selectDataset(dataset.id)
+  } catch (error) {
+    state.error = error?.message || '保存失败'
   } finally {
     state.busy = false
   }
@@ -661,6 +691,26 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
       </div>
     </section>
 
+    <div v-if="state.editing" class="modal-mask" @click.self="state.editing = false">
+      <section class="modal-card">
+        <header class="modal-head">
+          <div><h3>编辑数据集</h3><p class="muted">名称在空间内唯一，最多 64 字符；描述最多 255 字符。</p></div>
+          <button class="link" @click="state.editing = false">关闭</button>
+        </header>
+        <p v-if="state.error" class="notice error">{{ state.error }}</p>
+        <label class="field">名称
+          <input v-model="state.editForm.name" maxlength="64" placeholder="数据集名称" />
+        </label>
+        <label class="field">描述
+          <input v-model="state.editForm.description" maxlength="255" placeholder="可选" />
+        </label>
+        <div class="row-actions">
+          <button class="primary" :disabled="state.busy" @click="saveEdit">{{ state.busy ? '保存中…' : '保存' }}</button>
+          <button :disabled="state.busy" @click="state.editing = false">取消</button>
+        </div>
+      </section>
+    </div>
+
     <div v-if="state.refsOpen" class="modal-mask" @click.self="state.refsOpen = false">
       <section class="modal-card">
         <header class="modal-head">
@@ -879,6 +929,7 @@ onBeforeUnmount(() => { releaseImages(); stopJobPolling() })
             </div>
             <div class="row-actions dataset-actions">
               <span class="tag">{{ state.versions.length }} 个版本</span>
+              <button :disabled="state.busy" title="修改数据集名称与描述" @click="openEdit">编辑</button>
               <button v-if="user.isSuperAdmin" :disabled="state.busy" title="把识别页采集、尚无归属的样本归入本数据集" @click="claimRecognition">归入识别采集</button>
               <button class="danger" :disabled="state.busy" @click="removeDataset">删除数据集</button>
             </div>

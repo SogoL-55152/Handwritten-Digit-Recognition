@@ -57,6 +57,15 @@ public class DatasetController {
         return Result.ok(datasets.createDataset(workspaceId, user, command.name(), command.description()));
     }
 
+    @PatchMapping("/datasets/{datasetId}")
+    public Result<Map<String, Object>> updateDataset(@PathVariable long workspaceId, @PathVariable long datasetId,
+                                                    @RequestBody(required = false) UpdateCommand command,
+                                                    HttpServletRequest request) {
+        long user = authorize(workspaceId, request);
+        if (command == null) throw new V2Exception(400, "缺少修改内容", "VALIDATION");
+        return Result.ok(datasets.updateDataset(workspaceId, user, datasetId, command.name(), command.description()));
+    }
+
     @PostMapping("/datasets/{datasetId}/versions")
     public Result<DatasetService.Version> build(@PathVariable long workspaceId, @PathVariable long datasetId,
                                                 @RequestBody(required = false) DatasetService.BuildCommand command,
@@ -115,6 +124,8 @@ public class DatasetController {
         if (command == null) throw new V2Exception(400, "缺少目录路径", "VALIDATION");
         return Result.ok(wizard.preview(workspaceId, user, command.directory(), command.mapping()));
     }
+
+    public record UpdateCommand(String name, String description) {}
 
     public record WizardToken(String token) {}
 
