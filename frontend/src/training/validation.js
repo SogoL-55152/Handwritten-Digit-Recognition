@@ -3,7 +3,7 @@
  * 边界必须与服务端一致：服务端是最终裁决者，这里只做首屏即时反馈。
  */
 export const TRAINING_LIMITS = {
-  epochs: [1, 5],
+  epochs: [1, 100],
   samples: [1000, 60000],
   batchSizes: [32, 64, 128],
   learningRate: [0, 0.1],
@@ -17,7 +17,7 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value)
 
 export function validateTraining(form) {
   const errors = {}
-  if (!isInt(form.epochs) || form.epochs < 1 || form.epochs > 5) errors.epochs = 'epoch 必须为 1–5 的整数'
+  if (!isInt(form.epochs) || form.epochs < 1 || form.epochs > 100) errors.epochs = 'epoch 必须为 1–100 的整数'
   if (!isInt(form.samples) || form.samples < 1000 || form.samples > 60000) errors.samples = '样本数必须为 1000–60000 的整数'
   if (!TRAINING_LIMITS.batchSizes.includes(form.batchSize) || typeof form.batchSize !== 'number')
     errors.batchSize = 'batchSize 仅允许 32 / 64 / 128'

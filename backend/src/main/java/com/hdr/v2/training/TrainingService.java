@@ -276,7 +276,7 @@ public class TrainingService {
         int epochs = require(request.epochs(), "epochs");
         int samples = require(request.samples(), "samples");
         int batch = require(request.batchSize(), "batchSize");
-        if (epochs < 1 || epochs > 5) throw new V2Exception(400, "epochs 必须在 1..5", "VALIDATION");
+        if (epochs < 1 || epochs > 100) throw new V2Exception(400, "epochs 必须在 1..100", "VALIDATION");
         if (samples < 1000 || samples > 60000) throw new V2Exception(400, "samples 必须在 1000..60000", "VALIDATION");
         if (batch != 32 && batch != 64 && batch != 128) throw new V2Exception(400, "batchSize 必须是 32/64/128", "VALIDATION");
         if (request.learningRate() == null || !(request.learningRate() > 0) || request.learningRate() > 0.1

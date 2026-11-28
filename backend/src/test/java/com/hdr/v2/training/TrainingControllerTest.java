@@ -81,7 +81,7 @@ class TrainingControllerTest {
     @Test
     void validationAndQueueFailuresKeepTheirContract() throws Exception {
         authenticate("SUPER_ADMIN");
-        doThrow(new V2Exception(400, "epochs 必须在 1..5", "VALIDATION")).when(service)
+        doThrow(new V2Exception(400, "epochs 必须在 1..100", "VALIDATION")).when(service)
                 .create(anyLong(), anyLong(), any());
         mvc.perform(post(PATH + "?datasetId=1").header("Authorization", "Bearer valid")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"epochs\":9}"))

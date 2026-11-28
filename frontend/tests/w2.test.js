@@ -462,7 +462,7 @@ test('training form enforces server-side limits and never accepts non-finite num
   const valid = { epochs: 3, samples: 6000, batchSize: 64, learningRate: 0.001, seed: 42, photoRatio: 0.5, useEmnist: false }
   assert.deepEqual(validateTraining(valid), {})
   for (const [key, values] of Object.entries({
-    epochs: [0, 6, 1.5, '3'], samples: [999, 60001, 1.5, '1000'], batchSize: [0, 16, '64'],
+    epochs: [0, 101, 1.5, '3'], samples: [999, 60001, 1.5, '1000'], batchSize: [0, 16, '64'],
     learningRate: [0, -1, 0.11, NaN, Infinity, ''], seed: [-1, 4294967296, 1.5, NaN],
     photoRatio: [-0.1, 1.1, NaN], useEmnist: ['yes', 0]
   })) {
