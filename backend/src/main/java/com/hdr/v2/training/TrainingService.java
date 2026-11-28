@@ -335,6 +335,21 @@ public class TrainingService {
                 "SELECT COUNT(*) FROM t_v2_model WHERE scope='PUBLIC' AND version=?", Long.class, version);
         if (found == null || found == 0)
             throw new V2Exception(400, "initFrom 必须是已登记的模型版本", "MODEL_NOT_FOUND");
+        // 预处理流水线升级后，旧模型的权重与当前输入归一化不兼容：提交时就拒绝，别等 worker 失败
+        java.util.List<String> initPre = jdbc.query(
+                "SELECT preprocess_version FROM t_v2_model WHERE scope='PUBLIC' AND version=?",
+                (rs, i) -> rs.getString(1), version);
+        // 当前流水线版本以“最新登记的模型”为准：老模型即使还 ACTIVE，也可能是旧预处理
+        java.util.List<String> activePre = jdbc.query(
+                "SELECT preprocess_version FROM t_v2_model WHERE scope='PUBLIC' ORDER BY id DESC LIMIT 1",
+                (rs, i) -> rs.getString(1));
+        if (!initPre.isEmpty() && !activePre.isEmpty()
+                && initPre.get(0) != null && activePre.get(0) != null
+                && !initPre.get(0).equals(activePre.get(0)))
+            throw new V2Exception(400,
+                    "该模型的预处理版本（" + initPre.get(0) + "）与当前流水线（" + activePre.get(0)
+                            + "）不兼容，请选择较新的模型或从零训练",
+                    "MODEL_PREPROCESS_MISMATCH");
         return version;
     }
 

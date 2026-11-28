@@ -100,6 +100,15 @@ const timingText = computed(() => {
   const epochSeconds = (steps * bench.value.stepMs) / 1000
   return `按历史 ${bench.value.count} 个 epoch 校准约 ${formatDuration(epochSeconds)}/轮`
 })
+const currentPreprocess = computed(() => {
+  const newest = [...state.models].sort((a, b) => Number(b.id) - Number(a.id))[0]
+  return newest?.preprocessVersion || null
+})
+const compatibleModels = computed(() => {
+  const current = currentPreprocess.value
+  if (!current) return state.models
+  return state.models.filter((model) => !model.preprocessVersion || model.preprocessVersion === current)
+})
 const overfit = computed(() => overfitSignal(selectedTask.value?.metrics?.history))
 const lrPoints = computed(() => lrPreview(config.scheduler, Number(config.learningRate), Number(config.epochs)))
 const blocking = computed(() => checks.value.some((item) => item.level === 'error'))
@@ -557,7 +566,7 @@ onBeforeUnmount(() => { events.close(); stopLive(); releaseImages() })
                 </template>
                 <template v-else-if="item.options?.from === 'models'">
                   <option :value="null">从零训练</option>
-                  <option v-for="model in state.models" :key="model.version" :value="model.version">
+                  <option v-for="model in compatibleModels" :key="model.version" :value="model.version">
                     {{ model.version }}{{ model.status === 'ACTIVE' ? '（生效中）' : '' }}
                   </option>
                 </template>
